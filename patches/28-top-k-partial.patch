@@ -1,10 +1,10 @@
 diff --git a/ggml/src/ggml-cuda/top-k.cu b/ggml/src/ggml-cuda/top-k.cu
-index 3ffbba839..f6ecb3069 100644
+index b0f609990..b32163c20 100644
 --- a/ggml/src/ggml-cuda/top-k.cu
 +++ b/ggml/src/ggml-cuda/top-k.cu
-@@ -214,6 +214,241 @@ static void top_k_radix_cuda(
- 
- #endif // !defined(GGML_CUDA_USE_CUB) && defined(GGML_USE_HIP)
+@@ -278,6 +278,242 @@ static void top_k_argsort_cuda(
+     }
+ }
  
 +#if !defined(GGML_USE_HIP)
 +
@@ -241,14 +241,14 @@ index 3ffbba839..f6ecb3069 100644
 +
 +#endif // !defined(GGML_USE_HIP)
 +
++
  void ggml_cuda_op_top_k(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
      const ggml_tensor * src0   = dst->src[0];
      const float *       src0_d = (const float *) src0->data;
-@@ -229,6 +464,19 @@ void ggml_cuda_op_top_k(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
-     const int64_t    nrows = ggml_nrows(src0);
+@@ -294,6 +530,19 @@ void ggml_cuda_op_top_k(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
      const int64_t    k     = dst->ne[0];
      ggml_cuda_pool & pool  = ctx.pool();
-+
+ 
 +#if !defined(GGML_USE_HIP) && !defined(CUB_TOP_K_AVAILABLE)
 +    // Without cub::DeviceTopK, CUDA builds otherwise fall through to "full sort, take the
 +    // first k" below.  This guard runs before that, so the 172 us -> low tens of us
@@ -261,6 +261,7 @@ index 3ffbba839..f6ecb3069 100644
 +        return;
 +    }
 +#endif  // !defined(GGML_USE_HIP) && !defined(CUB_TOP_K_AVAILABLE)
++
+     const int device = ggml_cuda_get_device();
+ 
  #ifdef CUB_TOP_K_AVAILABLE
-     // TODO: Switch to `DeviceSegmentedTopK` for multi-row TopK once implemented
-     // https://github.com/NVIDIA/cccl/issues/6391

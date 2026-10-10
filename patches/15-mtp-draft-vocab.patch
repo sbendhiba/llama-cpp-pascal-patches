@@ -1,5 +1,5 @@
 diff --git a/src/llama-model.cpp b/src/llama-model.cpp
-index 97e0cee70..d119811a6 100644
+index b3a0cf5d5..e2cf1974d 100644
 --- a/src/llama-model.cpp
 +++ b/src/llama-model.cpp
 @@ -31,6 +31,7 @@
@@ -10,7 +10,7 @@ index 97e0cee70..d119811a6 100644
  #include <functional>
  #include <map>
  #include <numeric>
-@@ -1959,9 +1960,171 @@ bool llama_model_base::load_tensors(llama_model_loader & ml) {
+@@ -1985,9 +1986,171 @@ bool llama_model_base::load_tensors(llama_model_loader & ml) {
          }
      }
  
@@ -183,10 +183,10 @@ index 97e0cee70..d119811a6 100644
      const buft_list_t * buft_list_layer = nullptr;
      if (tn.bid != -1) {
 diff --git a/src/llama-model.h b/src/llama-model.h
-index 2243377cc..dc767faf9 100644
+index 82124471f..62fbfe8a2 100644
 --- a/src/llama-model.h
 +++ b/src/llama-model.h
-@@ -666,6 +666,15 @@ struct llama_model {
+@@ -670,6 +670,15 @@ struct llama_model {
      struct ggml_tensor * output_s    = nullptr;
      struct ggml_tensor * output_in_s = nullptr;
  
@@ -202,7 +202,7 @@ index 2243377cc..dc767faf9 100644
      // NextN/MTP model-level projections
      struct ggml_tensor * nextn_proj_pre  = nullptr;
      struct ggml_tensor * nextn_proj_post = nullptr;
-@@ -797,6 +806,10 @@ struct llama_model {
+@@ -801,6 +810,10 @@ struct llama_model {
      virtual void load_vocab  (llama_model_loader & ml) = 0;
      virtual bool load_tensors(llama_model_loader & ml) = 0; // returns false if cancelled by progress_callback
  
@@ -214,7 +214,7 @@ index 2243377cc..dc767faf9 100644
      virtual void load_arch_hparams(llama_model_loader & ml) = 0;
      virtual void load_arch_tensors(llama_model_loader & ml) = 0;
 diff --git a/src/models/qwen35.cpp b/src/models/qwen35.cpp
-index ab98744a5..c65906349 100644
+index 350cea808..1c7ab9bce 100644
 --- a/src/models/qwen35.cpp
 +++ b/src/models/qwen35.cpp
 @@ -651,7 +651,23 @@ llama_model_qwen35::graph_mtp::graph_mtp(const llama_model & model, const llm_gr
@@ -243,7 +243,7 @@ index ab98744a5..c65906349 100644
  
      res->t_logits = cur;
 diff --git a/src/models/qwen35moe.cpp b/src/models/qwen35moe.cpp
-index f0f917af7..552a087d0 100644
+index f9cc8a2c6..07aa9d12e 100644
 --- a/src/models/qwen35moe.cpp
 +++ b/src/models/qwen35moe.cpp
 @@ -734,7 +734,21 @@ llama_model_qwen35moe::graph_mtp::graph_mtp(const llama_model & model, const llm

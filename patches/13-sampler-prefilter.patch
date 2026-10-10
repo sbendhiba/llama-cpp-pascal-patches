@@ -1,5 +1,5 @@
 diff --git a/common/sampling.cpp b/common/sampling.cpp
-index d9c508049..54f77ec56 100644
+index 9e16693fb..34b7f29b2 100644
 --- a/common/sampling.cpp
 +++ b/common/sampling.cpp
 @@ -9,6 +9,7 @@
@@ -204,7 +204,7 @@ index d9c508049..54f77ec56 100644
              }
          }
  
-@@ -436,6 +595,8 @@ struct common_sampler * common_sampler_init(
+@@ -439,6 +598,8 @@ struct common_sampler * common_sampler_init(
          /* .prev    = */ ring_buffer<llama_token>(std::max(32, params.n_prev)),
          /* .cur     = */ {},
          /* .cur_p   = */ {},
@@ -213,7 +213,7 @@ index d9c508049..54f77ec56 100644
          // mix it, the chain and the draft are seeded from this one too
          /* .rng     = */ std::mt19937(llama_sampler_get_seed(chain) ^ 0x9e3779b9u),
      };
-@@ -521,6 +682,8 @@ struct common_sampler * common_sampler_clone(common_sampler * gsmpl) {
+@@ -524,6 +685,8 @@ struct common_sampler * common_sampler_clone(common_sampler * gsmpl) {
          /* .prev    = */ gsmpl->prev,
          /* .cur     = */ gsmpl->cur,
          /* .cur_p   = */ gsmpl->cur_p,
@@ -222,7 +222,7 @@ index d9c508049..54f77ec56 100644
          /* .rng     = */ gsmpl->rng,
      };
  }
-@@ -543,6 +706,10 @@ void common_sampler_copy(const common_sampler * src, common_sampler * dst) {
+@@ -546,6 +709,10 @@ void common_sampler_copy(const common_sampler * src, common_sampler * dst) {
      dst->cur_p      = src->cur_p;
      dst->cur_p.data = src->cur_p.data ? dst->cur.data() : nullptr; // re-point to dst's buffer
      dst->rng        = src->rng;
@@ -233,7 +233,7 @@ index d9c508049..54f77ec56 100644
      dst->t_total_us = src->t_total_us;
  }
  
-@@ -612,7 +779,13 @@ llama_token common_sampler_sample(struct common_sampler * gsmpl, struct llama_co
+@@ -615,7 +782,13 @@ llama_token common_sampler_sample(struct common_sampler * gsmpl, struct llama_co
      auto & chain = gsmpl->chain;
      auto & cur_p = gsmpl->cur_p; // initialized by set_logits
  

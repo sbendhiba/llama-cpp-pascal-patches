@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/gated_delta_net.cu b/ggml/src/ggml-cuda/gated_delta_net.cu
-index 1b431a724..db34813af 100644
+index b58257067..25157b66d 100644
 --- a/ggml/src/ggml-cuda/gated_delta_net.cu
 +++ b/ggml/src/ggml-cuda/gated_delta_net.cu
-@@ -27,7 +27,9 @@ gated_delta_net_cuda(const float * q,
+@@ -29,7 +29,9 @@ gated_delta_net_cuda(const float * q,
                                       const uint3   rq3_magic,
                                       float         scale,
                                       int64_t       state_slot_stride,
@@ -12,8 +12,8 @@ index 1b431a724..db34813af 100644
 +                                     float *       beta_sig) {
      const uint32_t h_idx    = blockIdx.x;
      const uint32_t sequence = blockIdx.y;
-     // each warp owns one column, using warp-level primitives to reduce across rows
-@@ -69,7 +71,18 @@ gated_delta_net_cuda(const float * q,
+ 
+@@ -78,7 +80,18 @@ gated_delta_net_cuda(const float * q,
          const float * beta_t = beta + gb_offset;
          const float * g_t    = g    + gb_offset * (KDA ? S_v : 1);
  
@@ -33,7 +33,7 @@ index 1b431a724..db34813af 100644
  
          // Cache k and q in registers
          float k_reg[rows_per_lane];
-@@ -176,7 +189,8 @@ static void launch_gated_delta_net(
+@@ -185,7 +198,8 @@ static void launch_gated_delta_net(
          int64_t sv1,   int64_t sv2, int64_t sv3,
          int64_t sb1,   int64_t sb2, int64_t sb3,
          int64_t neqk1, int64_t rq3,
@@ -42,8 +42,8 @@ index 1b431a724..db34813af 100644
 +        const float * beta_pre_d, float * beta_sig_d, cudaStream_t stream) {
      //TODO: Add chunked kernel for even faster pre-fill
      const int warp_size = ggml_cuda_info().devices[ggml_cuda_get_device()].warp_size;
-     const int num_warps = 4;
-@@ -192,26 +206,30 @@ static void launch_gated_delta_net(
+     // four columns per warp (see the kernel); shrink the CTA when the wider CTA would leave
+@@ -209,26 +223,30 @@ static void launch_gated_delta_net(
              ggml_cuda_kernel_launch(gated_delta_net_cuda<16, KDA, keep_rs_t>, launch_params,
                  q_d, k_d, v_d, g_d, b_d, s_d, dst_d, state_d, H,
                  n_tokens, n_seqs, sq1, sq2, sq3, sv1, sv2, sv3,
@@ -78,7 +78,7 @@ index 1b431a724..db34813af 100644
              break;
          }
          default:
-@@ -221,7 +239,8 @@ static void launch_gated_delta_net(
+@@ -238,7 +256,8 @@ static void launch_gated_delta_net(
  }
  
  static void ggml_cuda_op_gated_delta_net_impl(
@@ -88,7 +88,7 @@ index 1b431a724..db34813af 100644
      ggml_tensor * src_q     = dst->src[0];
      ggml_tensor * src_k     = dst->src[1];
      ggml_tensor * src_v     = dst->src[2];
-@@ -280,6 +299,20 @@ static void ggml_cuda_op_gated_delta_net_impl(
+@@ -297,6 +316,20 @@ static void ggml_cuda_op_gated_delta_net_impl(
  
      const float scale = 1.0f / sqrtf((float) S_v);
  
@@ -109,7 +109,7 @@ index 1b431a724..db34813af 100644
      cudaStream_t stream = ctx.stream();
  
      // K (snapshot slot count) is an op param; state holds s0 only [S_v, S_v, H, n_seqs].
-@@ -298,21 +331,25 @@ static void ggml_cuda_op_gated_delta_net_impl(
+@@ -315,21 +348,25 @@ static void ggml_cuda_op_gated_delta_net_impl(
          if (keep_rs) {
              launch_gated_delta_net<true, true>(q_d, k_d, v_d, g_d, b_d, s_d, dst_d, state_d,
                  S_v, H, n_tokens, n_seqs, sq1, sq2, sq3, sv1, sv2, sv3,
@@ -139,7 +139,7 @@ index 1b431a724..db34813af 100644
          }
      }
  }
-@@ -325,3 +362,9 @@ void ggml_cuda_op_gated_delta_net_fused_cache(
+@@ -342,3 +379,9 @@ void ggml_cuda_op_gated_delta_net_fused_cache(
          ggml_backend_cuda_context & ctx, ggml_tensor * dst, ggml_cuda_gated_delta_net_fused_cache cache) {
      ggml_cuda_op_gated_delta_net_impl(ctx, dst, &cache);
  }
@@ -168,10 +168,10 @@ index f9bf43706..00d936213 100644
  void ggml_cuda_op_gated_delta_net_fused_cache(ggml_backend_cuda_context & ctx, ggml_tensor * dst,
                                                ggml_cuda_gated_delta_net_fused_cache cache);
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 727ef8ac7..57eb789e7 100644
+index b8af1afeb..a35f098da 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -3733,6 +3733,37 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -3833,6 +3833,37 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
          }
      }
  

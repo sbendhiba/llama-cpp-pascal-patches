@@ -22,7 +22,7 @@ index 9beb14841..f4e7a7ec1 100644
      ms.add_kv_from_model();
      ms.add_tensors_from_model();
 diff --git a/src/models/models.h b/src/models/models.h
-index 387a4adcb..1849688f7 100644
+index d6ddf9d16..a76da93d4 100644
 --- a/src/models/models.h
 +++ b/src/models/models.h
 @@ -7,6 +7,8 @@
@@ -34,7 +34,7 @@ index 387a4adcb..1849688f7 100644
  
  class llama_memory_hybrid_idx_context;
  
-@@ -2489,6 +2491,13 @@ struct llama_model_qwen4exp : public llama_model_base {
+@@ -2517,6 +2519,13 @@ struct llama_model_qwen4exp : public llama_model_base {
  
      class llm_graph_input_kpool;
  
@@ -48,7 +48,7 @@ index 387a4adcb..1849688f7 100644
      void load_arch_hparams(llama_model_loader & ml) override;
      void load_arch_tensors(llama_model_loader & ml) override;
  
-@@ -2514,8 +2523,11 @@ struct llama_model_qwen4exp : public llama_model_base {
+@@ -2542,8 +2551,11 @@ struct llama_model_qwen4exp : public llama_model_base {
                      ggml_tensor * residual,
                      ggml_tensor * block_out,
                      ggml_tensor * inject,
@@ -61,10 +61,10 @@ index 387a4adcb..1849688f7 100644
                llm_graph_input_attn_kv * inp_attn,
    const llama_memory_hybrid_idx_context * mctx_hyb,
 diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
-index 250eb74da..f4fe1be08 100644
+index ad01b5388..76009b516 100644
 --- a/src/models/qwen4exp.cpp
 +++ b/src/models/qwen4exp.cpp
-@@ -309,6 +309,77 @@ std::unique_ptr<llm_graph_context> llama_model_qwen4exp::build_arch_graph(const
+@@ -308,6 +308,77 @@ std::unique_ptr<llm_graph_context> llama_model_qwen4exp::build_arch_graph(const
      return std::make_unique<graph>(*this, params);
  }
  
@@ -142,7 +142,7 @@ index 250eb74da..f4fe1be08 100644
  // Hyper-connections keep hc parallel residual streams [n_embd, hc, T] in place of layer norms.
  // Returns the mixed [n_embd, T] stream; `inject` gets the [hc, T] scatter weights.
  ggml_tensor * llama_model_qwen4exp::graph::build_hc_mix(
-@@ -330,7 +401,10 @@ ggml_tensor * llama_model_qwen4exp::graph::build_hc_mix(
+@@ -329,7 +400,10 @@ ggml_tensor * llama_model_qwen4exp::graph::build_hc_mix(
      cb(xn, "hc_norm", il);
  
      ggml_tensor * lo = build_lora_mm(w_down, xn);
@@ -154,7 +154,7 @@ index 250eb74da..f4fe1be08 100644
      ggml_tensor * gate = build_lora_mm(w_up, lo);
      cb(gate, "hc_gate", il);
  
-@@ -346,14 +420,14 @@ ggml_tensor * llama_model_qwen4exp::graph::build_hc_mix(
+@@ -345,14 +419,14 @@ ggml_tensor * llama_model_qwen4exp::graph::build_hc_mix(
          gated = ggml_reshape_3d(ctx0, gated, n_embd, hc, nt);
  
          // collapse the streams by their mean
@@ -174,7 +174,7 @@ index 250eb74da..f4fe1be08 100644
          }
          mixed = ggml_scale(ctx0, mixed, 1.0f / (float) hc);
      }
-@@ -371,12 +445,13 @@ ggml_tensor * llama_model_qwen4exp::graph::build_hc_combine(
+@@ -370,12 +444,13 @@ ggml_tensor * llama_model_qwen4exp::graph::build_hc_combine(
          ggml_tensor * residual,
          ggml_tensor * block_out,
          ggml_tensor * inject,
@@ -189,7 +189,7 @@ index 250eb74da..f4fe1be08 100644
      w = ggml_scale(ctx0, w, 2.0f);
  
      ggml_tensor * cur = nullptr;
-@@ -401,6 +476,7 @@ llama_model_qwen4exp::graph::graph(const llama_model & model, const llm_graph_pa
+@@ -400,6 +475,7 @@ llama_model_qwen4exp::graph::graph(const llama_model & model, const llm_graph_pa
      llm_build_delta_net_base(params), model(model) {
      const int64_t hc = hparams.dsv4_hc_mult;
  
@@ -197,7 +197,7 @@ index 250eb74da..f4fe1be08 100644
      GGML_ASSERT(hparams.n_embd_head_v() == hparams.n_embd_head_k());
  
      int sections[4];
-@@ -480,7 +556,7 @@ llama_model_qwen4exp::graph::graph(const llama_model & model, const llm_graph_pa
+@@ -479,7 +555,7 @@ llama_model_qwen4exp::graph::graph(const llama_model & model, const llm_graph_pa
              res_hc = ggml_reshape_3d(ctx0, res_hc, n_embd, hc, res_hc->ne[1]);
          }
  
@@ -206,7 +206,7 @@ index 250eb74da..f4fe1be08 100644
  
          cur = build_hc_mix(res_hc,
                  model.layers[il].hc_ffn_norm,
-@@ -492,7 +568,7 @@ llama_model_qwen4exp::graph::graph(const llama_model & model, const llm_graph_pa
+@@ -491,7 +567,7 @@ llama_model_qwen4exp::graph::graph(const llama_model & model, const llm_graph_pa
          cur = build_layer_ffn(cur, il);
          cb(cur, "ffn_out", il);
  
@@ -215,7 +215,7 @@ index 250eb74da..f4fe1be08 100644
  
          // "l_last" is the layer output name that build_cvec and imatrix look for
          cb(res_hc, "l_last", il);
-@@ -528,6 +604,7 @@ llama_model_qwen4exp::graph::graph(const llama_model & model, const llm_graph_pa
+@@ -525,6 +601,7 @@ llama_model_qwen4exp::graph::graph(const llama_model & model, const llm_graph_pa
  
  llama_model_qwen4exp::graph_mtp::graph_mtp(const llama_model & model, const llm_graph_params & params) :
      graph(model, params, no_build{}) {
@@ -223,7 +223,7 @@ index 250eb74da..f4fe1be08 100644
      GGML_ASSERT(hparams.n_layer_nextn == 1 && "qwen4exp MTP has a single block");
      GGML_ASSERT(ubatch.token && "qwen4exp MTP requires token input");
  
-@@ -591,11 +668,11 @@ llama_model_qwen4exp::graph_mtp::graph_mtp(const llama_model & model, const llm_
+@@ -588,11 +665,11 @@ llama_model_qwen4exp::graph_mtp::graph_mtp(const llama_model & model, const llm_
      ggml_tensor * inject = nullptr;
      ggml_tensor * cur = build_hc_mix(res_hc, layer.hc_attn_norm, layer.hc_attn_down, layer.hc_attn_up, layer.hc_attn_inject, &inject, il);
      cur    = build_layer_attn(inp_hyb->get_attn(), mctx_hyb, inp_kpool, cur, inp_pos, sections, il);

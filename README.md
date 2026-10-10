@@ -1,22 +1,23 @@
 # llama-p100-patches
 
-43 performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
-measured on Tesla P100 (GP100, `sm_60`). Generated against llama.cpp **`v0.6.0`**.
+39 performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
+measured on Tesla P100 (GP100, `sm_60`). Generated against llama.cpp **`b11539`** (`10a60cf30`);
+the `v0.6.0` set is tagged `v0.6.0` in this repo.
 
 Unofficial, and unaffiliated with the llama.cpp project. MIT, matching llama.cpp.
 
 GP100 is the reason any of this exists: alone among Pascal chips it has no `DP4A` and has
 full-rate `HFMA2`. So llama.cpp's quantized matmul paths fall back to emulation and cuBLAS, while
 the one instruction the card is genuinely good at goes unused. The patches named `sm60` exploit
-that asymmetry — but only 8 of the 43 are gated to Pascal-era hardware. 34 are not
+that asymmetry — but only 8 of the 39 are gated to Pascal-era hardware. The other 30 are not
 hardware-scoped at all, and one (07) changes an unconditional constant every GPU sees.
 
 ## Apply
 
-From the top of a clean llama.cpp tree at `v0.6.0`:
+From the top of a clean llama.cpp tree at `b11539`:
 
 ```sh
-git clone --branch v0.6.0 https://github.com/ggml-org/llama.cpp
+git clone --branch b11539 https://github.com/ggml-org/llama.cpp
 cd llama.cpp
 for p in ../llama-p100-patches/patches/*.patch; do
   patch -p1 -F0 < "$p" || { echo "FAILED: $p"; break; }
@@ -52,11 +53,15 @@ three prompts, MTP speculation and a realistic sampler:
 | Qwen3.8-Flash-Next MoE (UD-IQ3_XXS, q4_0 KV, ctx 262,144, 40k deep) | 8.63 t/s | **20.47 t/s** | **+137%** |
 
 **Read the vintage before you quote these.** Rows 1 and 2 were taken on `b10133`, row 3 on
-`v0.4.0`, and neither has been re-taken against the tree that now ships. Each rebase since has been
+`v0.4.0`, and none has been re-taken against the tree that now ships. Each rebase since has been
 measured against the previous patched tree rather than against stock, so these are several unmeasured
 rebases away from what actually runs today. The v0.4.0-to-v0.5.0 delta was +3.4% and +1.5% on
-prompt processing, flat to +1.0% on decode; the `v0.6.0` rebase has not been measured on a card at
-all. Full provenance in [docs/benchmarking.md](docs/benchmarking.md).
+prompt processing, flat to +1.0% on decode; the `v0.6.0` rebase was not measured on a card at all,
+and neither was this `b11539` one - which also deletes four patches (34, 39, 46, 48, explained in
+[docs/patches.md](docs/patches.md)) that those tables partly describe. The one `b11539` figure that
+does exist is decode **+29.1%** for a dense 27B Q4_0 across two P100s with `-sm tensor`, but its
+control arm was `master`, not `b11539`, so it is a data point and not a result. Full provenance in
+[docs/benchmarking.md](docs/benchmarking.md).
 
 Unless a patch says otherwise its output is **bit-identical** to the unpatched build. The ones that
 change output are listed in [docs/patches.md](docs/patches.md) with the evidence, and most of them

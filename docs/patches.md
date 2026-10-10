@@ -1,8 +1,8 @@
 # The patches
 
-43 patches, grouped by scope below; the application order is the file
+39 patches, grouped by scope below; the application order is the file
 numbering. Order matters: several touch the same files, and later ones build
-on earlier ones. All 43 are generated against llama.cpp `v0.6.0`, where they
+on earlier ones. All 39 are generated against llama.cpp `b11539` (`10a60cf30`), where they
 apply at zero fuzz and zero offset (the tag is recorded once, in the top-level README).
 
 Patch 43 `fuse-hc-combine` was deleted at `v0.5.0`. Upstream added dedicated
@@ -35,6 +35,26 @@ node. Porting 45 is a redesign against that API plus a fresh measurement, not a
 rebase, and neither is possible without the model and the card. The sparse-gather
 work remains open upstream-of-this-set, so to speak; 38's F16 `get_rows` path was
 its only in-set consumer.
+Patches 34, 39, 46 and 48 were deleted at `b11539`, for different reasons.
+
+**46 `qwen4exp-moe-expert-cache` and 34 `mul-mat-id-negative-ids` - fixed upstream.** `b11539` added
+a MoE expert cache of its own (`src/llama-moe-cache.{h,cpp}`, `cparams.moe_cache_size`, reached from
+the shared `build_moe_ffn` through `build_moe_cache_slots`), which is 46's mechanism in general form
+rather than per model. 34 existed only to let 46 hand it negative expert ids, and part of what 34
+worked around is now upstream's own doing (`cparams.moe_cache_size == 0` turns off pipeline
+parallelism). Neither was on by default, so nothing changes for a default build.
+
+**39 `gdn-lanes-per-column` - fixed upstream, differently.** `gated_delta_net_cuda` now splits each
+warp into `lanes_per_col = warp_size / cols_per_warp` segments unconditionally, so the structure 39
+introduced is upstream's; what 39 still added is the `GGML_GDN_LPC` override, which cannot be
+reconciled with a `constexpr`. Its own -4.3% prefill figure predates that.
+
+**48 `fuse-rms-norm-scale` - dropped as unmeasurable here, not because it is wrong.** Upstream has
+fused one `RMS_NORM`->`SCALE` pair itself since `v0.6.0`, so what 48 contributed on top was the
+batching of several identically-shaped pairs into a single launch, and its +1.1% / +2.5% was never
+re-taken past `v0.5.0`. Re-porting it means hand-editing the norm kernel that 17 and 19 already
+restructure - and nothing in this loop can compile CUDA. It was left out rather than carried blind;
+re-add it on a card if the multi-pair batching is worth proving.
 
 Every patch carries its full reasoning — including the measurements that
 justify it and the alternatives that were tried and rejected — in the comments
@@ -650,8 +670,9 @@ batches go to MMQ, which needs DP4A, or to cuBLAS. The kernel itself has no
 such limit — the token index lives in `threadIdx.y` and the real constraint is
 `warp_size × ncols_dst <= 1024`. 8 is where Pascal measured MMQ to win, not a
 correctness bound. MMQ also cannot take a repeated id in one token
-(`mm_ids_helper` writes out of bounds), which the expert cache in patch 46 does
-deliberately, so that path must stay on MMVQ.
+(`mm_ids_helper` writes out of bounds), so any expert cache that repeats an id within a token has to
+keep that path on MMVQ - patch 46 did so deliberately and was deleted at `b11539`, where upstream's
+own `llama_moe_cache` takes its place.
 
 `LLAMA_MMVQ_MMID_MAX=<n>` raises the cap to at most 32, and never past
 `1024/warp_size` since one block is `warp_size × ncols_dst` threads (unset keeps
@@ -794,36 +815,6 @@ Kernel 133 → **74.8 µs** at the decode shape, 65.6 → **28.6 ms** at 4,096 r
 End to end: decode 40k 48.6 → **47.5 ms (−2.3%)**, prefill of 2,050 tokens
 126.8 → **131.1 t/s (+3.4%)**, decode at 210k unchanged.
 
-### 48 · `fuse-rms-norm-scale` — `CUDA`
-
-Since `v0.5.0` gated delta-net normalizes q and k as `scale(rms_norm(x, eps/n),
-1/sqrt(n))` instead of `l2_norm` (ggml-org/llama.cpp#28068), so 17's and 18's L2-norm halves stop
-firing on these models and each layer launches four small kernels. It matches any
-run of contiguous F32 RMS_NORM → SCALE pairs, not only those, and runs it as one
-launch of a kernel built from `rms_norm_f32<256>`'s implementation, with the
-scale applied in its epilogue the way `scale_f32` applies it, so the output is
-bit-identical (9B, 256 greedy tokens: same tokens and same top-5
-log-probabilities with and without it). It does not fuse when an output would
-alias any input, when the RMS_NORM result has another consumer, or for rows of
-1,024 or more, nor while the graph runs concurrent streams
-(`GGML_CUDA_GRAPH_OPT=1`). `GGML_CUDA_DISABLE_FUSE_RMS_SCALE=1` turns it off.
-
-`llama-bench` tg64, four rounds, order reversed every other round: 9B 72.93 →
-73.72 t/s (+1.1%), 35B-A3B 79.39 → 81.34 (+2.5%).
-
-**Those two numbers describe `v0.5.0` and have not been re-taken.** Since
-`v0.6.0` upstream fuses a single `RMS_NORM`->`SCALE` pair itself
-(`ggml_cuda_op_rms_norm_scale_fused`, reached from `ggml_cuda_can_fuse` with a
-host-side `scale_out`), so on the gated delta-net q/k pattern a layer now costs
-two launches unpatched rather than four. What this patch adds on top of that is
-the batching of up to `CUDA_RMS_SCALE_FUSE_MAX` identically-shaped pairs into
-**one** launch, which is what its entry above has always done; its incremental
-value is therefore 2 -> 1 launches on `v0.6.0` where it was 4 -> 1 on `v0.5.0`.
-It runs ahead of upstream's case in `ggml_cuda_try_fuse` and falls through to it
-when it declines, so the two do not fight over the same pair. The kernel side was
-reworked to fit upstream's new `do_scale` template parameter (`rms_norm_f32` is
-now a thin `__global__` over `rms_norm_f32_impl`, and the pair path is a sixth
-template argument), which is a compile-level fact, not a measurement.
 
 ## Delta-net / gated-delta-net (Qwen3-Next, Qwen3.5)
 
@@ -882,32 +873,6 @@ Kill switches: `GGML_CUDA_DISABLE_CONCAT_ROWS`,
 
 ---
 
-### 39 · `gdn-lanes-per-column` — `CUDA`
-
-The gated delta-net kernel spreads one state column over a whole warp, so every
-token pays a full warp reduction per column. Making lanes-per-column a template
-parameter and using 16 lanes halves the reductions per token and raises the
-FMA-to-shuffle ratio — but it also halves the parallelism, which only pays once
-there are enough tokens to hide it. Gated on the token count:
-`GGML_GDN_LPC=8|16` selects the lane count (unset = a full warp as before) and
-`GGML_GDN_LPC_MIN_TOK` the threshold (default 32). Only `S_v == 128` has the
-narrow instantiations, so on any other head size the variable is ignored.
-
-Re-measured on the published build by flipping only this variable, two rounds
-with the order reversed and both arms cooled to ≤56 °C: a fresh 40k prefill
-**165.0 vs 172.5 s (−4.3%)**. During development it measured −4.9% (161 / 167 →
-154 / 158 s).
-
-Decode is untouched by construction: the override needs `n_tokens >= 32`, and a
-decode step without speculation is one token. The same two rounds did show decode
-at 40k moving 49.2 → 47.7 ms/token, which is therefore this protocol's
-server-to-server spread and not the flag — worth knowing when reading the decode
-figures of the other variable re-measured the same way (46, since 45 was deleted
-at `v0.6.0`), where the
-flag *can* act but the spread is the same size.
-Output is not bit-identical — the reduction order changes — and a paired
-per-chunk perplexity comparison against the unchanged build gives t = +0.25, i.e.
-no detectable difference.
 
 ## Host side
 
@@ -1099,16 +1064,6 @@ VRAM does not grow. The peak while filling a 262k context *fell*, 15,231 →
 14,009 MiB: the prefetch replaces a partial-copy path that synchronized the
 device to read `ids` on every split.
 
-### 34 · `mul-mat-id-negative-ids` — `host`
-
-`mul_mat_id` assumes every id selects a real expert row. Two changes let a
-negative id mean "this row contributes nothing": the CPU backend writes zeros
-for it instead of indexing out of bounds, and the scheduler's used-expert bitset
-skips it (and tolerates a split where no expert is used at all).
-
-No effect on its own — it is what lets patch 46 route the experts it did not
-cache to the CPU by masking them out of the GPU call with −1, and what keeps a
-graph where every expert of a layer missed the cache from asserting.
 
 ### 47 · `sched-split-inputs-cap` — `host`
 
@@ -1279,84 +1234,3 @@ for training. The `CONT` removal
 is on with no kill switch; its bit-identity rests on the whole-set comparison at
 the top of this section rather than on a check of its own.
 
-### 46 · `qwen4exp-moe-expert-cache` — `model`
-
-With 48 layers of 512 experts the routed weights do not fit on a 16 GiB card, so
-`--n-cpu-moe 48` computes them on the CPU. This keeps the recently used ones on
-the GPU instead: C slots per layer, filled from a flat count over a ring window
-of recent tokens and replanned every so often. The routing history is written
-out to a device tensor and collected at the next `set_input`. Experts that hit
-the cache are computed by a GPU `mul_mat_id`, the misses by the CPU one with −1
-in the id (patch 34), and the two are added. The cache refuses to start on a
-model whose experts need anything the cached path does not reproduce: fused
-gate/up tensors, a non-zero SwiGLU clamp, per-expert scale tensors, or experts
-that are not all host-side.
-
-`LLAMA_MOE_CACHE=<slots>` enables it (off when unset), with
-`LLAMA_MOE_CACHE_INTERVAL` (default 32) the replan period,
-`LLAMA_MOE_CACHE_WINDOW` (default 1024) the ring window,
-`LLAMA_MOE_CACHE_MAXTOK` (default 8) the ubatch width it stays active for — it
-is also capped at `GGML_OP_OFFLOAD_MIN_BATCH − 1`, since above that threshold
-the CPU experts are offloaded to the GPU anyway, and at `LLAMA_MMVQ_MMID_MAX`
-(patch 35), because the shared zero slot repeats ids within a token and only
-MMVQ tolerates that (4 when that variable is unset, see below). The cache is not
-built at all if the caps leave nothing, or if the model routes experts in groups,
-which `build_moe_cached` does not reproduce. `LLAMA_MOE_WARM`
-(default 32) the number of tokens after a prefill during which the replan period
-is shortened to 8.
-
-Slot count, decode ms/token, interleaved two rounds:
-
-| slots | 40k | 210k |
-|---:|---:|---:|
-| 48 | 55.2 ms | 53.0 ms |
-| 54 | 51.9 | 53.1 |
-| 60 | **51.0** | **52.4** |
-
-A slot costs about 92.5 MiB across the 48 layers. A longer replan period is
-better than the default. Re-measured on this build with the slot restored so the
-arms see the same context, two rounds with the order reversed: 128 gives
-**47.45 vs 48.65 ms/token (−2.5%)** against 32, and one of the two rounds showed
-no difference (47.2 / 47.7 against 49.8 / 47.5). During development it measured
-−3.8% (44.3 → 42.6 ms at 40k) with the 26-question long-context bench answering
-identically.
-
-The cache is cold right after a fresh prompt, and prefill routing does not
-predict generation routing well enough to warm it (that was tried and dropped).
-Shortening the replan period for the first 32 generated tokens instead takes the
-first window's hit rate from 7.2% to **46.6%**: 94.2 → **83.7 ms/token** for a
-32-token generation (−11%) and 75.8 → **70.0** for 64 tokens (−8%), with the
-steady state unchanged. Each of those points needs its own server: measuring
-several generation lengths against one server lets the earlier generation warm
-the cache and reverses the result.
-
-Two graph-order changes ride along, both bit-identical: the shared expert and
-the hyper-connection inject matmul are expanded *before* the CPU split rather
-than after it, so they run under patch 32's overlap (−0.5% at 40k, −1.0% at
-210k; `LLAMA_INJECT_LATE` restores the old order for the inject).
-
-The cache also lends its buffer to patch 33 as a staging area during prefill,
-and repairs the slots it loses: on an epoch change it invalidates the layers
-inside the clobbered extent, re-zeroes the shared zero slot, re-sends the maps
-and refills on the next decode.
-
-The clamp against the MMVQ ceiling uses `LLAMA_MMVQ_MMID_MAX`, which is the
-override patch 35 applies to every type. The built-in ceiling is per type and
-per architecture, and outside sm_60 it is below 8 for several types (Turing and
-later: 5 for Q3_K, 6 for IQ3_S, 7 for Q2_K, IQ2_S, IQ3_XXS and MXFP4; the AMD
-tables are lower still). The host side cannot read that table — it reads the
-variable, capped at 32, and cannot see the device's own `1024/warp_size` limit,
-which is 16 on a 64-lane device and is where the two limits diverge. Unset, the
-cache therefore assumes the smallest entry in any table (4). To get a wider
-batch on any architecture other than the one this was measured on, **set
-`LLAMA_MMVQ_MMID_MAX` to a width that device and those expert types take**: set
-too wide, a ubatch past the real ceiling sends the GPU expert matmul to MMQ,
-which folds together the repeated ids the shared zero slot produces and leaves
-the rows of the folded-away experts unwritten.
-
-Accuracy over the whole configuration is 62/78 on the 26-question × 3-depth
-long-context benchmark, against 59/78 for the same model without any of this. The
-two ends are not one experiment: 59/78 is the pre-patch production build, 62/78
-was taken during development on a 56-slot configuration, and the p ≥ 0.5 figure
-comes from the 59/78-against-61/78 comparison in between. Nothing here was
-re-scored on the published build.
