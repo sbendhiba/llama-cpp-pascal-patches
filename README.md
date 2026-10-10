@@ -1,4 +1,4 @@
-# llama-p100-patches
+# llama-cpp-pascal-patches
 
 39 performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
 measured on Tesla P100 (GP100, `sm_60`). Generated against llama.cpp **`b11539`** (`10a60cf30`);
@@ -19,7 +19,7 @@ From the top of a clean llama.cpp tree at `b11539`:
 ```sh
 git clone --branch b11539 https://github.com/ggml-org/llama.cpp
 cd llama.cpp
-for p in ../llama-p100-patches/patches/*.patch; do
+for p in ../llama-cpp-pascal-patches/patches/*.patch; do
   patch -p1 -F0 < "$p" || { echo "FAILED: $p"; break; }
 done
 ```
