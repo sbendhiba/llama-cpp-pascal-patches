@@ -1,0 +1,5 @@
+*.rej
+*.orig
+*.log
+build/
+.DS_Store

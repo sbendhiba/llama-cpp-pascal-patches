@@ -1,0 +1,196 @@
+diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
+index 4d343770c..086ace492 100644
+--- a/ggml/src/ggml-cuda/mmvq.cu
++++ b/ggml/src/ggml-cuda/mmvq.cu
+@@ -470,8 +470,32 @@ static constexpr __device__ int get_mmvq_mmid_max_batch_for_device() {
+ #endif
+ }
+ 
+-static constexpr __host__ __device__ int calc_nwarps(ggml_type type, int ncols_dst, mmvq_parameter_table_id table_id, bool small_k = false, bool halve_iters = false) {
++static constexpr __host__ __device__ int calc_nwarps(ggml_type type, int ncols_dst, mmvq_parameter_table_id table_id, int small_k = 0, bool halve_iters = false) {
+     if (table_id == MMVQ_PARAMETERS_GENERIC) {
++        // On pre-Turing NVIDIA the block is 4 warps wide regardless of K, but
++        // a thread only enters the K loop if tid/(qi/vdr) < ncols_x/qk, so a small K leaves the tail
++        // of the block idle for the whole kernel.  Measured on GP100 over a Qwen3.5-MoE decode step
++        // (nvprof, single-token MUL_MAT_ID launches, us per launch):
++        //
++        //   type     K     threads busy   4 warps   this patch
++        //   IQ3_XXS   512   16 of 128       64.03 -> 36.64  (1 warp)
++        //   Q3_K      512   32 of 128      106.59 -> 48.27  (1 warp)
++        //   IQ2_XS   2048   64 of 128       24.00 -> 20.76  (2 warps)
++        //   IQ4_XS    512   32 of 128       43.35 -> 27.38  (1 warp)
++        //   Q2_K     2048  128 of 128       unchanged, the block is already full
++        //
++        // small_k now carries the warp count the host computed as "just enough to cover K" (clamped
++        // to the 1 / 2 / 4 variants that are instantiated), so the
++        // idle tail is never launched; 0 keeps the table value.  End to end this is +1.29% on MoE
++        // decode (realistic sampler, thermal cooldown, interleaved arms) and +0.12% on the dense 9B,
++        // with prefill and the speculative acceptance rate unchanged.
++        //
++        // The gain is smaller than the idle-thread ratio suggests because occupancy here is limited
++        // by REGISTERS, not by the block or thread cap: these kernels use 94-140 registers per
++        // thread, so a P100 SM holds about 640 threads rather than 2048.
++        if (ncols_dst == 1 && small_k > 0) {
++            return small_k;
++        }
+         switch (ncols_dst) {
+             case 1:
+             case 2:
+@@ -597,10 +621,17 @@ static constexpr __host__ __device__ int calc_nwarps(ggml_type type, int ncols_d
+     return 1;
+ }
+ 
+-static constexpr __host__ __device__ int calc_rows_per_block(int ncols_dst, int table_id, bool small_k = false, int nwarps = 1) {
++static constexpr __host__ __device__ int calc_rows_per_block(int ncols_dst, int table_id, int small_k = 0, int nwarps = 1) {
+     if (table_id == MMVQ_PARAMETERS_GENERIC || table_id == MMVQ_PARAMETERS_GCN || table_id == MMVQ_PARAMETERS_TURING || table_id == MMVQ_PARAMETERS_GB10) {
+         switch (ncols_dst) {
+             case 1:
++                if (table_id == MMVQ_PARAMETERS_GENERIC) {
++                    // 4 rows per block is the measured optimum here and is
++                    // independent of the warp count, so small_k (now a warp-count override) must
++                    // not pull this back to nwarps.  This is the same value the small_k and the
++                    // non-small_k branch both produced before that change.
++                    return 4;
++                }
+                 if (small_k) {
+                     return nwarps;
+                 }
+@@ -610,7 +641,7 @@ static constexpr __host__ __device__ int calc_rows_per_block(int ncols_dst, int
+                 // so several rows per block pay off.  Decode sweep (9B Q4_0, llama-bench tg32):
+                 // 1 -> 46.9 / 2 -> 54.1 (+15.4%) / 4 -> 57.7 (+23.0%) / 8 -> 57.2 t/s.
+                 // Turing+ / GCN are not measured here and keep the upstream value.
+-                return table_id == MMVQ_PARAMETERS_GENERIC ? 4 : 1;
++                return 1;
+             case 2:
+             case 3:
+             case 4:
+@@ -634,7 +665,7 @@ static constexpr __host__ __device__ int calc_rows_per_block(int ncols_dst, int
+     return 1;
+ }
+ 
+-template <ggml_type type, int ncols_dst, bool has_fusion, bool small_k = false, bool halve_iters = false>
++template <ggml_type type, int ncols_dst, bool has_fusion, int small_k = 0, bool halve_iters = false>
+ __launch_bounds__(calc_nwarps(type, ncols_dst, get_device_table_id(), small_k, halve_iters)*ggml_cuda_get_physical_warp_size(), 1)
+ static __global__ void mul_mat_vec_q(
+         const void * vx_ptr, const void * vy_ptr, const int32_t * ids_ptr, const ggml_cuda_mm_fusion_args_device fusion, float * dst_ptr,
+@@ -1049,7 +1080,7 @@ static __global__ void mul_mat_vec_q_moe(
+ template<ggml_type type>
+ static std::pair<dim3, dim3> calc_launch_params(
+         const int ncols_dst, const int nrows_x, const int nchannels_dst, const int nsamples_or_ntokens,
+-        const int warp_size, const mmvq_parameter_table_id table_id, const bool small_k = false, const bool halve_iters = false) {
++        const int warp_size, const mmvq_parameter_table_id table_id, const int small_k = 0, const bool halve_iters = false) {
+     const int nwarps = calc_nwarps(type, ncols_dst, table_id, small_k, halve_iters);
+     const int rpb = calc_rows_per_block(ncols_dst, table_id, small_k, nwarps);
+     const int64_t nblocks = (nrows_x + rpb - 1) / rpb;
+@@ -1058,7 +1089,7 @@ static std::pair<dim3, dim3> calc_launch_params(
+     return {block_nums, block_dims};
+ }
+ 
+-template<ggml_type type, int c_ncols_dst, bool small_k = false, bool halve_iters = false>
++template<ggml_type type, int c_ncols_dst, int small_k = 0, bool halve_iters = false>
+ static void mul_mat_vec_q_switch_fusion(
+         const void * vx, const void * vy, const int32_t * ids, const ggml_cuda_mm_fusion_args_device fusion, float * dst,
+         const uint32_t ncols_x, const uint3 nchannels_y, const uint32_t stride_row_x, const uint32_t stride_col_y,
+@@ -1167,12 +1198,29 @@ static void mul_mat_vec_q_switch_ncols_dst(
+     const int     blocks_per_row_x      = ncols_x / qk;
+     const int     blocks_per_iter_1warp = vdr * warp_size / qi;
+ 
+-    const auto should_use_small_k = [&](int c_ncols_dst) {
++    const auto should_use_small_k = [&](int c_ncols_dst) -> int {
+         // When K is small, increase rows_per_block to match nwarps so each warp has more work to do
+         // Trigger when the full thread block covers all K blocks in a single loop iteration and few threads remain idle.
+         const int  nwarps = calc_nwarps(type, c_ncols_dst, table_id);
++        const bool is_nvidia_turing_plus  = GGML_CUDA_CC_IS_NVIDIA(cc) && cc >= GGML_CUDA_CC_TURING;
++        const bool is_nvidia_pascal_older = GGML_CUDA_CC_IS_NVIDIA(cc) && cc < GGML_CUDA_CC_VOLTA;
+         bool       use    = nwarps > 1 && blocks_per_row_x < nwarps * blocks_per_iter_1warp;
+ 
++        // On pre-Turing NVIDIA this returns a warp count instead of a flag.
++        // The type lists below were tuned for the old meaning of small_k -- raise rows_per_block to
++        // nwarps when K is small -- which on this table is a no-op, because the GENERIC branch of
++        // calc_rows_per_block already returns 4 for ncols_dst == 1 either way.  Raising rows_per_block also cannot
++        // help: rows are iterated by the same threads, so the idle ones stay idle.  What costs time
++        // is the idle tail of the 4-warp block, so the choice is purely "how many warps does K
++        // need".  Q2_K and the attention tensors need all 4 and are left alone by the test below.
++        if (table_id == MMVQ_PARAMETERS_GENERIC && is_nvidia_pascal_older && c_ncols_dst == 1) {
++            const int need = (blocks_per_row_x + blocks_per_iter_1warp - 1) / blocks_per_iter_1warp;
++            if (need >= nwarps) {
++                return 0;
++            }
++            return need <= 1 ? 1 : 2;
++        }
++
+         constexpr std::array<ggml_type, 2> iq_slow_turing = {
+             GGML_TYPE_IQ3_XXS,
+             GGML_TYPE_IQ3_S,
+@@ -1181,15 +1229,15 @@ static void mul_mat_vec_q_switch_ncols_dst(
+             GGML_TYPE_IQ1_S, GGML_TYPE_IQ1_M,   GGML_TYPE_IQ2_XXS, GGML_TYPE_IQ2_XS,
+             GGML_TYPE_IQ2_S, GGML_TYPE_IQ3_XXS, GGML_TYPE_IQ3_S,   GGML_TYPE_IQ4_XS,
+         };
++        // Pascal returned above, so the pre-Turing arm of the tests below is unreachable and
++        // slow_pascal no longer excludes anything: what a Pascal device gets is decided entirely
++        // by whether K needs fewer than the table's four warps.
+         constexpr std::array<ggml_type, 3> slow_pascal = {
+             GGML_TYPE_IQ3_S,
+             GGML_TYPE_Q2_K,
+             GGML_TYPE_Q3_K,
+         };
+ 
+-        const bool is_nvidia_turing_plus  = GGML_CUDA_CC_IS_NVIDIA(cc) && cc >= GGML_CUDA_CC_TURING;
+-        const bool is_nvidia_pascal_older = GGML_CUDA_CC_IS_NVIDIA(cc) && cc < GGML_CUDA_CC_VOLTA;
+-
+         if (is_nvidia_turing_plus) {
+             if (ncols_dst == 1 &&
+                     std::find(iq_slow_turing.begin(), iq_slow_turing.end(), type) != iq_slow_turing.end()) {
+@@ -1201,7 +1249,15 @@ static void mul_mat_vec_q_switch_ncols_dst(
+             use = false;
+         }
+ 
+-        return use;
++        // Above this point the only GENERIC device that computed a warp count is Pascal, and it
++        // has already returned.  For every other GENERIC device (Volta through Blackwell) a 1 here
++        // would be read by calc_nwarps as "one warp" and collapse a 4-warp block.  Upstream's flag
++        // is a no-op for them anyway: calc_rows_per_block returns 4 for ncols_dst == 1 either way.
++        if (table_id == MMVQ_PARAMETERS_GENERIC) {
++            return 0;
++        }
++
++        return use ? 1 : 0;
+     };
+ 
+     // Whether doubling nwarps pays off on the ncols_dst == 1 path, where K sets the K loop trip count.
+@@ -1243,11 +1299,11 @@ static void mul_mat_vec_q_switch_ncols_dst(
+ 
+             // Tag types keep the flags compile-time, so __launch_bounds__ matches what is launched.
+             const auto launch = [&](auto small_k_tag, auto halve_iters_tag) {
+-                constexpr bool c_small_k = decltype(small_k_tag)::value;
++                constexpr int  c_small_k = decltype(small_k_tag)::value;
+                 // Types the table does not promote would compile a second, identical kernel.
+                 constexpr bool c_promoted =
+-                    calc_nwarps(type, c_ncols_dst, MMVQ_PARAMETERS_GB10, false, true) !=
+-                    calc_nwarps(type, c_ncols_dst, MMVQ_PARAMETERS_GB10, false, false);
++                    calc_nwarps(type, c_ncols_dst, MMVQ_PARAMETERS_GB10, 0, true) !=
++                    calc_nwarps(type, c_ncols_dst, MMVQ_PARAMETERS_GB10, 0, false);
+ 
+                 constexpr bool c_halve_iters = decltype(halve_iters_tag)::value && c_promoted;
+ 
+@@ -1260,12 +1316,16 @@ static void mul_mat_vec_q_switch_ncols_dst(
+                     stream);
+             };
+ 
+-            if (should_use_small_k(c_ncols_dst)) {
+-                launch(std::true_type{},  std::false_type{});
++            const int use_small_k = should_use_small_k(c_ncols_dst);
++
++            if (use_small_k == 2) {
++                launch(std::integral_constant<int, 2>{}, std::false_type{});
++            } else if (use_small_k == 1) {
++                launch(std::integral_constant<int, 1>{}, std::false_type{});
+             } else if (should_halve_iters()) {
+-                launch(std::false_type{}, std::true_type{});
++                launch(std::integral_constant<int, 0>{}, std::true_type{});
+             } else {
+-                launch(std::false_type{}, std::false_type{});
++                launch(std::integral_constant<int, 0>{}, std::false_type{});
+             }
+         } break;
+         case 2: {
