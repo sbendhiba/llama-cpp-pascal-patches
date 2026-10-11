@@ -19,7 +19,23 @@ measured at all yet.
 
 Everything after `--` is passed to `llama-bench` untouched; the script adds `-r 1 -o jsonl` per call
 so each round is one sample and the interleaving is genuine. It alternates the arm order on even
-rounds, records the GPU temperature beside every row, and appends to `results/<tag>-<gpu>.csv`.
+rounds, records the GPU temperature beside every row, and appends to `results/<tag>-<gpu>.csv`. The
+summary it prints reports the mean, the spread **across rounds**, the round count and the temperature
+range per arm, and only covers the run you just did even though the csv keeps accumulating.
+
+Two details worth knowing before you change the parser. A llama-bench `jsonl` record has **no test
+name** - `test::get_fields()` ends at `stddev_ts`, and the `pp2048` / `tg128` label only exists in
+the md and csv printers, built from `n_prompt`, `n_gen` and `n_depth`. So `run.sh` rebuilds it the
+same way. And `stddev_ts` from a `-r 1` call is a single sample, which is why the summary recomputes
+it. Both of these were found by losing a run to them: the first version of this script filtered
+records on `"test"`, matched nothing, and reported an empty table only after all five rounds had
+already run. It now stops on the round that produced no records.
+
+Two details that cost a wasted run to find out. A `jsonl` record carries **no test name** - the
+`pp2048` / `tg128` label exists only in the md and csv printers, where llama-bench builds it from
+`n_prompt`, `n_gen` and `n_depth` - so the script rebuilds it the same way. And its `stddev_ts` is
+meaningless at `-r 1`, so the summary recomputes the spread across rounds instead of quoting it. A
+call that returns no records stops the run there, rather than finishing cold with an empty file.
 
 An arm is a build directory, not a build flag. Both arms must be **the same llama.cpp tag**: build
 the unpatched one from the pristine tree and the patched one from the tree after the apply loop, and
