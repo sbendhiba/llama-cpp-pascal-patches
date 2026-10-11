@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/allreduce.cu b/ggml/src/ggml-cuda/allreduce.cu
-index 5f69320ec..dcc20481a 100644
+index 5f69320ec..b67ca6e66 100644
 --- a/ggml/src/ggml-cuda/allreduce.cu
 +++ b/ggml/src/ggml-cuda/allreduce.cu
 @@ -308,6 +308,13 @@ struct ggml_cuda_ar_host_mapping {
@@ -16,19 +16,18 @@ index 5f69320ec..dcc20481a 100644
  struct ggml_cuda_ar_pipeline {
      int      n_devices;
      int      devices[GGML_CUDA_MAX_DEVICES];
-@@ -323,6 +330,11 @@ struct ggml_cuda_ar_pipeline {
+@@ -323,6 +330,10 @@ struct ggml_cuda_ar_pipeline {
      ggml_cuda_ar_host_mapping host_large[GGML_CUDA_MAX_DEVICES]; // pinned staging (copy-engine)
      char *                    dev_tmp[GGML_CUDA_MAX_DEVICES];    // device scratch for copy-engine path
      cudaStream_t             streams[GGML_CUDA_MAX_DEVICES];   // non-blocking
-+    // Copy-engine stage 2 (the H2D back from the peer's pinned buffer) on its own stream, so it
-+    // can use the second copy engine while the next chunk's D2H is still running; on one stream
-+    // the two directions serialise even when asyncEngineCount is 2.  Null unless enabled.
-+    cudaStream_t             streams_h2d[GGML_CUDA_MAX_DEVICES];; stage 1 D2H
-+    cudaStream_t             streams_h2d[GGML_CUDA_MAX_DEVICES]; // non-blocking; stage 2 H2D
++    // Stage 2's H2D on its own stream, so it uses the second copy engine while the next chunk's D2H
++    // is still running; on one stream the two directions serialise even when asyncEngineCount is 2.
++    // Null unless GGML_CUDA_AR_H2D_STREAM=1, which leaves stage 2 on streams[].
++    cudaStream_t             streams_h2d[GGML_CUDA_MAX_DEVICES];   // non-blocking
      ggml_cuda_ar_event_slot  ev_pool[GGML_CUDA_MAX_DEVICES][GGML_CUDA_AR_POOL_SIZE];
  
      // Copy-engine: per-device "I finished reading my peer's host_large"
-@@ -461,6 +473,19 @@ ggml_cuda_ar_pipeline * ggml_cuda_ar_pipeline_init(const int * devices, size_t n
+@@ -461,6 +472,19 @@ ggml_cuda_ar_pipeline * ggml_cuda_ar_pipeline_init(const int * devices, size_t n
          }
          p->streams[i] = stream;
  
@@ -48,7 +47,7 @@ index 5f69320ec..dcc20481a 100644
          for (int s = 0; s < GGML_CUDA_AR_POOL_SIZE; ++s) {
              bool ok =
                  cudaEventCreateWithFlags(&p->ev_pool[i][s].app, cudaEventDisableTiming) == cudaSuccess &&
-@@ -561,6 +586,10 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
+@@ -561,6 +585,10 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
              ggml_cuda_set_device(p->devices[i]);
              CUDA_CHECK(cudaStreamSynchronize(p->streams[i]));
          }
@@ -59,7 +58,7 @@ index 5f69320ec..dcc20481a 100644
      }
  
      for (int i = 0; i < p->n_devices; ++i) {
-@@ -591,6 +620,10 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
+@@ -591,6 +619,10 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
              ggml_cuda_set_device(p->devices[i]);
              CUDA_CHECK(cudaStreamDestroy(p->streams[i]));
          }
@@ -70,7 +69,7 @@ index 5f69320ec..dcc20481a 100644
      }
      p->arrival.free();
      delete p;
-@@ -668,15 +701,20 @@ static bool ggml_cuda_ar_allreduce_copy_impl(
+@@ -668,15 +700,20 @@ static bool ggml_cuda_ar_allreduce_copy_impl(
      // stays pure-copy and avoids an in-stream copy->compute engine switch every
      // AR.  dev_tmp is single-buffered: the AR stream waits cross-stream on the
      // prior AR's add_kernel-done event before overwriting it.
@@ -92,7 +91,7 @@ index 5f69320ec..dcc20481a 100644
          }
  
          for (size_t c = 0; c < copy_chunks; ++c) {
-@@ -684,20 +722,25 @@ static bool ggml_cuda_ar_allreduce_copy_impl(
+@@ -684,20 +721,25 @@ static bool ggml_cuda_ar_allreduce_copy_impl(
              const size_t this_bytes = (nbytes - offset) < chunk_bytes ?
                  (nbytes - offset) : chunk_bytes;
  
