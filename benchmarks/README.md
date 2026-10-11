@@ -1,8 +1,12 @@
 # Benchmarks
 
 This directory is where the set gets re-measured, once per llama.cpp release, on the hardware you
-have. It exists because the numbers in the README were taken on `b10133` and `v0.4.0` and have never
-been re-taken against the tree that ships - if you want the pattern to stop, the results go here.
+have. It exists because the README numbers were taken on `b10133` and `v0.4.0` and had never been
+re-taken against the tree that ships.
+[`results/v0.6.0-p100x2-summary.md`](results/v0.6.0-p100x2-summary.md) is the first one that has
+been: a hand-run `llama-bench` comparison of two `v0.6.0` builds, kept because it is real data even
+though it breaks the rules below. There is no `.csv` for it, and the `b11539` set has not been
+measured at all yet.
 
 ## Run it
 
