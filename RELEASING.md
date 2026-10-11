@@ -18,7 +18,7 @@ Apply the current set in numeric order and collect every failure:
 
 ```sh
 cd ../rebase
-for p in ../llama-p100-patches/patches/*.patch; do
+for p in ../llama-cpp-pascal-patches/patches/*.patch; do
   b=$(basename "$p")
   patch -p1 -F0 --batch --no-backup-if-mismatch < "$p" >/dev/null 2>&1 || echo "REJECT $b"
 done
