@@ -58,8 +58,33 @@ Every patch carries its measurement in the comments it adds to the source, and
 [docs/patches.md](docs/patches.md) is the index: per patch, the scope tag, the effect, the kill
 switch, what it changes about the output, and the alternatives that were tried and rejected.
 
-Whole set against stock, **same llama.cpp tag on both arms**, on 2×Tesla P100-PCIE-16GB, `-fa on
--ub 2048 -t 28`, 5 reps per cell:
+### Scripted - 2026-10-11, `v0.6.0`, 2x Tesla P100-PCIE-16GB
+
+`benchmarks/run.sh`, 5 rounds, arms interleaved with the order reversed on even rounds, both arms
+build line `d81235049 (11429)` = `v0.6.0`: stock from a pristine checkout, patched from the tree
+after the apply loop. `-fa on -sm tensor -t 28 -p 512,2048 -n 128`, so llama-bench's default
+`-ub 512`. Card temperature: 38 C at the first round, 62 C at the last.
+
+| Model | test | stock | patched | Δ | sd across rounds |
+|---|---|---:|---:|---:|---:|
+| Qwen3.8-27B Q4_0 dense | pp512 | 230.00 | 229.11 | **−0.4%** | 0.52 / 0.35 |
+| Qwen3.8-27B Q4_0 dense | pp2048 | 225.00 | 228.95 | **+1.8%** | 0.18 / 0.18 |
+| Qwen3.8-27B Q4_0 dense | tg128 | 23.25 | **30.10** | **+29.4%** | 0.06 / 0.06 |
+
+Every row is in [benchmarks/results/v0.6.0-p100x2.csv](benchmarks/results/v0.6.0-p100x2.csv) with its
+round number, build commit, temperature and environment, and the table above is
+[benchmarks/results/v0.6.0-p100x2-summary.md](benchmarks/results/v0.6.0-p100x2-summary.md). Patch 22
+is **off** in these rows - a tensor split is a meta device and 22 disables its decode graph slots
+there - so +29.4% is the other 42 patches. The `-sm layer` case, where 22 stays live, is the hand-run
+row below.
+
+Still missing after this run: a second model, `-ub 2048` to match the hand-run prefill numbers, and
+an output-identity check (`-npl` or perplexity) beside it. Throughput alone cannot tell a win from a
+different-but-still-correct answer.
+
+### By hand - same tag, `llama-bench` direct, `-ub 2048`
+
+Whole set against stock on the same two cards, 5 reps per cell, taken before the script was usable:
 
 | Model | Split | pp t/s | | tg t/s | |
 |---|---|---:|---:|---:|---:|
@@ -67,11 +92,14 @@ Whole set against stock, **same llama.cpp tag on both arms**, on 2×Tesla P100-P
 | Ornith-1.0-35B-A3B UD-Q4_K_M (`-p 4096 -n 128`) | `-sm layer` | 890.3 → 927.3 | **+4.2%** | 55.28 → 70.78 | **+28.0%** |
 | Qwen3.8-27B Q4_0 dense (`-p 2048 -n 128`) | `-sm tensor` | 369.9 → 368.1 | **−0.5%** | 23.30 → 30.05 | **+29.0%** |
 
-Both arms are build line `d81235049 (11429)` = **`v0.6.0`**, the tree this branch ships - stock from a
-pristine checkout, patched from the tree after the apply loop - so the version is not inside the
-result. The largest standard deviation in the table is 2.9 t/s (0.3% of its own mean), so the decode
-gains are not noise. Raw rows with σ per cell are in
-[benchmarks/results/v0.6.0-p100x2-summary.md](benchmarks/results/v0.6.0-p100x2-summary.md).
+Arms were not interleaved and no temperature or environment was recorded, so the two small pp
+regressions read as "neutral" rather than as a measured loss; σ per cell, the arm definitions and the
+full list of what is missing are in
+[benchmarks/results/v0.6.0-p100x2-manual.md](benchmarks/results/v0.6.0-p100x2-manual.md). The decode
+figures are trustworthy: the scripted run above reproduces the hand-run 27B decode gain to within
+half a point (+29.4% against +29.0%) with the rotation and the temperatures recorded, which is the
+check these rows needed. Their prefill rows are not comparable across the two tables - the hand runs
+used `-ub 2048`, the scripted one llama-bench's default 512.
 
 Two things in that table are worth understanding before you reuse it:
 
@@ -85,13 +113,6 @@ Two things in that table are worth understanding before you reuse it:
   than tensor (70.78 vs 61.07) while stock is within 2% (55.28 vs 56.23). That is not a clean A/B of
   22 - the split strategies differ in their own right - but most of the gap is slots. If you picked
   `-sm` by instinct, pick it again.
-
-**What those rows do not cover.** They were run by hand rather than with
-[`benchmarks/run.sh`](benchmarks/run.sh), so the arms were not interleaved and neither temperature
-nor environment was recorded; treat the two small pp regressions as "neutral" rather than as a
-measured loss. There is no output-identity or perplexity check beside them yet. And they are
-two-card numbers - single-card behaviour is still described by the older figures below, which are
-themselves old.
 
 For comparison, on one P100, end-to-end decode from `llama-server`, geometric mean over three
 prompts, MTP speculation and a realistic sampler:

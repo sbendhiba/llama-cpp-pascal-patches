@@ -2,11 +2,12 @@
 
 This directory is where the set gets re-measured, once per llama.cpp release, on the hardware you
 have. It exists because the README numbers were taken on `b10133` and `v0.4.0` and had never been
-re-taken against the tree that ships.
-[`results/v0.6.0-p100x2-summary.md`](results/v0.6.0-p100x2-summary.md) is the first one that has
-been: a hand-run `llama-bench` comparison of two `v0.6.0` builds, kept because it is real data even
-though it breaks the rules below. There is no `.csv` for it, and the `b11539` set has not been
-measured at all yet.
+re-taken against the tree that ships. That has started to change:
+[`results/v0.6.0-p100x2.csv`](results/v0.6.0-p100x2.csv) is a scripted 5-round interleaved comparison
+of two `v0.6.0` builds on 2x P100, one row per arm, round and test, with the temperature it was taken
+at. [`results/v0.6.0-p100x2-manual.md`](results/v0.6.0-p100x2-manual.md) keeps the hand-run numbers
+the script has not re-taken yet - the `-sm layer` split and the 35B MoE model - with their σ and their
+gaps listed.
 
 ## Run it
 
@@ -66,11 +67,18 @@ for a quick look, this script for anything you intend to keep.
 ```
 results/<llama-tag>-<gpu>x<count>.csv                  every round, every arm, one row each
 results/<llama-tag>-<gpu>x<count>-summary.md           the table run.sh printed
+results/<llama-tag>-<gpu>x<count>-manual.md            provenance for numbers taken by hand
 ```
 
 `p100x1`, `p100x2`, `k620x1`, `rx580x1` - the GPU is part of the identity of a number here, because
 these patches are gated on architecture features and the same patch can be +23% on one card and
 noise on another.
+
+`run.sh` writes the first two. The third is for measurements taken straight from `llama-bench` before
+the script existed, or for configurations the script has not re-taken yet: it carries the per-cell σ,
+the arm definitions and an explicit list of what was not recorded, so a hand-run number can be quoted
+with its weaknesses attached. `v0.6.0-p100x2-manual.md` is that file, and the scripted csv next to it
+now covers the 27B tensor-split case it used to describe alone.
 
 ## Before a number goes in the README
 
