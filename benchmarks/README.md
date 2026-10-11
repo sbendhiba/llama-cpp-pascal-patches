@@ -2,12 +2,12 @@
 
 This directory is where the set gets re-measured, once per llama.cpp release, on the hardware you
 have. It exists because the README numbers were taken on `b10133` and `v0.4.0` and had never been
-re-taken against the tree that ships. That has started to change:
-[`results/v0.6.0-p100x2.csv`](results/v0.6.0-p100x2.csv) is a scripted 5-round interleaved comparison
-of two `v0.6.0` builds on 2x P100, one row per arm, round and test, with the temperature it was taken
-at. [`results/v0.6.0-p100x2-manual.md`](results/v0.6.0-p100x2-manual.md) keeps the hand-run numbers
-the script has not re-taken yet - the `-sm layer` split and the 35B MoE model - with their σ and their
-gaps listed.
+re-taken against the tree that ships. That has changed for `v0.6.0`: four scripted 5-round runs on
+2x P100 - `{tensor,layer}-27b` and `{tensor,layer}-35b`, both arms `d81235049`, `-ub 2048` - are in
+`results/` as one row per arm, round and test with the temperature it was taken at, and they moved
+one hand-run number (see the cross-check in the [top-level README](../README.md)).
+[`results/v0.6.0-p100x2-manual.md`](results/v0.6.0-p100x2-manual.md) keeps the hand-run provenance
+that predates the script.
 
 ## Run it
 
@@ -74,6 +74,11 @@ results/<llama-tag>-<gpu>x<count>-manual.md            provenance for numbers ta
 these patches are gated on architecture features and the same patch can be +23% on one card and
 noise on another.
 
+When one release gets several configurations, put the configuration in the `--gpu` field and keep the
+results in one directory per run, which is how the `v0.6.0` session was organised: `--gpu
+p100x2-layer-35b` writes `v0.6.0-p100x2-layer-35b.csv`, whose rows also carry the full `bench_args`,
+so a file name is never the only record of what produced a number.
+
 `run.sh` writes the first two. The third is for measurements taken straight from `llama-bench` before
 the script existed, or for configurations the script has not re-taken yet: it carries the per-cell σ,
 the arm definitions and an explicit list of what was not recorded, so a hand-run number can be quoted
@@ -85,9 +90,14 @@ now covers the 27B tensor-split case it used to describe alone.
 - both arms on the same tag, same tree, differing only by the patches
 - rounds interleaved with the order reversed (run.sh does this)
 - the card cooled to a stated temperature before each arm - run.sh records what it actually was, and
-  a round taken 15 C above your threshold is a round to discard, not to average in
+  a round taken 15 C above your threshold is a round to discard, not to average in. Between runs in a
+  session, wait for it: the `v0.6.0` session waited back down to 45 C before each of its four runs and
+  logged the wait, so the ranges in the README start cool and stay within about 12 C
 - the standard deviation and the round count shown next to the mean
 - the arm definitions and any environment variables, in the row
+- every flag that changes the comparison in the row or the filename, `-ub` above all: the same 27B
+  tensor case measured 225.00 t/s at llama-bench's default `-ub 512` and 380.06 at `-ub 2048`, while
+  its decode gain moved less than half a point
 - for anything that changes output, `llama-bench -npl 5` or a perplexity run with `-ub 1` beside it,
   because throughput alone cannot tell a win from a wrong answer
 
