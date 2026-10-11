@@ -119,6 +119,11 @@ the complete set.
 
 ## Also update
 
+- **re-point this repo's own tag at `main`** — `git tag -f v0.6.0 main && git push -f origin refs/tags/v0.6.0`.
+  That tag is what the README's apply block checks out, so anything committed after it is invisible to
+  anyone following those instructions. On 2026-10-11 it was stale twice over: first by a patch set
+  whose count the README had already changed, then by a default value. It is a published ref, so
+  moving it is a force-push and the one action here that needs a human to decide the moment is right
 - the tag in `README.md`, in `docs/patches.md`'s header, and in `benchmarks/results/` file names
 - patch counts, **recomputed** from the table rather than edited by hand: the scope counts, the
   off-by-default counts, and the "N of the M are off by default" sentences are all wrong the moment a
