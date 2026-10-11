@@ -14,15 +14,29 @@ hardware-scoped at all, and one (07) changes an unconditional constant every GPU
 
 ## Apply
 
-From the top of a clean llama.cpp tree at `b11539`:
+Both trees at the **same ref**. Released llama.cpp versions are tags in this repo (`git tag -l`
+lists them, e.g. `v0.6.0`); llama.cpp prereleases and work in progress are branches like this one.
 
 ```sh
+# 1. the patch set, at the ref you are building against
+git clone https://github.com/sbendhiba/llama-cpp-pascal-patches
+cd llama-cpp-pascal-patches
+git checkout b11539        # a released ref would be: git checkout v0.6.0
+cd ..
+
+# 2. llama.cpp at that same ref
 git clone --branch b11539 https://github.com/ggml-org/llama.cpp
 cd llama.cpp
+
+# 3. apply in numeric order, stop at the first failure
 for p in ../llama-cpp-pascal-patches/patches/*.patch; do
   patch -p1 -F0 < "$p" || { echo "FAILED: $p"; break; }
 done
 ```
+
+Checking out a tag leaves you detached on purpose: that tree is the one the measurements describe. A
+patch set applied to a different llama.cpp ref is not this set - the patches are generated at exact
+context, so expect rejects rather than a partial success.
 
 Apply in numeric order and **keep `-F0`**. Fuzzy application is the dangerous failure mode here:
 it can succeed while silently landing a hunk in the wrong place. Stop at the first failure rather
