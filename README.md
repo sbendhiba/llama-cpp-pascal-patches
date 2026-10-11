@@ -59,24 +59,43 @@ switch, what it changes about the output, and the alternatives that were tried a
 
 ### Scripted - 2026-10-11, `v0.6.0`, 2x Tesla P100-PCIE-16GB
 
-`benchmarks/run.sh`, 5 rounds, arms interleaved with the order reversed on even rounds, both arms
-build line `d81235049 (11429)` = `v0.6.0`: stock from a pristine checkout, patched from the tree
-after the apply loop. `-fa on -sm tensor -t 28 -p 512,2048 -n 128`, so llama-bench's default
-`-ub 512`. Card temperature: 38 C at the first round, 62 C at the last.
+Four configurations through `benchmarks/run.sh`, 5 rounds each, arms interleaved with the order
+reversed on even rounds. Both arms are build line `d81235049 (11429)` = `v0.6.0`: stock from a
+pristine checkout, patched from the tree after the apply loop. `-fa on -t 28 -ub 2048 -n 128`, with
+`-p 512,2048` on the 27B and `-p 4096` on the 35B. The card was waited back down to 45 C between
+runs, so each run starts cool and drifts within its own range: 38-60, 44-56, 44-55 and 44-53 C, in
+table order.
 
-| Model | test | stock | patched | Δ | sd across rounds |
-|---|---|---:|---:|---:|---:|
-| Qwen3.8-27B Q4_0 dense | pp512 | 230.00 | 229.11 | **−0.4%** | 0.52 / 0.35 |
-| Qwen3.8-27B Q4_0 dense | pp2048 | 225.00 | 228.95 | **+1.8%** | 0.18 / 0.18 |
-| Qwen3.8-27B Q4_0 dense | tg128 | 23.25 | **30.10** | **+29.4%** | 0.06 / 0.06 |
+| Model | Split | pp t/s | | tg 128 t/s | | sd across rounds |
+|---|---|---:|---:|---:|---:|---:|
+| Qwen3.8-27B Q4_0 dense | `-sm tensor` | 380.06 → 378.13 | **−0.5%** | 23.22 → **30.14** | **+29.8%** | 0.05 / 0.07 |
+| Qwen3.8-27B Q4_0 dense | `-sm layer` | 219.50 → 223.53 | **+1.8%** | 15.26 → **21.14** | **+38.5%** | 0.00 / 0.02 |
+| Ornith-1.0-35B-A3B UD-Q4_K_M | `-sm tensor` | 1091.82 → 1083.73 | **−0.7%** | 58.27 → **61.60** | **+5.7%** | 0.90 / 1.10 |
+| Ornith-1.0-35B-A3B UD-Q4_K_M | `-sm layer` | 914.89 → 953.05 | **+4.2%** | 55.26 → **70.64** | **+27.8%** | 0.02 / 0.10 |
 
-Every row is in [benchmarks/results/v0.6.0-p100x2.csv](benchmarks/results/v0.6.0-p100x2.csv) with its
-round number, build commit, temperature and environment; the table above is
-[benchmarks/results/v0.6.0-p100x2-summary.md](benchmarks/results/v0.6.0-p100x2-summary.md). That
-+29.4% is the whole set **minus patch 22**, which switches itself off on a meta device - the first
-bullet under the hand-run table below explains why that is the interesting caveat rather than a
-footnote. Still missing: a second model, `-ub 2048` to match the prefill numbers below, and an
-output-identity check beside it.
+The 27B was also taken at pp512: 229.72 → 229.07 (−0.3%) under tensor, 145.47 → 145.20 (−0.2%) under
+layer, and once more at llama-bench's default `-ub 512` (+29.44% decode, in
+`v0.6.0-p100x2-tensor-27b-ub512.csv`) - the decode gain survives the batch size, the prefill number
+does not (225.00 against 380.06 t/s). One row per arm, round and test - with build commit, temperature
+and environment - is in [benchmarks/results/](benchmarks/results/) as
+`v0.6.0-p100x2-tensor-27b.csv`, `-layer-27b`, `-tensor-35b` and `-layer-35b`, each with the table
+`run.sh` printed beside it.
+
+Three things to read out of that table, and the middle one is a correction:
+
+- **The set is a decode set.** Prefill is flat to mildly negative on tensor split and positive on
+  layer (+1.8% and +4.2%), which is what 22 and the scheduler patches do to the reserve path.
+- **`-sm layer` is where patch 22 runs, so its gains are larger - but that does not decide which
+  split to use.** A tensor split is a meta device and 22 zeroes its decode slots, so the tensor rows
+  are the set minus 22. Under layer both devices stay real and 22 is live, and the decode gain is
+  bigger in both models: +38.5% against +29.8% on the dense 27B, +27.8% against +5.7% on the MoE. The
+  absolute answer is different for each. On the MoE, layer wins outright (70.64 against 61.60). On
+  the dense 27B, **tensor is still faster** - 30.14 against 21.14 - because stock layer starts far
+  lower (15.26 against 23.22) and +38.5% of a low base does not catch up. Pick the split on measured
+  throughput for your model, then expect the patches to help more on layer than on tensor.
+- **The MoE tensor gain is smaller than the hand-run number suggested**: +5.7% here against the +8.6%
+  below. The stock arm moved, not the patched one (58.27 here against 56.23 there, with about 1 t/s of
+  spread on each), so the older figure was flattered by a slow control. Quote +5.7%.
 
 ### By hand - same tag, `llama-bench` direct, `-ub 2048`
 
@@ -88,35 +107,19 @@ Whole set against stock on the same two cards, 5 reps per cell, taken before the
 | Ornith-1.0-35B-A3B UD-Q4_K_M (`-p 4096 -n 128`) | `-sm layer` | 890.3 → 927.3 | **+4.2%** | 55.28 → 70.78 | **+28.0%** |
 | Qwen3.8-27B Q4_0 dense (`-p 2048 -n 128`) | `-sm tensor` | 369.9 → 368.1 | **−0.5%** | 23.30 → 30.05 | **+29.0%** |
 
-Arms were not interleaved and no temperature or environment was recorded, so the two small pp
-regressions read as "neutral" rather than as a measured loss; σ per cell and the list of what is
-missing are in
-[benchmarks/results/v0.6.0-p100x2-manual.md](benchmarks/results/v0.6.0-p100x2-manual.md). The decode
-column now has the scripted check above agreeing to within half a point; the prefill columns of the
-two tables are not comparable, because llama-bench defaults to `-ub 512` and these passed 2048.
+Arms were not interleaved and no temperature or environment was recorded; σ per cell, the arm
+definitions and the list of what is missing are in
+[benchmarks/results/v0.6.0-p100x2-manual.md](benchmarks/results/v0.6.0-p100x2-manual.md). Two of these
+three rows survived the scripted re-measurement and one did not, which is why the scripted table comes
+first: layer-35b agrees to a quarter of a point with a stock arm identical to 0.02 t/s, tensor-27b now
+has three runs agreeing, and tensor-35b fell from +8.6% to +5.7%.
 
-Two things in that table are worth understanding before you reuse it:
-
-- **`-sm tensor` runs without patch 22.** A tensor split is a meta device, and 22 detects that and
-  disables its decode graph slots, so the +8.6% and +29.0% rows are the other 42 patches - what you
-  get when 22's VRAM cost or the meta conflict rules it out. It is the guard doing it, not luck:
-  +29.0% reproduces an earlier build with 22 physically removed, to within 0.1%. `-sm layer` keeps
-  both devices real, so slots stay live there, and that row shows **+28.0%** decode and +4.2%
-  prompt.
-- **On two cards, `-sm layer` is where this set pays.** Patched decode is 16% higher under layer
-  than tensor (70.78 vs 61.07) while stock is within 2% (55.28 vs 56.23). That is not a clean A/B of
-  22 - the split strategies differ in their own right - but most of the gap is slots. If you picked
-  `-sm` by instinct, pick it again.
-
-**Read the vintage before you quote any of this.** The rows above are the `v0.6.0` set (43 patches),
-not the `b11539` set this branch now ships, and the `b11539` rebase has not been measured on a card
-at all. That matters in both directions: the table was measured with four patches (34, 39, 46, 48)
-that this branch no longer contains, because upstream absorbed or obsoleted them
-([docs/patches.md](docs/patches.md)), and the 39 that did survive were regenerated against a
-different tree. These three rows were also run by hand rather than with
-[`benchmarks/run.sh`](benchmarks/run.sh), so the arms were not interleaved and neither temperature
-nor environment was recorded; treat the two small pp regressions as "neutral" rather than as a
-measured loss, and there is no output-identity check beside them yet.
+**Read the vintage before you quote any of this.** Both tables above are the `v0.6.0` set (43 patches),
+not the `b11539` set this branch ships, and `b11539` has never been measured or even compiled on a
+card. That matters in both directions: these rows were produced with four patches (34, 39, 46, 48)
+this branch no longer contains, because upstream absorbed or obsoleted them
+([docs/patches.md](docs/patches.md)), and the 39 that survived were regenerated against a different
+tree. No output-identity check exists beside any of it.
 
 For comparison, the older single-P100 figures, end-to-end decode from `llama-server`, geometric mean
 over three prompts, MTP speculation and a realistic sampler:
@@ -164,4 +167,7 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
 - `CUDA (delta-net)` patches only fire on models with a gated delta-net block (Qwen3-Next, Qwen3.5).
   Elsewhere they never fire, and the only cost is the per-graph pattern match.
 - Nothing in this repo compiles the CUDA sources. Applying cleanly is not the same as building, and
-  building is not the same as measuring.
+  building is not the same as measuring. The `v0.6.0` patched tree *has* been built and run on a P100
+  box - that is what every scripted row above is - but `test-backend-ops` has never been run against
+  it, and no `-npl` or perplexity number exists beside any of these gains, so the CUDA patches are
+  verified by throughput and by eye rather than by an op-level correctness suite.
