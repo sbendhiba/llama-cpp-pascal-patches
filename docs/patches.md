@@ -341,8 +341,11 @@ N == 2 that is `w0 + w1` against the old `own + peer` — the same IEEE-754 valu
 the accumulator is seeded with rank 0's term rather than `0.0f` so `-0 + -0` stays
 `-0`. The chunked kernel additionally gets a second instantiation with the device
 count compiled in (`N_FIXED = 2`), because a runtime rank loop on the
-token-generation path was measured to cost ~0.5%. The 2-card rows in the README are
-what has to confirm the merge is free there, and they have not been re-taken since.
+token-generation path was measured to cost ~0.5%. That neutrality has now been checked: with
+all three variables unset, `tensor-27b` and `layer-35b` reproduce the pre-merge rows at 30.14 →
+30.07 and 70.64 → 70.66 decode, with the stock arms drifting the same way
+([`…-tensor-27b-aroff.csv`](../benchmarks/results/v0.6.0-p100x2-tensor-27b-aroff.csv),
+[`…-layer-35b-aroff.csv`](../benchmarks/results/v0.6.0-p100x2-layer-35b-aroff.csv)).
 
 Adapted from `0003-CUDA-enable-the-internal-AllReduce-on-Pascal.patch`,
 `0004-CUDA-run-the-AllReduce-copy-engine-H2D-on-its-own-st.patch` and
@@ -359,12 +362,25 @@ produced, and it carries no speed number for real 3+ GPU hardware at all.
 
 Status here: `0006` needed 6 of its 20 hunks re-authored against this tree (the
 `n_devices == 2` asserts, the pipeline struct and both stage loops), and the whole
-set applies at zero fuzz and zero offset. `allreduce.cu` compiles with nvcc 12.4 at
-`sm_60` from a clean-room apply, which is also what caught a duplicated `streams_h2d`
-declaration in an earlier revision of this patch — every apply-level gate had passed
-it. No output comparison and no timing exists for any of the three increments here,
-and the parts a compiler cannot check are the slice arithmetic and the arrival-ring
-indexing at N > 2, which need three or four cards.
+set applies at zero fuzz and zero offset. `allreduce.cu` and `ggml-cuda.cu` compile with
+nvcc 12.4 at `sm_60` from a clean-room apply, which is also what caught a duplicated
+`streams_h2d` declaration in an earlier revision — every apply-level gate had passed it.
+
+The two-card increments are now measured (2026-10-11), with `GGML_CUDA_AR_PASCAL=1` and
+`GGML_CUDA_AR_H2D_STREAM=1` exported for the whole session: the stock binary has no such
+variables, so it ignored them and the arms stayed interleaved. Against stock, the tensor split
+gains **+13.6% pp / +45.5% tg on the dense 27B** (382.39 → 434.27, 23.27 → 33.86) and **+9.9% pp /
++21.4% tg on the 35B MoE** (1091.30 → 1198.96, 58.42 → 70.90) — tables and per-round rows in
+[What to expect](../README.md#what-to-expect). Isolated to the patch itself, that is +12.6% decode
+and +14.1% prefill over the *same binary* with the variables unset, which is the increment 49 adds
+on top of the ~29% the rest of the set delivers, and it beats qr0n's +10.1% / +9.6%. The gate and
+the stream are still **not separated**: that needs a session with `GGML_CUDA_AR_PASCAL=1` alone.
+
+What is missing is the part this patch most needs. There is **no output comparison** — no `-npl`, no
+perplexity, no token-level check — beside any of those rows, for a change whose entire purpose is to
+perform a different reduction than the fallback. And the N-device half has never run on real
+hardware: three or four cards are needed to exercise the slice arithmetic and the arrival-ring
+indexing at N > 2, which are exactly the parts a compiler cannot check.
 
 ## Architecture-independent CUDA
 

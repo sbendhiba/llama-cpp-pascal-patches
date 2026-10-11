@@ -88,7 +88,9 @@ Three things to read out of that table, and the middle one corrects a claim this
   are the set minus 22. Under layer both devices stay real and 22 is live, and the decode gain is
   bigger in both models: +38.5% against +29.8% on the dense 27B, +27.8% against +5.7% on the MoE. The
   absolute answer is different for each, though. On the MoE, layer wins outright (70.64 t/s against
-  61.60). On the dense 27B, **tensor is still faster** - 30.14 against 21.14 - because stock layer
+  61.60) — **but only while both arms use the fallback**; switch the internal AllReduce on and the
+  tensor arm beats it, see the next section. On the dense 27B, **tensor is still faster** - 30.14
+  against 21.14 - because stock layer
   starts far lower (15.26 against 23.22), and +38.5% of a low base does not catch up. So the larger
   percentage is not a recommendation: pick the split on measured throughput for your model, then
   expect the patches to help more on layer than on tensor.
@@ -97,10 +99,53 @@ Three things to read out of that table, and the middle one corrects a claim this
   spread on each), so the older figure was flattered by a slow control. Quote +5.7%.
 
 An output-identity check (`-npl` or perplexity) is still missing beside all of this; throughput alone
-cannot tell a win from a different-but-still-correct answer. And a fifth scripted run of the same
+cannot tell a win from a different-but-still-correct answer. That gap is widest for patch 49, whose
+whole job is to run a different reduction — see its entry in
+[docs/patches.md](docs/patches.md). A fifth scripted run of the same
 27B tensor case at llama-bench's default `-ub 512` gave +29.44% decode, so the decode gain is not an
 artefact of the batch size - its prefill numbers (225.00 against 380.06 t/s at pp2048) are, which is
 why `-ub` belongs in the row rather than assumed.
+
+### Scripted - 2026-10-11, the same cards with the internal AllReduce switched on
+
+Everything above runs both arms through the meta-backend's f32-through-host fallback, because on a
+P100 `49-allreduce-multigpu` refuses to run unless asked. Asked, it is by far the largest single
+effect in the set. Same runner, same two arms, 5 interleaved rounds, `-sm tensor`, with the session
+exporting `GGML_CUDA_AR_PASCAL=1 GGML_CUDA_AR_H2D_STREAM=1` — the stock binary has no such variables,
+so it is unaffected and the pair stays like-for-like:
+
+| Model | pp t/s | | tg128 t/s | |
+|---|---:|---:|---:|---:|
+| Qwen3.8-27B Q4_0 dense (`-p 2048`) | 382.39 → **434.27** | **+13.6%** | 23.27 → **33.86** | **+45.5%** |
+| Qwen3.8-27B Q4_0 dense (`-p 512`) | 230.07 → **248.02** | **+7.8%** | — same call, already shown | |
+| Ornith-1.0-35B-A3B UD-Q4_K_M (`-p 4096`) | 1091.30 → **1198.96** | **+9.9%** | 58.42 → **70.90** | **+21.4%** |
+
+Three things follow from it, and each changes something written elsewhere in this repo:
+
+- **The split recommendation flips on the MoE.** Patched `-sm tensor` with the internal AllReduce is
+  1198.96 pp / 70.90 tg against patched `-sm layer`'s 953.05 / 70.64 — same decode, 26% more
+  prefill. The table in the previous section prefers `layer` on the 35B only because the tensor arm
+  there was reduced through the host. The dense 27B still prefers `tensor`, with or without it.
+- **The two variables are worth +12.6% decode and +14.1% prefill over the same binary with them
+  unset** (33.86 against 30.07 and 434.27 against 380.47 at `-p 2048`), which is the increment this
+  patch adds on top of the ~29% the rest of the set already delivers. qr0n claimed +10.1% prompt /
+  +9.6% decode for the Pascal gate alone at `b10660`; measured here it is larger, and the H2D stream
+  has not yet been separated from it. On the MoE the same comparison crosses sessions (70.90 against
+  the published 61.60 tensor decode, +15.1%), which is defensible only because the two stock arms
+  agree to within 0.3% — it is not an interleaved result.
+- **None of it is a correctness result.** With the gate on, the reduction genuinely is a different
+  one than the fallback's: no `-npl`, no perplexity, no token-level comparison exists beside these
+  rows. Patch 50's history is the warning to take seriously — upstream's first attempt at exactly
+  this stream split measured "just as fast" and returned perplexity **7.68 instead of 3.53**.
+
+The patched arm ran warmer than stock inside these sessions (52-62 C against 44-62 C), so the
+gains are if anything understated. Provenance per row in
+[`benchmarks/results/v0.6.0-p100x2-tensor-27b-ar49on.csv`](benchmarks/results/v0.6.0-p100x2-tensor-27b-ar49on.csv)
+and
+[`…-tensor-35b-ar49on.csv`](benchmarks/results/v0.6.0-p100x2-tensor-35b-ar49on.csv). The two
+`…-aroff` files beside them are the same two tensor configs re-taken after patches 49, 50 and the
+N-GPU port were folded into one, which is how the merge was shown to be free at two cards: 30.14 →
+30.07 and 70.64 → 70.66 decode, with both arms of the 27B drifting the same way. 
 
 ### By hand - same tag, `llama-bench` direct, `-ub 2048`
 
@@ -183,7 +228,9 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
   MoE at `-p 512`, the whole set costs **−5.1% (tensor) / −6.1% (layer)** while buying +13.1% /
   +20.3% decode. Every other model in [What to expect](#what-to-expect) is flat to +4% on prefill.
   The responsible patch has not been identified, so if prefill is what you care about on that
-  architecture, measure before you deploy.
+  architecture, measure before you deploy. One way out may be patch 49's gate: with
+  `GGML_CUDA_AR_PASCAL=1` the tensor split gains 8-14% prefill on the two models where it has been
+  measured, which would more than cover a 5% loss — never tested on qwen4exp.
 - Everything was measured on **Pascal** (`sm_60`), on one card or on two. Patches scoped to `sm_60`,
   `pre-Volta` or `pre-Turing` change values upstream tuned for newer hardware, and `pre-Turing`
   includes Volta, which was never measured. Patch 07 is not gated at all. Measure before using any
@@ -199,13 +246,18 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
   the only one that is **off by default on this branch**: three variables — `GGML_CUDA_AR_PASCAL`,
   `GGML_CUDA_AR_H2D_STREAM`, `GGML_CUDA_AR_NGPU` — for the Pascal gate, the second copy-engine
   stream and more than two devices. They change which reduction runs across a tensor split, so they
-  can change output. Their percentages are qr0n's, measured at llama.cpp `b10660`, and the N-GPU
-  half was validated on *virtual* devices, not on three or four cards. The patch compiles with nvcc
-  12.4 at `sm_60`; none of it has been perplexity-checked or timed here, so those figures are claims
-  to verify, not results. One part is **not** behind a variable: making the reduction N-way rewrites
-  both kernels, and that rewrite is live at two cards, where it is meant to be arithmetic-identical
-  (`w0 + w1` is what `own + peer` already was). The 2-card rows above are what has to be re-taken to
-  show it costs nothing.
+  can change output, and the N-GPU half was validated by its author on *virtual* devices, not on
+  three or four cards. It compiles with nvcc 12.4 at `sm_60`, and the gate is now measured here on
+  two real cards: with `GGML_CUDA_AR_PASCAL=1 GGML_CUDA_AR_H2D_STREAM=1` the tensor split gains
+  **+13.6% pp / +45.5% decode on the dense 27B and +9.9% / +21.4% on the 35B MoE** against the same
+  arms in [What to expect](#what-to-expect) — better than qr0n's +10.1% / +9.6% at `b10660`, and the
+  H2D stream has not been separated out of it yet. It has **not** been perplexity-checked, and that
+  is the check this patch needs most: the failure mode in its own history was a build that measured
+  "just as fast" and printed 7.68 where 3.53 belonged. One part is **not** behind a variable: making
+  the reduction N-way rewrites both kernels, and that rewrite is live at two cards, where it is meant
+  to be arithmetic-identical (`w0 + w1` is what `own + peer` already was). It was re-taken to prove
+  that: the same two tensor configs with everything unset give 30.14 → 30.07 and 70.64 → 70.66
+  decode against the pre-merge run.
 - Nothing in this repo compiles the CUDA sources. Applying cleanly is not the same as building, and
   building is not the same as measuring. The `v0.6.0` patched tree *has* been built and run on a P100
   box - that is what every scripted row above is - but `test-backend-ops` has never been run against

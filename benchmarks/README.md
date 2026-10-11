@@ -11,6 +11,15 @@ that predates the script. A second hand-run set, on a qwen4exp MoE too large to 
 the only place this set loses prompt processing, is in
 [`results/v0.6.0-p100x2-qwen4exp-manual.md`](results/v0.6.0-p100x2-qwen4exp-manual.md).
 
+A follow-up session the same day added four more scripted runs: `…-tensor-27b-aroff` and
+`…-layer-35b-aroff` re-take two of those configs after patches 49, 50 and the N-GPU port were folded
+into one file (they reproduce them, which is what makes the merge safe), and `…-tensor-27b-ar49on`
+and `…-tensor-35b-ar49on` take the same configs with `GGML_CUDA_AR_PASCAL=1
+GGML_CUDA_AR_H2D_STREAM=1` exported for the session - the first measurement of those variables on
+this tag. The `env` column in each csv is the proof of which is which; note that a comparison
+*between* those files is a cross-session comparison, while the arms *inside* one file are
+interleaved.
+
 ## Run it
 
 ```sh
