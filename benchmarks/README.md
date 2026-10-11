@@ -7,7 +7,9 @@ re-taken against the tree that ships. That has changed for `v0.6.0`: four script
 `results/` as one row per arm, round and test with the temperature it was taken at, and they moved
 one hand-run number (see the cross-check in the [top-level README](../README.md)).
 [`results/v0.6.0-p100x2-manual.md`](results/v0.6.0-p100x2-manual.md) keeps the hand-run provenance
-that predates the script.
+that predates the script. A second hand-run set, on a qwen4exp MoE too large to fit the cards and
+the only place this set loses prompt processing, is in
+[`results/v0.6.0-p100x2-qwen4exp-manual.md`](results/v0.6.0-p100x2-qwen4exp-manual.md).
 
 ## Run it
 

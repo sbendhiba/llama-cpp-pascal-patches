@@ -123,6 +123,26 @@ against +28.0%) and to within 0.05 on prefill (+4.2% both times), with a near-id
 (55.26 against 55.28). Tensor on the 27B now has three independent runs agreeing - +29.0% here,
 +29.44% and +29.81% scripted. Tensor on the 35B is the one that moved, down to +5.7%.
 
+### By hand - a qwen4exp MoE that does not fit the cards, `-p 512 -ub 2048`
+
+The same two cards and the same tag, against `Qwen3.8-Flash-Next-GSQ-RCO-Coder` IQ1_M (llama-bench
+calls it `qwen4exp A3B IQ1_M - 1.75 bpw`, 116.51 B params, 54.39 GiB):
+
+| Split | pp t/s | | tg t/s | |
+|---|---:|---:|---:|---:|
+| `-sm tensor` | 365.20 → 346.72 | **−5.1%** | 24.91 → 28.18 | **+13.1%** |
+| `-sm layer` | 259.13 → 243.43 | **−6.1%** | 21.58 → 25.96 | **+20.3%** |
+
+Two firsts in one run: the patched arm here is the 44-patch set with the merged AllReduce patch, and
+this is the only model where the set loses prompt processing by more than noise. With the AllReduce
+variables unset the patched arm refuses the internal reduction on Pascal and takes the same fallback
+stock does, so 49 is not what causes it — the loss is somewhere in the other 43, on the one
+architecture in this set with model-specific patches of its own (42, 46, 47), and no kill-switch A/B
+has been run to locate it. The file records the third arm (`b11539`, which has no AllReduce patch and
+no stock control either), the two transcript cells that arrived corrupted, and why `-p 512` on a
+54 GiB model makes this row nobody else's comparison:
+[benchmarks/results/v0.6.0-p100x2-qwen4exp-manual.md](benchmarks/results/v0.6.0-p100x2-qwen4exp-manual.md).
+
 For comparison, on one P100, end-to-end decode from `llama-server`, geometric mean over three
 prompts, MTP speculation and a realistic sampler:
 
@@ -159,6 +179,11 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
 
 - Tuned for **decode**: single-stream decode with a speculative verify batch of 2-5. Large-batch
   serving was not a target.
+- Prompt processing is where this set is weakest on **qwen4exp**: measured once, on a 116 B A3B
+  MoE at `-p 512`, the whole set costs **−5.1% (tensor) / −6.1% (layer)** while buying +13.1% /
+  +20.3% decode. Every other model in [What to expect](#what-to-expect) is flat to +4% on prefill.
+  The responsible patch has not been identified, so if prefill is what you care about on that
+  architecture, measure before you deploy.
 - Everything was measured on **Pascal** (`sm_60`), on one card or on two. Patches scoped to `sm_60`,
   `pre-Volta` or `pre-Turing` change values upstream tuned for newer hardware, and `pre-Turing`
   includes Volta, which was never measured. Patch 07 is not gated at all. Measure before using any
