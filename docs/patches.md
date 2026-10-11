@@ -283,9 +283,10 @@ variable unset, and that has not been run.
 Adapted from `0003-CUDA-enable-the-internal-AllReduce-on-Pascal.patch` in
 [qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp) (MIT), which reports
 **+10.1% prompt / +9.6% decode on Qwen3.8-27B** across two P100s. Those figures are
-theirs, at llama.cpp `b10660` — not ours, not at this tag, and this patch has never
-been compiled, let alone measured, in this repo. It also sits in the same file as 50,
-so read them together.
+theirs, at llama.cpp `b10660` — not ours, not at this tag. The patch compiles (nvcc 12.4,
+`-arch=60`, on the P100 box), but has not been measured there and no output comparison
+against the fallback has been run. It sits in the same file as 50, so read the two
+together.
 
 ## Architecture-independent CUDA
 
@@ -898,8 +899,9 @@ early, which `-F0` will not hide.
 
 Adapted from `0004-CUDA-run-the-AllReduce-copy-engine-H2D-on-its-own-st.patch` in
 [qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp) (MIT): **+5.1% on
-real-request prompt processing, decode unchanged**, again at `b10660`. Never
-compiled or measured here.
+real-request prompt processing, decode unchanged**, again at `b10660`. It compiles at
+`sm_60`; neither the +5.1% nor the ordering edge above has been tested here, and the
+edge is the part that can be wrong without changing a single timing.
 
 ## Delta-net / gated-delta-net (Qwen3-Next, Qwen3.5)
 

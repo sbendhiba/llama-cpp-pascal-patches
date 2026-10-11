@@ -173,8 +173,9 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
   ([qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp), MIT), not written here, and they
   are the only two that are **off by default on this branch**: `GGML_CUDA_AR_PASCAL=1` and
   `GGML_CUDA_AR_H2D_STREAM=1`. They change which reduction runs across a tensor split, so they can
-  change output. Their percentages are qr0n's, measured at llama.cpp `b10660`; neither has been
-  compiled, perplexity-checked or timed in this repo. 50 additionally cannot be dropped from a
+  change output. Their percentages are qr0n's, measured at llama.cpp `b10660`. Both compile with
+  nvcc 12.4 at `sm_60`; neither has been perplexity-checked or timed here, so those figures are
+  claims to verify, not results. 50 additionally cannot be dropped from a
   multi-GPU build that wants 49's gate, because on Pascal the copy-engine path is unreachable
   without it.
 - Nothing in this repo compiles the CUDA sources. Applying cleanly is not the same as building, and
