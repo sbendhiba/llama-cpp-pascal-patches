@@ -1,6 +1,6 @@
 # llama-cpp-pascal-patches
 
-43 performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
+45 performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
 measured on Tesla P100 (GP100, `sm_60`). Generated against llama.cpp **`v0.6.0`**, tagged `v0.6.0`
 here. The `b11539` branch trails a llama.cpp prerelease and has **not been measured on a card**;
 this branch is the one to use unless you are chasing that specific build.
@@ -10,7 +10,7 @@ Unofficial, and unaffiliated with the llama.cpp project. MIT, matching llama.cpp
 GP100 is the reason any of this exists: alone among Pascal chips it has no `DP4A` and has
 full-rate `HFMA2`. So llama.cpp's quantized matmul paths fall back to emulation and cuBLAS, while
 the one instruction the card is genuinely good at goes unused. The patches named `sm60` exploit
-that asymmetry — but only 8 of the 43 are gated to Pascal-era hardware. 34 are not
+that asymmetry — but only 9 of the 45 are gated to Pascal-era hardware. 35 are not
 hardware-scoped at all, and one (07) changes an unconditional constant every GPU sees.
 
 ## Apply
@@ -146,7 +146,7 @@ are off by default behind an environment variable.
 ## Layout
 
 ```
-patches/            43 .patch files, applied in numeric order
+patches/            45 .patch files, applied in numeric order
 docs/patches.md     per-patch index: scope, effect, kill switch, output changes, dead ends
 docs/benchmarking.md  the measurement discipline this set needed - thermal control, noise floors,
                       why two microbenchmark-driven predictions were wrong
@@ -169,6 +169,14 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
   include it.
 - `CUDA (delta-net)` patches only fire on models with a gated delta-net block (Qwen3-Next, Qwen3.5).
   Elsewhere they never fire, and the only cost is the per-graph pattern match.
+- Patches **49 and 50 are ported from another repo**
+  ([qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp), MIT), not written here, and they
+  are the only two that are **off by default on this branch**: `GGML_CUDA_AR_PASCAL=1` and
+  `GGML_CUDA_AR_H2D_STREAM=1`. They change which reduction runs across a tensor split, so they can
+  change output. Their percentages are qr0n's, measured at llama.cpp `b10660`; neither has been
+  compiled, perplexity-checked or timed in this repo. 50 additionally cannot be dropped from a
+  multi-GPU build that wants 49's gate, because on Pascal the copy-engine path is unreachable
+  without it.
 - Nothing in this repo compiles the CUDA sources. Applying cleanly is not the same as building, and
   building is not the same as measuring. The `v0.6.0` patched tree *has* been built and run on a P100
   box - that is what every scripted row above is - but `test-backend-ops` has never been run against

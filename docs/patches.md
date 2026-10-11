@@ -1,8 +1,8 @@
 # The patches
 
-43 patches, grouped by scope below; the application order is the file
+45 patches, grouped by scope below; the application order is the file
 numbering. Order matters: several touch the same files, and later ones build
-on earlier ones. All 43 are generated against llama.cpp `v0.6.0`, where they
+on earlier ones. All 45 are generated against llama.cpp `v0.6.0`, where they
 apply at zero fuzz and zero offset (the tag is recorded once, in the top-level README).
 
 Patch 43 `fuse-hc-combine` was deleted at `v0.5.0`. Upstream added dedicated
@@ -250,6 +250,42 @@ IQ3_XXS was swept the same way and keeps 256. The other tables (DP4A Pascal,
 Ampere, Blackwell, CDNA, RDNA) are untouched; note that
 `ggml_cuda_highest_compiled_arch` decides which table a card takes, so a build
 compiled only for a no-DP4A arch sends every card here.
+
+### 49 · `allreduce-pascal-spin` — `pre-Volta`, multi-GPU
+
+Upstream's internal AllReduce — the chunked kernel that exchanges activations
+through mapped pinned host memory, instead of round-tripping them through the
+host — refuses every card below Volta. It refuses in two places:
+`ggml_cuda_ar_pipeline_init` returns `nullptr` for `cc < GGML_CUDA_CC_VOLTA`, and
+inside `ggml_cuda_ar_kernel` the spin backoff is `#ifdef GGML_USE_HIP` /
+`#elif __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA` / `#else NO_DEVICE_CODE`. On two P100s
+with `-sm tensor` that means the reduction takes the fallback, and the gate is the
+only reason: the transport itself (volatile arrival flags in mapped pinned memory,
+`__threadfence_system`) predates Volta.
+
+What actually blocks it is `__nanosleep`, which is sm_70+. The `#else` branch now
+backs off with `clock64()` for 128 cycles — about 100 ns at the P100's 1328 MHz, the
+same pause `__nanosleep(100)` asks for, whose whole job is to stop one polling thread
+from saturating the PCIe link with reads of the peer's arrival slot. It is legal on
+pre-Volta because of the shape of the loop: only `tid == 0` of each block spins, each
+block has its own token so no inter-block barrier is involved, and the `__syncthreads()`
+at the end of that block is reached by its other threads while the spin runs — which
+matters, since before Volta there is no independent thread scheduling. The arch gate
+then takes `GGML_CUDA_CC_PASCAL` instead of Volta.
+
+**Off by default.** `GGML_CUDA_AR_PASCAL=1` enables it, because this is a different
+reduction from the one the fallback does, not the same one moved. The order of
+accumulation across the two cards changes, so it has to be treated as a patch that
+**can change output**, and it has not been shown not to here: the check that would
+settle it is a token-level or KLD comparison against the same binary with the
+variable unset, and that has not been run.
+
+Adapted from `0003-CUDA-enable-the-internal-AllReduce-on-Pascal.patch` in
+[qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp) (MIT), which reports
+**+10.1% prompt / +9.6% decode on Qwen3.8-27B** across two P100s. Those figures are
+theirs, at llama.cpp `b10660` — not ours, not at this tag, and this patch has never
+been compiled, let alone measured, in this repo. It also sits in the same file as 50,
+so read them together.
 
 ## Architecture-independent CUDA
 
@@ -824,6 +860,46 @@ when it declines, so the two do not fight over the same pair. The kernel side wa
 reworked to fit upstream's new `do_scale` template parameter (`rms_norm_f32` is
 now a thin `__global__` over `rms_norm_f32_impl`, and the pair path is a sixth
 template argument), which is a compile-level fact, not a measurement.
+
+### 50 · `allreduce-h2d-stream` — `CUDA`, multi-GPU
+
+The copy-engine path in `ggml_cuda_ar_allreduce_copy_impl` does both of its
+stages on one stream: stage 1 copies this card's activation out to pinned host
+memory (`cudaMemcpyAsync` D2H on `p->streams[i]`), stage 2 copies the peer's back
+into device scratch and adds it on the compute stream. Both directions are copy
+operations on the same stream, so they serialise even on a card that reports
+`asyncEngineCount == 2`. Stage 2's H2D now runs on `p->streams_h2d[i]`, a second
+non-blocking stream created at pipeline init, so the next chunk's D2H can overlap
+it.
+
+Splitting the stream drops an ordering guarantee that used to come free, and the
+patch has to put it back by hand. The stage-2 hand-off event is now recorded on the
+H2D stream, so the compute stream waiting it no longer implies anything about **this**
+card's stage-1 D2H — and the add kernel writes `dst_buf[i]`, which is `src_buf[i]` in
+the native-type path and a pool buffer the compute stream reuses after the call in the
+BF16 path (the dispatcher at the end of `allreduce.cu` says so: `"Otherwise src == dst"`).
+Either way the write must not overtake the read. The fix is the explicit wait on
+`ev_pool[i][slot].cpy[copy_chunks - 1]`: chunks are issued in order on `streams[i]`, so
+the last chunk's event covers all of them. It is guarded on the separate stream actually
+existing; `ggml_cuda_ar_allreduce` asserts `ne > 0`, so `copy_chunks` is never zero here.
+
+That missing edge is the reason this patch is not trusted on a throughput number.
+The upstream author's own record of the first attempt at it: a build without the
+edge measured "just as fast" and returned perplexity **7.68 instead of 3.53**.
+Nothing in the logs, nothing in the timings — only the output was wrong.
+
+**Off by default.** `GGML_CUDA_AR_H2D_STREAM=1` creates the second stream; unset,
+`streams_h2d[i]` stays null, every stage-2 operation falls back to `streams[i]`, the
+extra wait is skipped, and the code path is the original one. On Volta and newer the
+patch stands on its own; on a P100 it needs 49 to reach the copy-engine path in the
+first place, so on this hardware the two are measured together. They also share
+`allreduce.cu`, so 50's hunks assume 49 is applied — without it they land 8-11 lines
+early, which `-F0` will not hide.
+
+Adapted from `0004-CUDA-run-the-AllReduce-copy-engine-H2D-on-its-own-st.patch` in
+[qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp) (MIT): **+5.1% on
+real-request prompt processing, decode unchanged**, again at `b10660`. Never
+compiled or measured here.
 
 ## Delta-net / gated-delta-net (Qwen3-Next, Qwen3.5)
 
