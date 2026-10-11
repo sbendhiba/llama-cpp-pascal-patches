@@ -1,8 +1,8 @@
 # The patches
 
-45 patches, grouped by scope below; the application order is the file
+44 patches, grouped by scope below; the application order is the file
 numbering. Order matters: several touch the same files, and later ones build
-on earlier ones. All 45 are generated against llama.cpp `v0.6.0`, where they
+on earlier ones. All 44 are generated against llama.cpp `v0.6.0`, where they
 apply at zero fuzz and zero offset (the tag is recorded once, in the top-level README).
 
 Patch 43 `fuse-hc-combine` was deleted at `v0.5.0`. Upstream added dedicated
@@ -36,9 +36,15 @@ rebase, and neither is possible without the model and the card. The sparse-gathe
 work remains open upstream-of-this-set, so to speak; 38's F16 `get_rows` path was
 its only in-set consumer.
 
+Patch 50 `allreduce-h2d-stream` was **folded into 49** rather than deleted: the
+Pascal gate, the H2D stream and the N-GPU rewrite rewrite the same lines of
+`allreduce.cu` — the stage-2 loop, the spin loop, the pipeline struct — so they
+cannot be generated as separable diffs, and 49 now carries all three behind three
+separate variables. Its number is a gap like the others.
+
 Every patch carries its full reasoning — including the measurements that
 justify it and the alternatives that were tried and rejected — in the comments
-it adds to the source. This page is the index. Patches 32–48 are the exception:
+it adds to the source. This page is the index. Patches 32–49 are the exception:
 their measurements live on this page rather than in the source.
 
 **Scope** classifies who benefits:
@@ -251,42 +257,114 @@ Ampere, Blackwell, CDNA, RDNA) are untouched; note that
 `ggml_cuda_highest_compiled_arch` decides which table a card takes, so a build
 compiled only for a no-DP4A arch sends every card here.
 
-### 49 · `allreduce-pascal-spin` — `pre-Volta`, multi-GPU
+### 49 · `allreduce-multigpu` — `multi-GPU`, one increment `pre-Volta`
 
-Upstream's internal AllReduce — the chunked kernel that exchanges activations
-through mapped pinned host memory, instead of round-tripping them through the
-host — refuses every card below Volta. It refuses in two places:
-`ggml_cuda_ar_pipeline_init` returns `nullptr` for `cc < GGML_CUDA_CC_VOLTA`, and
-inside `ggml_cuda_ar_kernel` the spin backoff is `#ifdef GGML_USE_HIP` /
-`#elif __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA` / `#else NO_DEVICE_CODE`. On two P100s
-with `-sm tensor` that means the reduction takes the fallback, and the gate is the
-only reason: the transport itself (volatile arrival flags in mapped pinned memory,
-`__threadfence_system`) predates Volta.
+Three increments to upstream's internal AllReduce — the path that exchanges
+activations through mapped pinned host memory instead of round-tripping them
+through the host — in one file, each with its own environment variable, all three
+**off by default**. They are not separable as diffs: the N-way rewrite rewrites the
+same stage-2 lines the H2D stream introduces, and the same spin loop the Pascal gate
+introduces. The cost of shipping them together is that a future rebase cannot
+classify them separately if upstream absorbs one and not the others; that is a
+deliberate exception to [CONTRIBUTING.md](../CONTRIBUTING.md)'s one-concern rule, and
+the reason it is worth it is that all three only matter to the same user.
 
-What actually blocks it is `__nanosleep`, which is sm_70+. The `#else` branch now
-backs off with `clock64()` for 128 cycles — about 100 ns at the P100's 1328 MHz, the
-same pause `__nanosleep(100)` asks for, whose whole job is to stop one polling thread
-from saturating the PCIe link with reads of the peer's arrival slot. It is legal on
+**The Pascal gate** (`GGML_CUDA_AR_PASCAL=1`). Upstream refuses every card below
+Volta, in two places: `ggml_cuda_ar_pipeline_init` returns `nullptr` for
+`cc < GGML_CUDA_CC_VOLTA`, and inside `ggml_cuda_ar_kernel` the spin backoff is
+`#ifdef GGML_USE_HIP` / `#elif __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA` /
+`#else NO_DEVICE_CODE`. On two P100s with `-sm tensor` the reduction therefore takes
+the fallback, and the gate is the only reason: the transport itself (volatile arrival
+flags in mapped pinned memory, `__threadfence_system`) predates Volta. What actually
+blocks it is `__nanosleep`, which is sm_70+. The `#else` branch now backs off with
+`clock64()` for 128 cycles — about 100 ns at the P100's 1328 MHz, the same pause
+`__nanosleep(100)` asks for, whose whole job is to stop one polling thread from
+saturating the PCIe link with reads of a peer's arrival slot. It is legal on
 pre-Volta because of the shape of the loop: only `tid == 0` of each block spins, each
-block has its own token so no inter-block barrier is involved, and the `__syncthreads()`
-at the end of that block is reached by its other threads while the spin runs — which
-matters, since before Volta there is no independent thread scheduling. The arch gate
-then takes `GGML_CUDA_CC_PASCAL` instead of Volta.
+block has its own token so no inter-block barrier is involved, and the
+`__syncthreads()` at the end of that block is reached by its other threads while the
+spin runs — which matters, since before Volta there is no independent thread
+scheduling. The arch gate then takes `GGML_CUDA_CC_PASCAL` instead of Volta.
 
-**Off by default.** `GGML_CUDA_AR_PASCAL=1` enables it, because this is a different
-reduction from the one the fallback does, not the same one moved. The order of
-accumulation across the two cards changes, so it has to be treated as a patch that
-**can change output**, and it has not been shown not to here: the check that would
-settle it is a token-level or KLD comparison against the same binary with the
-variable unset, and that has not been run.
+Off by default because this is a different reduction from the one the fallback does,
+not the same one moved: the order of accumulation across the cards changes. It has to
+be treated as a patch that **can change output**, and it has not been shown not to
+here — the check that would settle it is a token-level or KLD comparison against the
+same binary with the variable unset, and that has not been run.
 
-Adapted from `0003-CUDA-enable-the-internal-AllReduce-on-Pascal.patch` in
-[qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp) (MIT), which reports
-**+10.1% prompt / +9.6% decode on Qwen3.8-27B** across two P100s. Those figures are
-theirs, at llama.cpp `b10660` — not ours, not at this tag. The patch compiles (nvcc 12.4,
-`-arch=60`, on the P100 box), but has not been measured there and no output comparison
-against the fallback has been run. It sits in the same file as 50, so read the two
-together.
+**The H2D stream** (`GGML_CUDA_AR_H2D_STREAM=1`). The copy-engine path
+(`ggml_cuda_ar_allreduce_copy_impl`) does both of its stages on one stream: stage 1
+copies this card's activation out to pinned host memory (`cudaMemcpyAsync` D2H on
+`p->streams[i]`), stage 2 copies the peers' back into device scratch and adds it on
+the compute stream. Both directions are copy operations on the same stream, so they
+serialise even on a card that reports `asyncEngineCount == 2`. With the variable set
+stage 2's H2D runs on `p->streams_h2d[i]`, a second non-blocking stream created at
+pipeline init, so the next chunk's D2H can overlap it.
+
+Splitting the stream drops an ordering guarantee that used to come free, and the
+patch has to put it back by hand. The stage-2 hand-off event is now recorded on the
+H2D stream, so the compute stream waiting on it no longer implies anything about
+**this** card's stage-1 D2H — and the add kernel writes `dst_buf[i]`, which is
+`src_buf[i]` in the native-type path and a pool buffer the compute stream reuses
+after the call in the BF16 path (the dispatcher at the end of `allreduce.cu` says
+so: `"Otherwise src == dst"`). Either way the write must not overtake the read. The
+fix is the explicit wait on `ev_pool[i][slot].cpy[copy_chunks - 1]`: chunks are
+issued in order on `streams[i]`, so the last chunk's event covers all of them. It is
+guarded on the separate stream actually existing; `ggml_cuda_ar_allreduce` asserts
+`ne > 0`, so `copy_chunks` is never zero here. Unset, `streams_h2d[i]` stays null,
+every stage-2 operation falls back to `streams[i]`, the extra wait is skipped and
+the code path is the original one.
+
+That missing edge is the reason this increment is not trusted on a throughput
+number. The upstream author's own record of the first attempt at it: a build without
+the edge measured "just as fast" and returned perplexity **7.68 instead of 3.53**.
+Nothing in the logs, nothing in the timings — only the output was wrong.
+
+**N GPUs** (`GGML_CUDA_AR_NGPU=1`). Upstream accepts exactly two devices:
+`ggml_cuda_ar_pipeline_init` refuses anything else, `ggml_cuda_ar_allreduce_copy_impl`
+and `ggml_cuda_ar_allreduce` assert it, and both kernels take one peer computed as
+`1 - i`. So `-sm tensor` on three or four cards fell back to the meta backend's
+f32-through-host exchange however the other two variables were set. The gate now
+takes 2..`GGML_CUDA_MAX_DEVICES`; `dev_tmp` grows to one `copy_bytes` slice per
+peer; the add kernel walks those slices with a stride; and the chunked kernel takes
+a per-launch table of every rank's staging buffer and arrival slot, signals once,
+spins on each peer in turn and sums all N contributions. In `ggml-cuda.cu`,
+`ggml_backend_cuda_comm_allreduce_internal`'s `n_backends == 2` assert becomes
+`>= 2` and the init-failure warning stops guessing at the reason. Off by default
+because the N-way path has never run on real 3+ GPU hardware here.
+
+**What is not gated: the shape of the reduction itself.** Making it N-way means both
+kernels loop over ranks instead of naming a peer, so that rewrite is live at two
+cards whether or not `GGML_CUDA_AR_NGPU` is set. It is built to be neutral there:
+every GPU sums in rank order, so all of them perform the same additions, and at
+N == 2 that is `w0 + w1` against the old `own + peer` — the same IEEE-754 value, and
+the accumulator is seeded with rank 0's term rather than `0.0f` so `-0 + -0` stays
+`-0`. The chunked kernel additionally gets a second instantiation with the device
+count compiled in (`N_FIXED = 2`), because a runtime rank loop on the
+token-generation path was measured to cost ~0.5%. The 2-card rows in the README are
+what has to confirm the merge is free there, and they have not been re-taken since.
+
+Adapted from `0003-CUDA-enable-the-internal-AllReduce-on-Pascal.patch`,
+`0004-CUDA-run-the-AllReduce-copy-engine-H2D-on-its-own-st.patch` and
+`0006-CUDA-internal-AllReduce-for-N-GPUs-not-just-2.patch` in
+[qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp) (MIT), which report
+for the first two **+10.1% prompt / +9.6% decode on Qwen3.8-27B** and **+5.1% on
+real-request prompt processing, decode unchanged**, all at llama.cpp `b10660`. Those
+figures are theirs, not ours, not at this tag. 0006 is the weakest of the three as
+evidence: its validation runs on **virtual** devices (`GGML_CUDA_DEVICES`) on two
+physical P100s — Llama-3.1-8B Q4_K_M, 20-chunk perplexity, 10.2585 at 3 devices
+against 10.2568 for the stock fallback and identical to it at 4 — which shows the
+N-way reduction is stable across ranks, **not** that it matches what the fallback
+produced, and it carries no speed number for real 3+ GPU hardware at all.
+
+Status here: `0006` needed 6 of its 20 hunks re-authored against this tree (the
+`n_devices == 2` asserts, the pipeline struct and both stage loops), and the whole
+set applies at zero fuzz and zero offset. `allreduce.cu` compiles with nvcc 12.4 at
+`sm_60` from a clean-room apply, which is also what caught a duplicated `streams_h2d`
+declaration in an earlier revision of this patch — every apply-level gate had passed
+it. No output comparison and no timing exists for any of the three increments here,
+and the parts a compiler cannot check are the slice arithmetic and the arrival-ring
+indexing at N > 2, which need three or four cards.
 
 ## Architecture-independent CUDA
 
@@ -861,47 +939,6 @@ when it declines, so the two do not fight over the same pair. The kernel side wa
 reworked to fit upstream's new `do_scale` template parameter (`rms_norm_f32` is
 now a thin `__global__` over `rms_norm_f32_impl`, and the pair path is a sixth
 template argument), which is a compile-level fact, not a measurement.
-
-### 50 · `allreduce-h2d-stream` — `CUDA`, multi-GPU
-
-The copy-engine path in `ggml_cuda_ar_allreduce_copy_impl` does both of its
-stages on one stream: stage 1 copies this card's activation out to pinned host
-memory (`cudaMemcpyAsync` D2H on `p->streams[i]`), stage 2 copies the peer's back
-into device scratch and adds it on the compute stream. Both directions are copy
-operations on the same stream, so they serialise even on a card that reports
-`asyncEngineCount == 2`. Stage 2's H2D now runs on `p->streams_h2d[i]`, a second
-non-blocking stream created at pipeline init, so the next chunk's D2H can overlap
-it.
-
-Splitting the stream drops an ordering guarantee that used to come free, and the
-patch has to put it back by hand. The stage-2 hand-off event is now recorded on the
-H2D stream, so the compute stream waiting it no longer implies anything about **this**
-card's stage-1 D2H — and the add kernel writes `dst_buf[i]`, which is `src_buf[i]` in
-the native-type path and a pool buffer the compute stream reuses after the call in the
-BF16 path (the dispatcher at the end of `allreduce.cu` says so: `"Otherwise src == dst"`).
-Either way the write must not overtake the read. The fix is the explicit wait on
-`ev_pool[i][slot].cpy[copy_chunks - 1]`: chunks are issued in order on `streams[i]`, so
-the last chunk's event covers all of them. It is guarded on the separate stream actually
-existing; `ggml_cuda_ar_allreduce` asserts `ne > 0`, so `copy_chunks` is never zero here.
-
-That missing edge is the reason this patch is not trusted on a throughput number.
-The upstream author's own record of the first attempt at it: a build without the
-edge measured "just as fast" and returned perplexity **7.68 instead of 3.53**.
-Nothing in the logs, nothing in the timings — only the output was wrong.
-
-**Off by default.** `GGML_CUDA_AR_H2D_STREAM=1` creates the second stream; unset,
-`streams_h2d[i]` stays null, every stage-2 operation falls back to `streams[i]`, the
-extra wait is skipped, and the code path is the original one. On Volta and newer the
-patch stands on its own; on a P100 it needs 49 to reach the copy-engine path in the
-first place, so on this hardware the two are measured together. They also share
-`allreduce.cu`, so 50's hunks assume 49 is applied — without it they land 8-11 lines
-early, which `-F0` will not hide.
-
-Adapted from `0004-CUDA-run-the-AllReduce-copy-engine-H2D-on-its-own-st.patch` in
-[qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp) (MIT): **+5.1% on
-real-request prompt processing, decode unchanged**, again at `b10660`. It compiles at
-`sm_60`; neither the +5.1% nor the ordering edge above has been tested here, and the
-edge is the part that can be wrong without changing a single timing.
 
 ## Delta-net / gated-delta-net (Qwen3-Next, Qwen3.5)
 

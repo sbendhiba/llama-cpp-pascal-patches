@@ -1,6 +1,6 @@
 # llama-cpp-pascal-patches
 
-45 performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
+44 performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
 measured on Tesla P100 (GP100, `sm_60`). Generated against llama.cpp **`v0.6.0`**, tagged `v0.6.0`
 here. The `b11539` branch trails a llama.cpp prerelease and has **not been measured on a card**;
 this branch is the one to use unless you are chasing that specific build.
@@ -10,7 +10,7 @@ Unofficial, and unaffiliated with the llama.cpp project. MIT, matching llama.cpp
 GP100 is the reason any of this exists: alone among Pascal chips it has no `DP4A` and has
 full-rate `HFMA2`. So llama.cpp's quantized matmul paths fall back to emulation and cuBLAS, while
 the one instruction the card is genuinely good at goes unused. The patches named `sm60` exploit
-that asymmetry — but only 9 of the 45 are gated to Pascal-era hardware. 35 are not
+that asymmetry — but only 9 of the 44 are gated to Pascal-era hardware. 34 are not
 hardware-scoped at all, and one (07) changes an unconditional constant every GPU sees.
 
 ## Apply
@@ -146,7 +146,7 @@ are off by default behind an environment variable.
 ## Layout
 
 ```
-patches/            45 .patch files, applied in numeric order
+patches/            44 .patch files, applied in numeric order
 docs/patches.md     per-patch index: scope, effect, kill switch, output changes, dead ends
 docs/benchmarking.md  the measurement discipline this set needed - thermal control, noise floors,
                       why two microbenchmark-driven predictions were wrong
@@ -169,15 +169,18 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
   include it.
 - `CUDA (delta-net)` patches only fire on models with a gated delta-net block (Qwen3-Next, Qwen3.5).
   Elsewhere they never fire, and the only cost is the per-graph pattern match.
-- Patches **49 and 50 are ported from another repo**
-  ([qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp), MIT), not written here, and they
-  are the only two that are **off by default on this branch**: `GGML_CUDA_AR_PASCAL=1` and
-  `GGML_CUDA_AR_H2D_STREAM=1`. They change which reduction runs across a tensor split, so they can
-  change output. Their percentages are qr0n's, measured at llama.cpp `b10660`. Both compile with
-  nvcc 12.4 at `sm_60`; neither has been perplexity-checked or timed here, so those figures are
-  claims to verify, not results. 50 additionally cannot be dropped from a
-  multi-GPU build that wants 49's gate, because on Pascal the copy-engine path is unreachable
-  without it.
+- Patch **49 `allreduce-multigpu` is ported from another repo**
+  ([qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp), MIT), not written here, and it is
+  the only one that is **off by default on this branch**: three variables — `GGML_CUDA_AR_PASCAL`,
+  `GGML_CUDA_AR_H2D_STREAM`, `GGML_CUDA_AR_NGPU` — for the Pascal gate, the second copy-engine
+  stream and more than two devices. They change which reduction runs across a tensor split, so they
+  can change output. Their percentages are qr0n's, measured at llama.cpp `b10660`, and the N-GPU
+  half was validated on *virtual* devices, not on three or four cards. The patch compiles with nvcc
+  12.4 at `sm_60`; none of it has been perplexity-checked or timed here, so those figures are claims
+  to verify, not results. One part is **not** behind a variable: making the reduction N-way rewrites
+  both kernels, and that rewrite is live at two cards, where it is meant to be arithmetic-identical
+  (`w0 + w1` is what `own + peer` already was). The 2-card rows above are what has to be re-taken to
+  show it costs nothing.
 - Nothing in this repo compiles the CUDA sources. Applying cleanly is not the same as building, and
   building is not the same as measuring. The `v0.6.0` patched tree *has* been built and run on a P100
   box - that is what every scripted row above is - but `test-backend-ops` has never been run against
