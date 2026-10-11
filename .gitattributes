@@ -1,0 +1,6 @@
+# Every text file here is consumed on Linux: `patch -p1` reads the .patch files and bash reads
+# run.sh. Normalizing to LF in the index is not enough - a Windows checkout with core.autocrlf=true
+# smudges them back to CRLF, and a CRLF run.sh dies at `set -euo pipefail` with
+# "set: pipefail: invalid option name". That killed a scripted run on 2026-10-11 when the file was
+# copied to a build host by way of a Windows working copy. eol=lf makes the checkout itself safe.
+* text=auto eol=lf
