@@ -261,15 +261,16 @@ compiled only for a no-DP4A arch sends every card here.
 
 Three increments to upstream's internal AllReduce — the path that exchanges
 activations through mapped pinned host memory instead of round-tripping them
-through the host — in one file, each with its own environment variable, all three
-**off by default**. They are not separable as diffs: the N-way rewrite rewrites the
+through the host — in one file, each with its own environment variable. The Pascal
+gate is **on by default** (`GGML_CUDA_AR_PASCAL=0` turns it off); the H2D stream and
+the N-device gate stay **off**. They are not separable as diffs: the N-way rewrite rewrites the
 same stage-2 lines the H2D stream introduces, and the same spin loop the Pascal gate
 introduces. The cost of shipping them together is that a future rebase cannot
 classify them separately if upstream absorbs one and not the others; that is a
 deliberate exception to [CONTRIBUTING.md](../CONTRIBUTING.md)'s one-concern rule, and
 the reason it is worth it is that all three only matter to the same user.
 
-**The Pascal gate** (`GGML_CUDA_AR_PASCAL=1`). Upstream refuses every card below
+**The Pascal gate** (on; `GGML_CUDA_AR_PASCAL=0` opts out). Upstream refuses every card below
 Volta, in two places: `ggml_cuda_ar_pipeline_init` returns `nullptr` for
 `cc < GGML_CUDA_CC_VOLTA`, and inside `ggml_cuda_ar_kernel` the spin backoff is
 `#ifdef GGML_USE_HIP` / `#elif __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA` /
@@ -286,11 +287,18 @@ block has its own token so no inter-block barrier is involved, and the
 spin runs — which matters, since before Volta there is no independent thread
 scheduling. The arch gate then takes `GGML_CUDA_CC_PASCAL` instead of Volta.
 
-Off by default because this is a different reduction from the one the fallback does,
-not the same one moved: the order of accumulation across the cards changes. It has to
-be treated as a patch that **can change output**, and it has not been shown not to
-here — the check that would settle it is a token-level or KLD comparison against the
-same binary with the variable unset, and that has not been run.
+**On by default**, because a pre-Volta card otherwise never reaches this code at all and
+the tensor split silently loses the largest gain available to it. That is a deliberate
+exception to the set's bit-identity default: the internal path is a *different reduction*
+from the fallback, not the same one moved, so the two are not bit-identical. What makes it
+shippable is [`v0.6.0-p100x2-tensor-27b-perplexity.md`](../benchmarks/results/v0.6.0-p100x2-tensor-27b-perplexity.md)
+— wikitext-2, one binary, four arms, `-ub 512` and `2048`: internal 5.2524 / 5.2487, fallback
+5.2360 / 5.2603, no-reduction control 5.2538 / 5.2427. Every arm is inside 0.024 of the others
+(0.46%), the sign of the difference flips with the ubatch, and the internal path is closer to the
+control than the fallback at both sizes. The failure mode this was screened for is the 7.68-against-3.53
+kind, and it is not that. Still missing: a logit-level diff, a second model, and any MoE number.
+`GGML_CUDA_AR_PASCAL=0` is the supported way back to the fallback, and it still works — the opt-out
+arm reproduces the pre-flip numbers exactly.
 
 **The H2D stream** (`GGML_CUDA_AR_H2D_STREAM=1`). The copy-engine path
 (`ggml_cuda_ar_allreduce_copy_impl`) does both of its stages on one stream: stage 1
@@ -374,11 +382,14 @@ gains **+13.6% pp / +45.5% tg on the dense 27B** (382.39 → 434.27, 23.27 → 3
 [What to expect](../README.md#what-to-expect). Isolated to the patch itself, that is +12.6% decode
 and +14.1% prefill over the *same binary* with the variables unset, which is the increment 49 adds
 on top of the ~29% the rest of the set delivers, and it beats qr0n's +10.1% / +9.6%. The gate and
-the stream are still **not separated**: that needs a session with `GGML_CUDA_AR_PASCAL=1` alone.
+the stream are still **not separated**: with the gate now on by default that means the same config
+with `GGML_CUDA_AR_H2D_STREAM=1` added, and `GGML_CUDA_AR_PASCAL=0` as the arm beside it.
 
-What is missing is the part this patch most needs. There is **no output comparison** — no `-npl`, no
-perplexity, no token-level check — beside any of those rows, for a change whose entire purpose is to
-perform a different reduction than the fallback. And the N-device half has never run on real
+What is missing is the part this patch most needs. There is **no logit-level comparison** beside any
+of those rows, and the perplexity check that does exist
+([`v0.6.0-p100x2-tensor-27b-perplexity.md`](../benchmarks/results/v0.6.0-p100x2-tensor-27b-perplexity.md))
+covers one dense model at one corpus size — enough to clear the gate for its default-on flip, not
+enough to call the reduction verified. And the N-device half has never run on real
 hardware: three or four cards are needed to exercise the slice arithmetic and the arrival-ring
 indexing at N > 2, which are exactly the parts a compiler cannot check.
 

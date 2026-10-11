@@ -18,7 +18,17 @@ and `…-tensor-35b-ar49on` take the same configs with `GGML_CUDA_AR_PASCAL=1
 GGML_CUDA_AR_H2D_STREAM=1` exported for the session - the first measurement of those variables on
 this tag. The `env` column in each csv is the proof of which is which; note that a comparison
 *between* those files is a cross-session comparison, while the arms *inside* one file are
-interleaved.
+interleaved. Those two files are now historical: the gate became the build default afterwards, so a
+current tensor-split run needs no environment at all.
+
+[`ppl.sh`](ppl.sh) is the other half of the protocol. `run.sh` answers "is it faster", which cannot
+distinguish a fast reduction from a different-and-wrong one, and patch 49 is exactly that case. It
+scores a real corpus through one binary in four arms - internal, `GGML_CUDA_AR_PASCAL=0` fallback,
+the second H2D stream, and `-sm layer` which does no cross-device reduce - at two ubatch sizes, and
+reports whether each arm actually reached the internal path. Its output is
+[`results/v0.6.0-p100x2-tensor-27b-perplexity.md`](results/v0.6.0-p100x2-tensor-27b-perplexity.md),
+which is also the evidence behind that flip. Perplexity is deterministic, so unlike `run.sh` it needs
+neither interleaving nor a cooling wait.
 
 ## Run it
 
