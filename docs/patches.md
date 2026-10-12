@@ -1,8 +1,8 @@
 # The patches
 
-44 patches, grouped by scope below; the application order is the file
+45 patches, grouped by scope below; the application order is the file
 numbering. Order matters: several touch the same files, and later ones build
-on earlier ones. All 44 are generated against llama.cpp `v0.6.0`, where they
+on earlier ones. All 45 are generated against llama.cpp `v0.6.0`, where they
 apply at zero fuzz and zero offset (the tag is recorded once, in the top-level README).
 
 Patch 43 `fuse-hc-combine` was deleted at `v0.5.0`. Upstream added dedicated
@@ -40,11 +40,15 @@ Patch 50 `allreduce-h2d-stream` was **folded into 49** rather than deleted: the
 Pascal gate, the H2D stream and the N-GPU rewrite rewrite the same lines of
 `allreduce.cu` — the stage-2 loop, the spin loop, the pipeline struct — so they
 cannot be generated as separable diffs, and 49 now carries all three behind three
-separate variables. Its number is a gap like the others.
+separate variables. The number 50 was then **taken again the same day** by
+`cuda-graphs-pascal`, which is a deliberate exception to the no-reuse rule: nothing
+was ever tagged or released against the retired file, its retirement is recorded
+above and in 49's entry, and the gap would have explained an event with no history
+of its own.
 
 Every patch carries its full reasoning — including the measurements that
 justify it and the alternatives that were tried and rejected — in the comments
-it adds to the source. This page is the index. Patches 32–49 are the exception:
+it adds to the source. This page is the index. Patches 32–50 are the exception:
 their measurements live on this page rather than in the source.
 
 **Scope** classifies who benefits:
@@ -392,6 +396,53 @@ covers one dense model at one corpus size — enough to clear the gate for its d
 enough to call the reduction verified. And the N-device half has never run on real
 hardware: three or four cards are needed to exercise the slice arithmetic and the arrival-ring
 indexing at N > 2, which are exactly the parts a compiler cannot check.
+
+### 50 · `cuda-graphs-pascal` — `sm_60`
+
+One line: the architecture gate in `ggml_cuda_graph_set_enabled` takes
+`GGML_CUDA_CC_PASCAL` where upstream keeps `GGML_CUDA_CC_VOLTA`, so GP100 gets CUDA graph
+capture and replay like every newer NVIDIA card.
+
+Upstream switched graphs off below Volta because of #6766 (2024), which measured a regression on a
+**P40** — that is GP102, sm_61. The measurement that set the policy never covered sm_60, and
+[llama.cpp#27721](https://github.com/ggml-org/llama.cpp/pull/27721) is now trying to undo it for
+sm_61 by moving that same gate to `GGML_CUDA_CC_DP4A` (610) — which still leaves a P100 gated out,
+so taking the PR as written would have changed nothing here.
+
+Measured as an A/B inside one build, `graphs_off` being the same binary reached through a wrapper
+that exports `GGML_CUDA_DISABLE_GRAPHS=1`, arms interleaved, 5 rounds, `-p 4096 -n 128 -ub 2048`:
+
+| config | pp4096 on vs off | tg128 on vs off |
+|---|---:|---:|
+| 35B-A3B MoE `-sm tensor` | 1169.54 vs 1171.33 (−0.15%) | **78.33 vs 69.65 (+12.5%)** |
+| 35B-A3B MoE `-sm layer` | 952.64 vs 952.96 (−0.03%) | **68.23 vs 70.67 (−3.45%)** |
+| 27B dense `-sm tensor` | 410.01 vs 410.31 (−0.07%) | 33.50 vs 33.81 (−0.92%) |
+
+The gain did **not** shrink with context the way #27721 reports for sm_61: at `-p 512` the same
+MoE tensor arm measured +12.21%, and at `-p 4096` +12.46%. One number from that short-prompt pass
+did not survive: MoE layer prefill looked like −1.14% at pp512 and is −0.03% at 4k, so that was the
+shape, not the patch. Prefill is flat everywhere at the shape the README reports.
+
+**On by default.** The reason this is safe to say where patch 49's flip needed a perplexity run
+first is that the opt-out already exists upstream and works per run: `GGML_CUDA_DISABLE_GRAPHS=1`,
+no rebuild. And the output does not move — wikitext-2 PPL is identical to four decimals with graphs
+on and off (5.2538 dense at `-sm layer`, 4.8859 MoE at `-sm tensor`), which is the expected result,
+since a graph replays the same launches rather than reassociating anything.
+
+What it costs is one case: MoE decode under `-sm layer`, −3.45%, consistent across all five rounds
+(68.47/68.52/68.54 against 70.62/70.61/70.53). In the shipped build that split is losing on both
+axes anyway — 1169.88 / 78.38 on tensor against 952.76 / 68.25 on layer — so the configuration that
+pays is not the one the README recommends, and it is one env var away from the old behaviour for
+anyone who wants it regardless.
+
+Two loose ends, recorded rather than resolved. The graphs-on arm was far more stable than
+graphs-off (sd 0.06 against 1.56 on the MoE tensor decode), which is an observation about launch
+jitter, not an explanation. And the 35B tensor case is exactly where patch 49's chunked AllReduce
+spin kernel ends up inside a captured graph; it worked, five rounds and a matching perplexity, but
+three rounds on one MoE is not a stress test of graph capture against cross-stream events.
+
+Provenance, raw rounds and the rejected-first-pass story:
+[`v0.6.0-p100x2-cuda-graphs.md`](../benchmarks/results/v0.6.0-p100x2-cuda-graphs.md).
 
 ## Architecture-independent CUDA
 

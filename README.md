@@ -1,6 +1,6 @@
 # llama-cpp-pascal-patches
 
-44 performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
+45 performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
 measured on Tesla P100 (GP100, `sm_60`). Generated against llama.cpp **`v0.6.0`**, tagged `v0.6.0`
 here. The `b11539` branch trails a llama.cpp prerelease and has **not been measured on a card**;
 this branch is the one to use unless you are chasing that specific build.
@@ -10,7 +10,7 @@ Unofficial, and unaffiliated with the llama.cpp project. MIT, matching llama.cpp
 GP100 is the reason any of this exists: alone among Pascal chips it has no `DP4A` and has
 full-rate `HFMA2`. So llama.cpp's quantized matmul paths fall back to emulation and cuBLAS, while
 the one instruction the card is genuinely good at goes unused. The patches named `sm60` exploit
-that asymmetry — but only 9 of the 44 are gated to Pascal-era hardware. 34 are not
+that asymmetry — but only 10 of the 45 are gated to Pascal-era hardware. 34 are not
 hardware-scoped at all, and one (07) changes an unconditional constant every GPU sees.
 
 ## Apply
@@ -58,7 +58,43 @@ Every patch carries its measurement in the comments it adds to the source, and
 [docs/patches.md](docs/patches.md) is the index: per patch, the scope tag, the effect, the kill
 switch, what it changes about the output, and the alternatives that were tried and rejected.
 
-### Scripted - 2026-10-11, `v0.6.0`, 2x Tesla P100-PCIE-16GB
+### Scripted - 2026-10-12, `v0.6.0`, 45 patches, **this is what ships**
+
+The same four configurations, re-taken after the two defaults that changed this week: patch 49's
+Pascal gate is now on, and patch 50 (`cuda-graphs-pascal`) is new and on. Same box, same runner, 5
+rounds, arms interleaved with the order reversed on even rounds, both arms build line
+`d81235049 (11429)` = `v0.6.0`, nothing exported in the environment for either arm. `-fa on -t 28
+-ub 2048 -n 128`, `-p 512,2048` on the 27B and `-p 4096` on the 35B, cooled to 45 C between configs
+(40-61, 44-57, 44-54 and 44-52 C in table order).
+
+| Model | Split | pp t/s | | tg 128 t/s | | sd across rounds |
+|---|---|---:|---:|---:|---:|---:|
+| Qwen3.8-27B Q4_0 dense | `-sm tensor` | 382.53 → **419.46** | **+9.7%** | 23.27 → **33.63** | **+44.5%** | 0.02 / 0.01 |
+| Qwen3.8-27B Q4_0 dense | `-sm layer` | 221.28 → 223.60 | **+1.0%** | 15.27 → **21.01** | **+37.6%** | 0.00 / 0.01 |
+| Ornith-1.0-35B-A3B UD-Q4_K_M | `-sm tensor` | 1091.65 → **1169.88** | **+7.2%** | 57.88 → **78.38** | **+35.4%** | 3.11 / 0.05 |
+| Ornith-1.0-35B-A3B UD-Q4_K_M | `-sm layer` | 915.02 → **952.76** | **+4.1%** | 55.30 → **68.25** | **+23.4%** | 0.03 / 0.05 |
+
+Read three things into that against the section below it, which is the same box one day earlier:
+
+- **Prefill went from flat to positive on the tensor split** (27B `pp2048` −0.5% → +9.7%, 35B
+  −0.7% → +7.2%) and the 27B also gained at pp512 (229.83 → 242.88, +5.7%). That is patch 49's gate
+  being on by default, not a new effect — the AllReduce section below measured the same shift with
+  the variable exported.
+- **The tensor split is now faster on both models**, not just the dense one: 78.38 against 68.25
+  decode on the MoE, 1169.88 against 952.76 prefill. The layer recommendation in the older table was
+  an artefact of both arms using the host fallback.
+- **Patch 50 costs the MoE layer arm about 3.5%** (70.64 → 68.25 decode across the two days, of
+  which +12.5% went to tensor in the same build) and is worth +12.5% there. Measured against itself
+  in one binary, not across these tables — see
+  [`benchmarks/results/v0.6.0-p100x2-cuda-graphs.md`](benchmarks/results/v0.6.0-p100x2-cuda-graphs.md).
+
+Rows are in `benchmarks/results/` as `v0.6.0-p100x2-{tensor,layer}-{27b,35b}-g50.csv` with the
+`run.sh` table beside each. The softest number in the set is the 35B tensor stock arm: its decode
+sd is 3.11 t/s, the highest of any arm here, so that +35.4% carries a couple of points of slack.
+Perplexity on the shipped defaults is unchanged from the fallback paths it replaced (27B `-sm layer`
+5.2538, 35B `-sm tensor` 4.8859, both to four decimals).
+
+### Scripted - 2026-10-11, `v0.6.0`, 44 patches, internal AllReduce off in both arms
 
 Four configurations through `benchmarks/run.sh`, 5 rounds each, arms interleaved with the order
 reversed on even rounds. Both arms are build line `d81235049 (11429)` = `v0.6.0`: stock from a
@@ -96,7 +132,8 @@ Three things to read out of that table, and the middle one corrects a claim this
   expect the patches to help more on layer than on tensor.
 - **The MoE tensor gain is smaller than the hand-run number suggested**: +5.7% here against the +8.6%
   below. The stock arm moved, not the patched one (58.27 here against 56.23 there, with about 1 t/s of
-  spread on each), so the older figure was flattered by a slow control. Quote +5.7%.
+  spread on each), so the older figure was flattered by a slow control. Quote +5.7% **for that
+  build** — with the gate now on by default the same config reads +35.4%, in the shipped table above.
 
 An output-identity check (`-npl` or perplexity) is still missing beside all of this; throughput alone
 cannot tell a win from a different-but-still-correct answer. That gap is widest for patch 49, whose
@@ -221,7 +258,7 @@ are off by default behind an environment variable.
 ## Layout
 
 ```
-patches/            44 .patch files, applied in numeric order
+patches/            45 .patch files, applied in numeric order
 docs/patches.md     per-patch index: scope, effect, kill switch, output changes, dead ends
 docs/benchmarking.md  the measurement discipline this set needed - thermal control, noise floors,
                       why two microbenchmark-driven predictions were wrong

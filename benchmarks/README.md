@@ -30,12 +30,15 @@ reports whether each arm actually reached the internal path. Its output is
 which is also the evidence behind that flip. Perplexity is deterministic, so unlike `run.sh` it needs
 neither interleaving nor a cooling wait.
 
-[`results/v0.6.0-p100x2-cuda-graphs.md`](results/v0.6.0-p100x2-cuda-graphs.md) is a **rejected**
-candidate rather than a measurement of this set: it lowers the CUDA-graph architecture gate to sm_60
-(the one-line idea of llama.cpp#27721, one arch further than that PR goes) and finds 27B decode and
-35B-layer prefill 0.8-3% *slower* for one tensor-split MoE case 12% faster. It is kept because the
-negative is the useful part, and because it records how to A/B a change that has no environment
-switch: one build, two arms, the off arm reached through a wrapper that exports the kill variable.
+[`results/v0.6.0-p100x2-cuda-graphs.md`](results/v0.6.0-p100x2-cuda-graphs.md) is the record of a
+candidate that was rejected and then adopted on a second look: lowering the CUDA-graph architecture
+gate to sm_60 (one arch past where llama.cpp#27721 stops, which leaves GP100 gated out) measured
++12.2% on MoE tensor decode but -0.8 to -3% elsewhere, and the first pass called that a no. Re-run
+at the prompt shape the README reports it turned out the gain does not shrink with context on this
+card, the prefill loss was a short-prompt artefact, and the only real cost falls on a split this
+build already loses. It also has upstream's own per-run opt-out. So it shipped as patch 50, on by
+default. The file is worth reading for the method: one build, two arms, the off arm reached through
+a wrapper that exports the kill variable - the pattern to use when a change has no switch of its own.
 
 ## Run it
 
