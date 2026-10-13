@@ -35,7 +35,9 @@ git clone --branch b11601 https://github.com/ggml-org/llama.cpp
 cd llama.cpp
 
 # 3. apply in numeric order, stop at the first failure
+#    35 is parked at this ref (see docs/patches.md) - skipping it is expected, not a failure
 for p in ../llama-cpp-pascal-patches/patches/*.patch; do
+  case "${p##*/}" in 35-mmvq-mmid-batch-cap.patch) echo "SKIP $p (parked)"; continue;; esac
   patch -p1 -F0 < "$p" || { echo "FAILED: $p"; break; }
 done
 ```
