@@ -1,0 +1,19 @@
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+index 3e8520823..4d0d7c2a9 100644
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -5097,7 +5097,13 @@ static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, co
+     ggml_cuda_graph * graph = cuda_ctx->cuda_graph(graph_key);
+ 
+     if (graph->graph == nullptr) {
+-        if (ggml_cuda_info().devices[cuda_ctx->device].cc < GGML_CUDA_CC_VOLTA) {
++        // Upstream gates graphs at Volta on a 2024 regression measured on a P40, which is sm_61 - sm_60
++        // was never in that measurement.  Measured on 2x P100, one build, 5 interleaved rounds at
++        // -p 4096 -n 128: MoE -sm tensor decode +12.5% (78.33 vs 69.65 t/s), its prefill flat
++        // (-0.15%), dense -sm tensor decode -0.9%, MoE -sm layer decode -3.5%.  Wikitext-2 PPL is the
++        // same to 4 decimals either way, so this is launch overhead only.  Escape hatch:
++        // GGML_CUDA_DISABLE_GRAPHS=1, upstream's own, no rebuild needed.
++        if (ggml_cuda_info().devices[cuda_ctx->device].cc < GGML_CUDA_CC_PASCAL) {
+             if (!graph->disable_due_to_gpu_arch) {
+                 GGML_LOG_DEBUG("%s: disabling CUDA graphs due to GPU architecture\n", __func__);
+             }
