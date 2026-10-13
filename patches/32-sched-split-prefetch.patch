@@ -1,11 +1,11 @@
 diff --git a/ggml/src/ggml-backend.cpp b/ggml/src/ggml-backend.cpp
-index eb5e47f1b..21e9188e4 100644
+index 3c812d422..467cf910d 100644
 --- a/ggml/src/ggml-backend.cpp
 +++ b/ggml/src/ggml-backend.cpp
 @@ -976,6 +976,13 @@ struct ggml_backend_sched {
+     size_t context_buffer_size;
  
-     int debug;
- 
+     bool op_offload;
 +    // run the GPU work that the next CPU split does not need while the CPU computes [LLAMA_SCHED_PREFETCH]
 +    int prefetch;
 +    ggml_backend_event_t prefetch_event[GGML_SCHED_MAX_BACKENDS];
@@ -13,10 +13,10 @@ index eb5e47f1b..21e9188e4 100644
 +    int n_prefetched;
 +    int prefetched_capacity;
 +    int prefetch_backend_id;
-     // used for debugging graph reallocations [GGML_SCHED_DEBUG_REALLOC]
-     // ref: https://github.com/ggml-org/llama.cpp/pull/17617
-     int debug_realloc;
-@@ -1850,11 +1857,27 @@ static void ggml_backend_sched_copy_input(ggml_backend_sched_t sched, struct ggm
+ 
+     int debug;
+ 
+@@ -1862,11 +1869,27 @@ static void ggml_backend_sched_copy_input(ggml_backend_sched_t sched, struct ggm
      }
  }
  
@@ -44,7 +44,7 @@ index eb5e47f1b..21e9188e4 100644
  
      for (int split_id = 0; split_id < sched->n_splits; split_id++) {
          struct ggml_backend_sched_split * split = &splits[split_id];
-@@ -1871,23 +1894,88 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
+@@ -1883,23 +1906,88 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
              }
          }
  
@@ -136,7 +136,7 @@ index eb5e47f1b..21e9188e4 100644
              }
          } else {
              // similar to ggml_backend_compare_graph_backend
-@@ -2004,6 +2092,14 @@ ggml_backend_sched_t ggml_backend_sched_new(
+@@ -2016,6 +2104,14 @@ ggml_backend_sched_t ggml_backend_sched_new(
          }
      }
  
@@ -151,7 +151,7 @@ index eb5e47f1b..21e9188e4 100644
      sched->galloc = ggml_gallocr_new_n(sched->bufts, n_backends);
      sched->op_offload = op_offload;
  
-@@ -2020,10 +2116,12 @@ void ggml_backend_sched_free(ggml_backend_sched_t sched) {
+@@ -2032,10 +2128,12 @@ void ggml_backend_sched_free(ggml_backend_sched_t sched) {
          for (int c = 0; c < sched->n_copies; c++) {
              ggml_backend_event_free(sched->events[b][c]);
          }

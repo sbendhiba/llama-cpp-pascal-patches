@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/concat.cu b/ggml/src/ggml-cuda/concat.cu
-index 6e834ddbc..8149a1962 100644
+index 7772825ea..05f83dbb5 100644
 --- a/ggml/src/ggml-cuda/concat.cu
 +++ b/ggml/src/ggml-cuda/concat.cu
 @@ -211,8 +211,265 @@ static __global__ void __launch_bounds__(CUDA_CONCAT_BLOCK_SIZE)
@@ -269,7 +269,7 @@ index 6e834ddbc..8149a1962 100644
      if (dim != 3 && ggml_is_contiguous_to_3(src0) && ggml_is_contiguous_to_3(src1)) {
          const T * src0_d = (const T *) src0->data;
          const T * src1_d = (const T *) src1->data;
-@@ -316,6 +573,21 @@ void ggml_cuda_op_concat(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
+@@ -315,6 +572,21 @@ void ggml_cuda_op_concat(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
  
      const int32_t dim = ((int32_t *) dst->op_params)[0];
  
@@ -291,7 +291,7 @@ index 6e834ddbc..8149a1962 100644
      GGML_ASSERT(src0->type == src1->type);
      GGML_ASSERT(dst->type  == src0->type);
  
-@@ -331,6 +603,7 @@ void ggml_cuda_op_concat(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
+@@ -330,6 +602,7 @@ void ggml_cuda_op_concat(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
          GGML_ASSERT(src1->ne[0] % ggml_blck_size(src1->type) == 0);
  
          // if first 3 dimensions are contiguous and ne[0] is multiple of the block size we can concat both tensors as byte tensors
@@ -299,7 +299,7 @@ index 6e834ddbc..8149a1962 100644
          concat_cuda<uint8_t>(src0, src1, dst, dim, stream);
      } else {
          GGML_ASSERT(ggml_blck_size(src0->type) == 1);
-@@ -343,7 +616,7 @@ void ggml_cuda_op_concat(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
+@@ -342,7 +615,7 @@ void ggml_cuda_op_concat(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
                  concat_cuda<uint16_t>(src0, src1, dst, dim, stream);
                  break;
              case 4:
@@ -330,10 +330,10 @@ index aa506a05f..436985623 100644
 +
  void ggml_cuda_op_concat(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 786f596d5..b2b3595d3 100644
+index f8cde6ec5..7277b0b04 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -3817,6 +3817,55 @@ static bool ggml_cuda_node_reads(const ggml_tensor * n, const ggml_tensor * t) {
+@@ -3868,6 +3868,55 @@ static bool ggml_cuda_node_reads(const ggml_tensor * n, const ggml_tensor * t) {
      return false;
  }
  
@@ -389,7 +389,7 @@ index 786f596d5..b2b3595d3 100644
  // If the deferred GET_ROWS belongs to this gdn, build the fold description for it
  static bool ggml_cuda_take_deferred_gather(ggml_backend_cuda_context * cuda_ctx, const ggml_tensor * gdn,
                                             ggml_cuda_gated_delta_net_fused_gather & out) {
-@@ -3914,38 +3963,52 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -3964,38 +4013,52 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
                      break;      // something reads it before gdn does, so it cannot be deferred
                  }
              }

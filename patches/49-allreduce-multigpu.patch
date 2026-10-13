@@ -655,7 +655,7 @@ index 39b23bed7..96ab5afc3 100644
  
                  if (last_chunk) {
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index b74065d7b..a644aded7 100644
+index bbb9b24f1..f277a2a7d 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -1122,7 +1122,7 @@ static bool ggml_backend_cuda_comm_allreduce_internal(

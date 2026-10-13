@@ -4,6 +4,12 @@
 measured on Tesla P100 (GP100, `sm_60`). Generated against llama.cpp **`b11539`** (`10a60cf30`);
 the `v0.6.0` set is tagged `v0.6.0` in this repo.
 
+**Status of this `b11601` branch:** 41 of its 42 patches are regenerated against llama.cpp **`b11601`**
+(`ec0bfac17`) and verified to apply in numeric order at zero fuzz and zero offset. It has **not** been
+compiled or benchmarked at this ref, so every number below is inherited from `v0.6.0`/`b11539` and
+belongs to those builds, not to this one. Patch 35 is parked, and the porting notes (including one
+deliberate divergence in patch 22) are at the top of [`docs/patches.md`](docs/patches.md).
+
 Unofficial, and unaffiliated with the llama.cpp project. MIT, matching llama.cpp.
 
 GP100 is the reason any of this exists: alone among Pascal chips it has no `DP4A` and has
@@ -21,11 +27,11 @@ lists them, e.g. `v0.6.0`); llama.cpp prereleases and work in progress are branc
 # 1. the patch set, at the ref you are building against
 git clone https://github.com/sbendhiba/llama-cpp-pascal-patches
 cd llama-cpp-pascal-patches
-git checkout b11539        # a released ref would be: git checkout v0.6.0
+git checkout b11601        # a released ref would be: git checkout v0.6.0
 cd ..
 
 # 2. llama.cpp at that same ref
-git clone --branch b11539 https://github.com/ggml-org/llama.cpp
+git clone --branch b11601 https://github.com/ggml-org/llama.cpp
 cd llama.cpp
 
 # 3. apply in numeric order, stop at the first failure
@@ -143,7 +149,7 @@ are off by default behind an environment variable.
 ## Layout
 
 ```
-patches/            39 .patch files, applied in numeric order
+patches/            42 .patch files, applied in numeric order (41 ported to this ref, 35 parked)
 docs/patches.md     per-patch index: scope, effect, kill switch, output changes, dead ends
 docs/benchmarking.md  the measurement discipline this set needed - thermal control, noise floors,
                       why two microbenchmark-driven predictions were wrong

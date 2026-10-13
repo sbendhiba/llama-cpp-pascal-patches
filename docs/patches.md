@@ -4,21 +4,33 @@
 numbering. Order matters: several touch the same files, and later ones build
 on earlier ones. The tag is recorded once, in the top-level README.
 
-**This branch targets llama.cpp `b11601` (`ec0bfac17`) and the port is not finished.** 32 of the 42
-are regenerated against `b11601` and apply there at zero fuzz and zero offset. The other 10 are still
-the text written for `v0.6.0`/`b11539` and do not apply to `b11601` - applying this set to that build
-stops at patch 22. The parked list, with the upstream change that moved under each one:
+**This branch targets llama.cpp `b11601` (`ec0bfac17`).** 41 of the 42 patches are regenerated against
+it and verified in numeric order at zero fuzz and zero offset, against a clean room identical to the
+reviewed tree, with all 285 identifiers they reference resolving. One is parked. Nothing here is
+compiled or measured yet - see the note at the end of this section.
 
-| parked | why it does not land |
+| parked | why |
 |---|---|
-| 22 `decode-sched-slots` | upstream extracted `llama_context::sched_new()` out of `sched_reserve()` and added a `sched_realloc_callback`; the slot-creation block and the pipeline-parallel retry it hooks are both in the old shape |
-| 24 `fuse-gdn-state-gather`, 25 `gdn-gather-single-snapshot`, 27 `fuse-concat-gather` | the fusion rules and the GDN gather live in the `compute_forward`/`ggml_cuda_compute_forward` region that `b11539..b11601` rewrote in `ggml-cuda.cu` (129 lines) |
-| 32 `sched-split-prefetch`, 33 `sched-weight-prefetch` | 32's hook moved in `ggml-backend.cpp`; 33 is layered on 32's helper, so its 4 failing hunks are partly inherited and the two must be placed together |
-| 35 `mmvq-mmid-batch-cap` | the `mul_mat_id` dispatch hunk; note upstream `1623d8ce4` ("always use MMVQ for MUL_MAT_ID on sm_60") is now in range, so 35 and 08 need re-judging, not just re-anchoring |
-| 42 `qwen4exp-hc-exact` | `src/models/qwen4exp.cpp` and `models.h` changed (+38/+17 lines) with new model support landing in the same file |
-| 50 `cuda-graphs-pascal` | the arch gate sits in the env-handling block `f851e244d` ("add GGML_CUDA_GRAPH_DEBUG and read env vars once") rewrote |
-| 51 `cublas-algo-prefill-pascal` | the single-matrix `cublasGemmEx` branch it hooks moved within `ggml_cuda_mul_mat_cublas_impl` |
+| 35 `mmvq-mmid-batch-cap` | one hunk moved, but the reason to stop is upstream `1623d8ce4` ("always use MMVQ for MUL_MAT_ID on sm_60"), now in range: `get_mmvq_mmid_max_batch` returns `MMVQ_MAX_BATCH_SIZE` for `GGML_CUDA_CC_PASCAL`, which is what patch 08 exists to achieve. So 08 is a probable no-op at this ref and 35's override has to be re-judged against it. The `b11539` notes flagged both for exactly this moment. Neither was deleted on evidence, only paused |
 
+How the rest went matters for reading these diffs. 25, 27 and 33 failed on the first sweep and were not
+conflicts at all - they sit on code that 24, 25 and 32 had not been given yet, and each landed at zero
+fuzz once its predecessor was committed. Four needed a person rather than a tool: 24's
+`GGML_CUDA_FUSE_DEFERRED` block (insert-only hunk, trailing context moved), 42's `hc_fold()` call (the
+line after it became upstream's new `ASSERT_EMBD_OR_TOKEN`), 50's arch gate (now sits above upstream's
+new `ggml_cuda_graph_debug_enabled()` condition), and 51 - upstream replaced the literal `ne0` with a
+named `ldc` **in the middle** of the hunk, where fuzz cannot reach, so porting our text verbatim would
+have silently reverted an upstream fix. `GGML_CUDA_DISABLE_GRAPHS` still exists at this ref
+(`common.cuh`, now read once), so that escape-hatch claim survives the port.
+
+22 `decode-sched-slots` was re-authored: upstream split `llama_context::sched_new()` out of
+`sched_reserve()` and gave the scheduler a `sched_realloc_callback`, so the slot block now follows
+`sched_new(max_nodes, cparams.pipeline_parallel)` and the pipeline-parallel retry hook follows the
+`sched_new(max_nodes, false)` inside the allocation retry. **One deliberate divergence:** upstream's
+`sched_new()` sets both a copy callback and the new realloc callback on the main scheduler, and the
+ported slots set neither, exactly as the `v0.6.0` patch did. Mirroring them would be a behaviour change
+nobody has measured here, so it is recorded rather than assumed - and it is the first thing to look at
+if decode graphs misbehave on this ref.
 Nothing on this branch is measured yet. A ported patch is only worth its number on this hardware once
 it has been compiled at `sm_60` and benchmarked against the `v0.6.0` line, and no default inherited
 from `main` (patch 49's gate and H2D stream, 50's graphs, 51's algorithm) is claimed here until it is
