@@ -1,8 +1,8 @@
 # The patches
 
-45 patches, grouped by scope below; the application order is the file
+46 patches, grouped by scope below; the application order is the file
 numbering. Order matters: several touch the same files, and later ones build
-on earlier ones. All 45 are generated against llama.cpp `v0.6.0`, where they
+on earlier ones. All 46 are generated against llama.cpp `v0.6.0`, where they
 apply at zero fuzz and zero offset (the tag is recorded once, in the top-level README).
 
 Patch 43 `fuse-hc-combine` was deleted at `v0.5.0`. Upstream added dedicated
@@ -48,7 +48,7 @@ of its own.
 
 Every patch carries its full reasoning — including the measurements that
 justify it and the alternatives that were tried and rejected — in the comments
-it adds to the source. This page is the index. Patches 32–50 are the exception:
+it adds to the source. This page is the index. Patches 32–51 are the exception:
 their measurements live on this page rather than in the source.
 
 **Scope** classifies who benefits:
@@ -443,6 +443,35 @@ three rounds on one MoE is not a stress test of graph capture against cross-stre
 
 Provenance, raw rounds and the rejected-first-pass story:
 [`v0.6.0-p100x2-cuda-graphs.md`](../benchmarks/results/v0.6.0-p100x2-cuda-graphs.md).
+
+### 51 · `cublas-algo-prefill-pascal` — `sm_60`
+
+The single-matrix `cublasGemmEx` call every prefill matmul of a quantized weight lands on, gated to
+`CUBLAS_COMPUTE_16F` on GP100 only, asks cuBLAS for `CUBLAS_GEMM_ALGO6` instead of
+`CUBLAS_GEMM_DEFAULT_TENSOR_OP`. `GGML_CUDA_CUBLAS_ALGO_PASCAL` picks the number by name and `-1`
+restores upstream's choice. ALGO7 and above are unsupported for `COMPUTE_16F`, so the parser caps at
+6, and any failure retries with the default.
+
+Why: on this card the `COMPUTE_16F` algorithms come in two accuracy families — ALGO1-3 accumulate
+each output in one long fp16 chain, ALGO4-6 in blocks — and the default selects a long chain from
+~256 rows up. Blocked accumulation is more accurate and, at 512-1024 rows, also the faster kernel.
+llama.cpp routes GP100 here because `fast_fp16_hardware_available(600)` is true and sm_60 is not in
+`prefer_f32_output`, so this is on the path for every quantized weight at prefill width.
+
+Measured on 2x P100 with Qwen3.8-27B Q4_0, one build, `GGML_CUDA_CUBLAS_ALGO_PASCAL=-1` as the off
+arm, 5 interleaved rounds: **pp512 242.92 → 369.04 t/s (+51.9%), pp1024 306.73 → 396.02 (+29.1%)**,
+pp2048 −0.8%, tg128 −0.1% (decode is a one-row matvec that never reaches this call). On the 35B MoE
+at pp4096 everything is within 0.6%. Wikitext-2 over 81,920 tokens: **PPL 6.2785 with the default
+algo, 6.2658 with ALGO6, 6.2645 for an all-fp32 matmul reference** — ALGO6 is 10.8× closer to fp32
+than what it replaces, moving toward the reference rather than away from it.
+
+On by default, because it is faster where it differs at all and strictly closer to fp32 where it
+does not. Ported from `fccdafca1` in [Kmic-68/llama.cpp](https://github.com/Kmic-68/llama.cpp/tree/p100-optimizations)
+(their OPTLOG attempt 153, on Q6_K); our numbers above are a different model and quantization. Their
+`ALGO5` was the same accuracy 2.5-3.5% slower, and they reverted an `ALGO3` request for wide GEMMs
+with the note that it "reassociated with no precision argument behind it" — which is the standard
+this patch is written to. Full method and limits:
+[`v0.6.0-p100x2-cublas-algo.md`](../benchmarks/results/v0.6.0-p100x2-cublas-algo.md).
 
 ## Architecture-independent CUDA
 

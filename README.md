@@ -1,6 +1,6 @@
 # llama-cpp-pascal-patches
 
-45 performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
+46 performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
 measured on Tesla P100 (GP100, `sm_60`). Generated against llama.cpp **`v0.6.0`**, tagged `v0.6.0`
 here. The `b11539` branch trails a llama.cpp prerelease and has **not been measured on a card**;
 this branch is the one to use unless you are chasing that specific build.
@@ -10,7 +10,7 @@ Unofficial, and unaffiliated with the llama.cpp project. MIT, matching llama.cpp
 GP100 is the reason any of this exists: alone among Pascal chips it has no `DP4A` and has
 full-rate `HFMA2`. So llama.cpp's quantized matmul paths fall back to emulation and cuBLAS, while
 the one instruction the card is genuinely good at goes unused. The patches named `sm60` exploit
-that asymmetry — but only 10 of the 45 are gated to Pascal-era hardware. 34 are not
+that asymmetry — but only 11 of the 46 are gated to Pascal-era hardware. 34 are not
 hardware-scoped at all, and one (07) changes an unconditional constant every GPU sees.
 
 ## Apply
@@ -93,6 +93,16 @@ Rows are in `benchmarks/results/` as `v0.6.0-p100x2-{tensor,layer}-{27b,35b}-g50
 sd is 3.11 t/s, the highest of any arm here, so that +35.4% carries a couple of points of slack.
 Perplexity on the shipped defaults is unchanged from the fallback paths it replaced (27B `-sm layer`
 5.2538, 35B `-sm tensor` 4.8859, both to four decimals).
+
+**2026-10-13, one more default.** Patch 51 asks cuBLAS for a blocked-accumulation algorithm on GP100
+and changes nothing else about how this set runs. Measured inside one build (`GGML_CUDA_CUBLAS_ALGO_PASCAL=-1`
+as the off arm, 5 interleaved rounds): 27B `-sm tensor` **pp512 +51.9%, pp1024 +29.1%**, pp2048 and
+decode level, MoE at pp4096 within 0.6%. The `pp` columns above are therefore pre-51 for short and
+medium prompts — a fresh stock-vs-shipped run at those shapes is owed, and until then quote the
+percentages from patch 51's own row rather than recomputing them from these tables. Perplexity over
+81,920 tokens says it is also the more accurate choice: 6.2785 with upstream's algorithm, 6.2658 with
+ALGO6, 6.2645 for all-fp32 matmuls, i.e. ten times closer to fp32. Method and limits:
+[`benchmarks/results/v0.6.0-p100x2-cublas-algo.md`](benchmarks/results/v0.6.0-p100x2-cublas-algo.md).
 
 ### Scripted - 2026-10-11, `v0.6.0`, 44 patches, internal AllReduce off in both arms
 
@@ -258,7 +268,7 @@ are off by default behind an environment variable.
 ## Layout
 
 ```
-patches/            45 .patch files, applied in numeric order
+patches/            46 .patch files, applied in numeric order
 docs/patches.md     per-patch index: scope, effect, kill switch, output changes, dead ends
 docs/benchmarking.md  the measurement discipline this set needed - thermal control, noise floors,
                       why two microbenchmark-driven predictions were wrong
@@ -305,6 +315,11 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
   reduction N-way rewrites both kernels, and that rewrite runs at two cards too, where it is meant to
   be arithmetic-identical (`w0 + w1` is what `own + peer` already was). It was re-taken to prove that:
   30.14 → 30.07 and 70.64 → 70.66 decode against the pre-merge build.
+- Patch **51 `cublas-algo-prefill-pascal` is ported too**, from
+  [Kmic-68/llama.cpp](https://github.com/Kmic-68/llama.cpp/tree/p100-optimizations) (an
+  independently developed P100 fork, MIT), not from qr0n. It is on by default and reversible with
+  `GGML_CUDA_CUBLAS_ALGO_PASCAL=-1`. That fork is the source of the next few candidates, and its
+  numbers are its own model and quantization until we re-measure them here.
 - Nothing in this repo compiles the CUDA sources. Applying cleanly is not the same as building, and
   building is not the same as measuring. The `v0.6.0` patched tree *has* been built and run on a P100
   box - that is what every scripted row above is - but `test-backend-ops` has never been run against

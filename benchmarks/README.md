@@ -30,6 +30,14 @@ reports whether each arm actually reached the internal path. Its output is
 which is also the evidence behind that flip. Perplexity is deterministic, so unlike `run.sh` it needs
 neither interleaving nor a cooling wait.
 
+[`results/v0.6.0-p100x2-cublas-algo.md`](results/v0.6.0-p100x2-cublas-algo.md) is the same
+wrapper-arm pattern applied to a cuBLAS algorithm choice, and the first A/B here that carried an
+accuracy leg with a reference arm: three `llama-perplexity` runs over the same 81,920 tokens, where
+the third (`GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32`) is not a candidate but the fp32 ground truth the
+other two get scored against. Use that shape — candidate, incumbent, reference — whenever a change
+plausibly moves accuracy as well as speed, because a two-arm table cannot tell "closer to correct"
+from "merely different".
+
 [`results/v0.6.0-p100x2-cuda-graphs.md`](results/v0.6.0-p100x2-cuda-graphs.md) is the record of a
 candidate that was rejected and then adopted on a second look: lowering the CUDA-graph architecture
 gate to sm_60 (one arch past where llama.cpp#27721 stops, which leaves GP100 gated out) measured
