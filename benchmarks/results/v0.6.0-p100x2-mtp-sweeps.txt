@@ -1,0 +1,47 @@
+rep1 w0 Generation: 34.1 t/s
+rep1 w1 Generation: 45.6 t/s
+rep1 w2 Generation: 48.3 t/s
+rep1 w3 Generation: 42.1 t/s
+rep1 w4 Generation: 40.4 t/s
+rep1 w5 Generation: 35.9 t/s
+rep2 w0 Generation: 34.2 t/s
+rep2 w1 Generation: 45.6 t/s
+rep2 w2 Generation: 48.0 t/s
+rep2 w3 Generation: 42.0 t/s
+rep2 w4 Generation: 40.3 t/s
+rep2 w5 Generation: 35.6 t/s
+rep3 w0 Generation: 34.2 t/s
+rep3 w1 Generation: 45.5 t/s
+rep3 w2 Generation: 48.1 t/s
+rep3 w3 Generation: 41.8 t/s
+rep3 w4 Generation: 40.0 t/s
+rep3 w5 Generation: 35.5 t/s
+SWEEPDONE
+rep1 w2 pmin0 Generation: 48.2 t/s
+rep1 w2 pmin0.2 Generation: 48.2 t/s
+rep1 w2 pmin0.5 Generation: 34.6 t/s
+rep1 w3 pmin0 Generation: 42.0 t/s
+rep1 w3 pmin0.2 Generation: 42.0 t/s
+rep1 w3 pmin0.5 Generation: 29.6 t/s
+rep1 w5 pmin0 Generation: 35.7 t/s
+rep1 w5 pmin0.2 Generation: 34.1 t/s
+rep1 w5 pmin0.5 Generation: 24.4 t/s
+rep2 w2 pmin0 Generation: 48.0 t/s
+rep2 w2 pmin0.2 Generation: 47.7 t/s
+rep2 w2 pmin0.5 Generation: 34.6 t/s
+rep2 w3 pmin0 Generation: 41.6 t/s
+rep2 w3 pmin0.2 Generation: 41.6 t/s
+rep2 w3 pmin0.5 Generation: 29.4 t/s
+rep2 w5 pmin0 Generation: 35.4 t/s
+rep2 w5 pmin0.2 Generation: 33.8 t/s
+rep2 w5 pmin0.5 Generation: 24.4 t/s
+rep3 w2 pmin0 Generation: 47.7 t/s
+rep3 w2 pmin0.2 Generation: 47.7 t/s
+rep3 w2 pmin0.5 Generation: 34.5 t/s
+rep3 w3 pmin0 Generation: 41.6 t/s
+rep3 w3 pmin0.2 Generation: 41.6 t/s
+rep3 w3 pmin0.5 Generation: 29.6 t/s
+rep3 w5 pmin0 Generation: 35.3 t/s
+rep3 w5 pmin0.2 Generation: 33.9 t/s
+rep3 w5 pmin0.5 Generation: 24.4 t/s
+PADDONE

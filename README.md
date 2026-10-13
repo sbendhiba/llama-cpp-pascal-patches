@@ -109,8 +109,14 @@ survives on `-sm layer` too (+41.4%, where no AllReduce runs at all), so it is p
 prefill columns are stale at short prompts on every quantization — a full re-take is owed, not another
 footnote. Decode also ranks by quantization there (34.58 / 33.63 / 28.79 t/s for Q4_1 / Q4_0 / Q4_K_M),
 with Q4_K the slowest and the obvious target for the per-type matvec work still on the list. The file
-also records the first MTP run on this build: the built-in nextn head is worth **+31%** at
-`--spec-draft-n-max 2` and only +9% at n-max 4.
+also records the first MTP runs on this build, and they changed the plan: the built-in nextn head is
+worth **+40.9%** at `--spec-draft-n-max 2` but the build's own default of 3 gives up 13% of that,
+so `--spec-draft-n-max 2` is the flag to use. Porting the source fork's speculative-decoding work
+turned out to be unnecessary — sampled drafts, the lossless rejection rule, `p_min` draft stopping
+and the K/V catch-up are all already in `v0.6.0`, and the one thing missing (a fixed-width padded
+verify) makes variable draft widths cheap on a build where the widths are already fixed. Measured,
+not assumed: a probability stop here is neutral at 2-3 drafts and **−4.3%** at 5.
+[`benchmarks/results/v0.6.0-p100x2-mtp-width.md`](benchmarks/results/v0.6.0-p100x2-mtp-width.md).
 [`benchmarks/results/v0.6.0-p100x2-baseline-q41-q4km.md`](benchmarks/results/v0.6.0-p100x2-baseline-q41-q4km.md).
 
 ### Scripted - 2026-10-11, `v0.6.0`, 44 patches, internal AllReduce off in both arms
