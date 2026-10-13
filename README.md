@@ -97,12 +97,21 @@ Perplexity on the shipped defaults is unchanged from the fallback paths it repla
 **2026-10-13, one more default.** Patch 51 asks cuBLAS for a blocked-accumulation algorithm on GP100
 and changes nothing else about how this set runs. Measured inside one build (`GGML_CUDA_CUBLAS_ALGO_PASCAL=-1`
 as the off arm, 5 interleaved rounds): 27B `-sm tensor` **pp512 +51.9%, pp1024 +29.1%**, pp2048 and
-decode level, MoE at pp4096 within 0.6%. The `pp` columns above are therefore pre-51 for short and
-medium prompts — a fresh stock-vs-shipped run at those shapes is owed, and until then quote the
-percentages from patch 51's own row rather than recomputing them from these tables. Perplexity over
-81,920 tokens says it is also the more accurate choice: 6.2785 with upstream's algorithm, 6.2658 with
-ALGO6, 6.2645 for all-fp32 matmuls, i.e. ten times closer to fp32. Method and limits:
+decode level, MoE at pp4096 within 0.6%. Perplexity over 81,920 tokens says it is also the more
+accurate choice: 6.2785 with upstream's algorithm, 6.2658 with ALGO6, 6.2645 for all-fp32 matmuls —
+ten times closer to fp32. Method and limits:
 [`benchmarks/results/v0.6.0-p100x2-cublas-algo.md`](benchmarks/results/v0.6.0-p100x2-cublas-algo.md).
+
+Two more quantizations of the same 27B were baselined the same day, and they make the staleness of the
+table above explicit rather than theoretical: on **Q4_1** the patched arm is **+64.2% pp512, +8.3%
+pp2048, +40.0% tg128** under `-sm tensor`, and on **UD-Q4_K_M** +58.9% / +7.9% / +41.9%. The pp512 gain
+survives on `-sm layer` too (+41.4%, where no AllReduce runs at all), so it is patch 51 and the table's
+prefill columns are stale at short prompts on every quantization — a full re-take is owed, not another
+footnote. Decode also ranks by quantization there (34.58 / 33.63 / 28.79 t/s for Q4_1 / Q4_0 / Q4_K_M),
+with Q4_K the slowest and the obvious target for the per-type matvec work still on the list. The file
+also records the first MTP run on this build: the built-in nextn head is worth **+31%** at
+`--spec-draft-n-max 2` and only +9% at n-max 4.
+[`benchmarks/results/v0.6.0-p100x2-baseline-q41-q4km.md`](benchmarks/results/v0.6.0-p100x2-baseline-q41-q4km.md).
 
 ### Scripted - 2026-10-11, `v0.6.0`, 44 patches, internal AllReduce off in both arms
 
