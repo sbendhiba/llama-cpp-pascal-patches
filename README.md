@@ -128,11 +128,36 @@ heuristic is already at its optimum. The blocker is a CUDA primitive, not an amo
 overlap needs the host-enqueued AllReduce to wait on an event recorded *inside* a captured prefill
 subgraph, and on sm_60 under CUDA 12.4 an ordinary stream cannot: `cudaEventRecord` during capture
 leaves no event node and the external wait is rejected outright, while a record node appended to the
-graph is accepted and does not synchronise at all. **Not ported.** Same session, first time the two
-increments inside patch 49 have been separated: the H2D stream alone is **+3.47% pp2048, +0.00%
-tg128**, still off by default, and its gate for flipping is `test-backend-ops` plus perplexity rather
-than that number. [`benchmarks/results/v0.6.0-p100x2-exchange-cost.md`](benchmarks/results/v0.6.0-p100x2-exchange-cost.md),
+graph is accepted and does not synchronise at all. **Not ported.**
+[`benchmarks/results/v0.6.0-p100x2-exchange-cost.md`](benchmarks/results/v0.6.0-p100x2-exchange-cost.md),
 probe source in [`benchmarks/tools/graph-event-wait.cu`](benchmarks/tools/graph-event-wait.cu).
+
+That session then separated the two increments inside patch 49 for the first time and shipped the
+cheap one. `GGML_CUDA_AR_H2D_STREAM` — stage 2's host-to-device copy on its own stream, so the second
+copy engine overlaps the next device-to-host chunk — is worth **+3.47% pp2048 and +0.00% tg128** on
+its own, measured as four interleaved arms on one binary. It is **on by default** now, `=0` opts out.
+A throughput row cannot tell "faster" from "different-and-wrong" and this patch changes
+synchronisation rather than arithmetic, so the gate was three comparisons of the stream arm against
+the arm it replaces, same binary: paired perplexity identical to the last digit at both ubatches
+(5.2281 / 5.2322), nine repeat runs — including an arm with the chunk size forced to its 256 KB floor
+to multiply the cross-stream edges — all returning the same number, and a new **logit-level** check
+([`benchmarks/logit-identity.sh`](benchmarks/logit-identity.sh)) scoring `--kl-divergence` of the
+stream arm against the default arm's exported logits: **maximum KLD 0.000000**, bit-identical at every
+position. The same test puts the *fallback* reduction at mean KLD 0.000093 / max 0.001835, so the
+difference in summation order that does exist between reductions is now measured instead of argued.
+Raw rows: [`…-ppl-46patch.txt`](benchmarks/results/v0.6.0-p100x2-ppl-46patch.txt),
+[`…-logit-identity.txt`](benchmarks/results/v0.6.0-p100x2-logit-identity.txt),
+[`…-h2d-default.csv`](benchmarks/results/v0.6.0-p100x2-h2d-default.csv).
+
+The third candidate, `a8b274ea6` (hash the meta split-state cache, pool the per-depth source states,
+`GGML_BACKEND_META_MAX_DEVICES` 16 -> 8), was built and measured on the card and is **not shipped**.
+Timed from inside `ggml_backend_meta_graph_compute` on the 27B tensor split, the rebuild block it
+optimises costs **14.0 ms** per shape change and the patch brings that to **6.2 ms** — their own
+14-23 ms figure reproduces, and so does the halving. But the call that contains it averages 1374 ms
+per ubatch, because the meta backend's `graph_compute` spans the GPU work it dispatches, so 8 ms is
+0.6% of one ubatch and nothing at all in a throughput row, which llama-bench takes after warmup has
+already paid the rebuild. Not worth a patch that resizes a struct in a public header. Diff kept at
+`work-rebase/diag/C.lf.diff`, with the timing instrumentation beside it.
 
 ### Scripted - 2026-10-11, `v0.6.0`, 44 patches, internal AllReduce off in both arms
 
@@ -210,10 +235,15 @@ Three things follow from it, and each changes something written elsewhere in thi
   has not yet been separated from it. On the MoE the same comparison crosses sessions (70.90 against
   the published 61.60 tensor decode, +15.1%), which is defensible only because the two stock arms
   agree to within 0.3% — it is not an interleaved result.
-- **None of it is a correctness result.** With the gate on, the reduction genuinely is a different
-  one than the fallback's: no `-npl`, no perplexity, no token-level comparison exists beside these
-  rows. Patch 50's history is the warning to take seriously — upstream's first attempt at exactly
-  this stream split measured "just as fast" and returned perplexity **7.68 instead of 3.53**.
+- **None of it was, at the time, a correctness result.** With the gate on, the reduction genuinely is
+  a different one than the fallback's, and when these rows were taken there was no perplexity and no
+  logit-level number beside them. Patch 50's history is the warning that made that unacceptable —
+  upstream's first attempt at exactly this stream split measured "just as fast" and returned
+  perplexity **7.68 instead of 3.53**. Both checks now exist for this patch:
+  [`benchmarks/results/v0.6.0-p100x2-tensor-27b-perplexity.md`](benchmarks/results/v0.6.0-p100x2-tensor-27b-perplexity.md)
+  and, since 2026-10-13,
+  [`benchmarks/results/v0.6.0-p100x2-logit-identity.txt`](benchmarks/results/v0.6.0-p100x2-logit-identity.txt)
+  — the fallback reduction sits at mean KLD 0.000093 / maximum 0.001835 against the internal path.
 
 The patched arm ran warmer than stock inside these sessions (52-62 C against 44-62 C), so the
 gains are if anything understated. Provenance per row in
@@ -224,8 +254,9 @@ and
 N-GPU port were folded into one, which is how the merge was shown to be free at two cards: 30.14 →
 30.07 and 70.64 → 70.66 decode, with both arms of the 27B drifting the same way.
 
-**The Pascal gate is now on by default**, so a pre-Volta tensor split gets that table without being
-asked; `GGML_CUDA_AR_H2D_STREAM` and `GGML_CUDA_AR_NGPU` are still off. The gate is the one patch in
+**The Pascal gate is on by default**, so a pre-Volta tensor split gets that table without being
+asked; since 2026-10-13 the H2D stream is on by default too, and `GGML_CUDA_AR_NGPU` is the only
+variable still off. The gate is the one part of
 this set that is not output-neutral, so the flip was made on
 [`benchmarks/results/v0.6.0-p100x2-tensor-27b-perplexity.md`](benchmarks/results/v0.6.0-p100x2-tensor-27b-perplexity.md):
 wikitext-2 on the 27B, one binary, four arms — internal 5.2524 / 5.2487, fallback 5.2360 / 5.2603,
@@ -332,16 +363,18 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
 - Patch **49 `allreduce-multigpu` is ported from another repo**
   ([qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp), MIT), not written here. Its Pascal
   gate is **on by default** — the only part of this set that is not output-neutral without saying so
-  in the code — and the two other variables are off: `GGML_CUDA_AR_H2D_STREAM=1` puts the copy-engine
-  return leg on a second stream, `GGML_CUDA_AR_NGPU=1` allows more than two devices.
+  in the code — and so since 2026-10-13 is the H2D stream, which puts the copy-engine return leg on a
+  second stream (`GGML_CUDA_AR_H2D_STREAM=0` puts it back). `GGML_CUDA_AR_NGPU=1`, which allows more
+  than two devices, is the only variable still off.
   `GGML_CUDA_AR_PASCAL=0` restores upstream's behavior exactly. The gate changes which reduction runs
   across a tensor split, so it can change output; it was flipped on the strength of a paired
-  perplexity check whose widest spread is 0.46% (see
-  [What to expect](#what-to-expect)), and the N-GPU half was validated by its author on *virtual*
+  perplexity check whose widest spread is 0.46% and, now, a logit-level KLD against the fallback
+  (see [What to expect](#what-to-expect)), and the N-GPU half was validated by its author on *virtual*
   devices, not on three or four cards. It compiles with nvcc 12.4 at `sm_60`, and on two real cards
-  the gate is worth **+13.6% pp / +45.5% decode on the dense 27B and +9.9% / +21.4% on the 35B MoE**
-  against the same arms on the fallback — better than qr0n's +10.1% / +9.6% at `b10660`, with the
-  stream still not separated out of it. One part of it is **not** behind any variable: making the
+  the two parts measure **+13.6% pp / +45.5% decode on the dense 27B and +9.9% / +21.4% on the 35B MoE**
+  against the same arms on the fallback — better than qr0n's +10.1% / +9.6% at `b10660` — with the
+  stream since separated out of that: **+3.47% pp2048, +0.00% tg128** on its own, bit-identical
+  logits. One part of it is **not** behind any variable: making the
   reduction N-way rewrites both kernels, and that rewrite runs at two cards too, where it is meant to
   be arithmetic-identical (`w0 + w1` is what `own + peer` already was). It was re-taken to prove that:
   30.14 → 30.07 and 70.64 → 70.66 decode against the pre-merge build.

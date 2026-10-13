@@ -1,0 +1,19 @@
+model : /root/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-Q4_0.gguf
+corpus: /root/bench-corpus/wikitext-2-raw/wiki.test.raw (1290590 bytes, 8 chunks of 2048 tokens)
+binary: /root/llama.cpp-v0.6.0-p100/build/bin/llama-perplexity
+
+ub512    tensor-default   Final estimate: PPL = 5.2281 +/- 0.13586   internal-AllReduce=yes
+ub512    tensor-optout    Final estimate: PPL = 5.2299 +/- 0.13594   internal-AllReduce=no (fell back)
+ub512    tensor-h2d       Final estimate: PPL = 5.2281 +/- 0.13586   internal-AllReduce=yes
+ub512    layer-control    Final estimate: PPL = 5.2305 +/- 0.13591   internal-AllReduce=n/a (no cross-device reduce)
+
+ub2048   tensor-default   Final estimate: PPL = 5.2322 +/- 0.13594   internal-AllReduce=yes
+ub2048   tensor-optout    Final estimate: PPL = 5.2325 +/- 0.13598   internal-AllReduce=no (fell back)
+ub2048   tensor-h2d       Final estimate: PPL = 5.2322 +/- 0.13594   internal-AllReduce=yes
+ub2048   layer-control    Final estimate: PPL = 5.2305 +/- 0.13591   internal-AllReduce=n/a (no cross-device reduce)
+
+raw logs in /tmp/tmp.bIaTwIkiM1
+Reading it: on a pre-Volta card with patch 49, tensor-default is the internal AllReduce and
+tensor-optout is the fallback, so those two rows are the A/B and layer-control is the arm with
+no cross-device reduction at all. On Volta and newer the gate changes nothing, all three tensor
+rows take the same path, and the table is a repeatability check instead.

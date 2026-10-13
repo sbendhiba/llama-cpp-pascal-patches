@@ -1,0 +1,12 @@
+model : /root/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-Q4_0.gguf
+corpus: /root/bench-corpus/wikitext-2-raw/wiki.test.raw   ctx=512 ub=512   (1 chunk, all logits exported)
+
+reference      Final estimate: PPL = 4.3699 +/- 0.61924   logits=a68f7c46a56f61e6
+optout         chunk             PPL               ln(PPL(Q)/PPL(base))          KL Divergence              Δp RMS            Same top p ====== KL divergence statistics ====== 
+h2d            chunk             PPL               ln(PPL(Q)/PPL(base))          KL Divergence              Δp RMS            Same top p ====== KL divergence statistics ====== 
+ngpu           chunk             PPL               ln(PPL(Q)/PPL(base))          KL Divergence              Δp RMS            Same top p ====== KL divergence statistics ====== 
+
+raw logs and logits in /tmp/tmp.rm5DbFweTP
+optout ====== KL divergence statistics ====== Mean    KLD:   0.000093 ±   0.000013 Maximum KLD:   0.001835 99.9%   KLD:   0.001822 99.0%   KLD:   0.001143 95.0%   KLD:   0.000353 90.0%   KLD:   0.000198 Median  KLD:   0.000034 
+h2d ====== KL divergence statistics ====== Mean    KLD:  -0.000009 ±   0.000001 Maximum KLD:   0.000000 99.9%   KLD:   0.000000 99.0%   KLD:   0.000000 95.0%   KLD:   0.000000 90.0%   KLD:  -0.000000 Median  KLD:  -0.000007 
+ngpu ====== KL divergence statistics ====== Mean    KLD:  -0.000009 ±   0.000001 Maximum KLD:   0.000000 99.9%   KLD:   0.000000 99.0%   KLD:   0.000000 95.0%   KLD:   0.000000 90.0%   KLD:  -0.000000 Median  KLD:  -0.000007 

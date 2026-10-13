@@ -304,7 +304,7 @@ kind, and it is not that. Still missing: a logit-level diff, a second model, and
 `GGML_CUDA_AR_PASCAL=0` is the supported way back to the fallback, and it still works — the opt-out
 arm reproduces the pre-flip numbers exactly.
 
-**The H2D stream** (`GGML_CUDA_AR_H2D_STREAM=1`). The copy-engine path
+**The H2D stream** (on by default, `GGML_CUDA_AR_H2D_STREAM=0` opts out). The copy-engine path
 (`ggml_cuda_ar_allreduce_copy_impl`) does both of its stages on one stream: stage 1
 copies this card's activation out to pinned host memory (`cudaMemcpyAsync` D2H on
 `p->streams[i]`), stage 2 copies the peers' back into device scratch and adds it on
@@ -336,9 +336,37 @@ Separated from the gate on 2026-10-13, four arms on one binary, 4 interleaved ro
 `-p 2048 -n 128`: the stream alone is **+3.47% pp2048 and +0.00% tg128**
 ([`…-xchg-knob.csv`](../benchmarks/results/v0.6.0-p100x2-xchg-knob.csv), with
 [`…-exchange-cost.md`](../benchmarks/results/v0.6.0-p100x2-exchange-cost.md) for the read). Earlier
-the two increments had only ever been quoted together. It is still off by default, and a flip is gated
-on `test-backend-ops` on the patched tree plus the paired-perplexity arms rather than on that number —
-this is a synchronisation change, which is the class the 7.68 belongs to.
+the two increments had only ever been quoted together. That number was not accepted as the gate,
+because this is a synchronisation change and throughput cannot tell "faster" from
+"different-and-wrong" - the 7.68 above is exactly that failure. Three instruments compared the
+stream arm against the arm it replaces, on the same binary:
+
+- **Paired perplexity** ([`ppl.sh`](ppl.sh),
+  [`…-ppl-46patch.txt`](../benchmarks/results/v0.6.0-p100x2-ppl-46patch.txt)): identical to the last
+  printed digit at both ubatches - 5.2281 at `-ub 512`, 5.2322 at `-ub 2048`, same 95% CI - while the
+  fallback reduction reads 5.2299 and 5.2325.
+- **Repeatability**: three runs per arm at `-ub 2048`, plus an arm with the copy-engine chunk size
+  forced to its 256 KB floor to maximise the number of cross-stream edges. Nine runs, one identical
+  PPL.
+- **Logit-level identity**, the first this repo has
+  ([`logit-identity.sh`](logit-identity.sh),
+  [`…-logit-identity.txt`](../benchmarks/results/v0.6.0-p100x2-logit-identity.txt)): the default arm
+  writes every logit of a 512-token window with `--save-all-logits` and the stream arm scores
+  `--kl-divergence` against that file. **Maximum KLD 0.000000 and every percentile 0.000000** -
+  bit-identical distributions at every position. The fallback reduction under the same test reads
+  mean KLD 0.000093 with a maximum of 0.001835, so the difference that *does* exist between reduction
+  orders is now measured instead of argued.
+
+`test-backend-ops` was deliberately not used as the gate for this flip: it builds one op per graph on
+one backend and synchronises between them, so it never reaches the comm hook - the fork's own record
+is that it passed 14,600 cases across two real cross-stream races. Running it on the patched tree is
+still owed as a general check on the kernel patches, which is a different claim from the three rows
+above.
+
+**The flip** (2026-10-13): the default is now on, `GGML_CUDA_AR_H2D_STREAM=0` opts back into the
+single-stream path, and the comment at `ggml_cuda_ar_h2d_stream_enabled` says so. The same two
+lines are the only change to this patch; the confirmation A/B, default against opt-out, is in
+[`…-h2d-default.csv`](../benchmarks/results/v0.6.0-p100x2-h2d-default.csv).
 
 **N GPUs** (`GGML_CUDA_AR_NGPU=1`). Upstream accepts exactly two devices:
 `ggml_cuda_ar_pipeline_init` refuses anything else, `ggml_cuda_ar_allreduce_copy_impl`
@@ -394,8 +422,9 @@ gains **+13.6% pp / +45.5% tg on the dense 27B** (382.39 → 434.27, 23.27 → 3
 [What to expect](../README.md#what-to-expect). Isolated to the patch itself, that is +12.6% decode
 and +14.1% prefill over the *same binary* with the variables unset, which is the increment 49 adds
 on top of the ~29% the rest of the set delivers, and it beats qr0n's +10.1% / +9.6%. The gate and
-the stream are still **not separated**: with the gate now on by default that means the same config
-with `GGML_CUDA_AR_H2D_STREAM=1` added, and `GGML_CUDA_AR_PASCAL=0` as the arm beside it.
+the stream have since been separated (2026-10-13, four arms on one binary with the gate already on by
+default): the stream on its own is **+3.47% pp2048 and +0.00% tg128**, so nearly all of that
++13.6%/+14.1% prefill figure was the gate, and the stream is now the second default.
 
 What is missing is the part this patch most needs. There is **no logit-level comparison** beside any
 of those rows, and the perplexity check that does exist

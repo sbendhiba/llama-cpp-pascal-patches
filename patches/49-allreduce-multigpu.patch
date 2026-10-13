@@ -318,10 +318,10 @@ index 39b23bed7..a009ec77a 100644
      }
  };
  
-+// Stage 2 on a second stream is off unless GGML_CUDA_AR_H2D_STREAM=1, because it replaces the
-+// implicit single-stream ordering with explicit events - see the wait on our own D2H below.
++// Stage 2 on a second stream is the default; GGML_CUDA_AR_H2D_STREAM=0 opts back into the single
++// stream. The split replaces implicit single-stream ordering with explicit events - see the D2H wait.
 +static bool ggml_cuda_ar_h2d_stream_enabled() {
-+    static const bool enabled = getenv("GGML_CUDA_AR_H2D_STREAM") && atoi(getenv("GGML_CUDA_AR_H2D_STREAM")) != 0;
++    static const bool enabled = !getenv("GGML_CUDA_AR_H2D_STREAM") || atoi(getenv("GGML_CUDA_AR_H2D_STREAM")) != 0;
 +    return enabled;
 +}
 +

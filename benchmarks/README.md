@@ -48,6 +48,17 @@ build already loses. It also has upstream's own per-run opt-out. So it shipped a
 default. The file is worth reading for the method: one build, two arms, the off arm reached through
 a wrapper that exports the kill variable - the pattern to use when a change has no switch of its own.
 
+[`logit-identity.sh`](logit-identity.sh) is the third instrument, and the one `ppl.sh` is not. Arms on
+one binary score `--save-all-logits` / `--kl-divergence` against the *default* arm's exported logits,
+so every row is the same window, the same tokens, the same positions, and the number is per-position
+divergence rather than a corpus average. Perplexity to four decimals is a weak probe for a
+synchronisation change: drift in one position can wash out in the mean, and the H2D-stream flip had to
+be defended against exactly that. Its output is
+[`results/v0.6.0-p100x2-logit-identity.txt`](results/v0.6.0-p100x2-logit-identity.txt) - maximum KLD
+0.000000 for the stream arm against mean 0.000093 / max 0.001835 for the fallback reduction. The
+difference a different reduction *should* make is visible; the difference a second stream should not
+make is absent. Like `ppl.sh` it is deterministic, so it needs no interleaving and no cooling wait.
+
 ## Run it
 
 ```sh
