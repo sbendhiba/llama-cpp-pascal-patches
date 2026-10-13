@@ -332,6 +332,14 @@ number. The upstream author's own record of the first attempt at it: a build wit
 the edge measured "just as fast" and returned perplexity **7.68 instead of 3.53**.
 Nothing in the logs, nothing in the timings — only the output was wrong.
 
+Separated from the gate on 2026-10-13, four arms on one binary, 4 interleaved rounds, 27B `-sm tensor`
+`-p 2048 -n 128`: the stream alone is **+3.47% pp2048 and +0.00% tg128**
+([`…-xchg-knob.csv`](../benchmarks/results/v0.6.0-p100x2-xchg-knob.csv), with
+[`…-exchange-cost.md`](../benchmarks/results/v0.6.0-p100x2-exchange-cost.md) for the read). Earlier
+the two increments had only ever been quoted together. It is still off by default, and a flip is gated
+on `test-backend-ops` on the patched tree plus the paired-perplexity arms rather than on that number —
+this is a synchronisation change, which is the class the 7.68 belongs to.
+
 **N GPUs** (`GGML_CUDA_AR_NGPU=1`). Upstream accepts exactly two devices:
 `ggml_cuda_ar_pipeline_init` refuses anything else, `ggml_cuda_ar_allreduce_copy_impl`
 and `ggml_cuda_ar_allreduce` assert it, and both kernels take one peer computed as

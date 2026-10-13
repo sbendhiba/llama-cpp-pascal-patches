@@ -119,6 +119,21 @@ not assumed: a probability stop here is neutral at 2-3 drafts and **−4.3%** at
 [`benchmarks/results/v0.6.0-p100x2-mtp-width.md`](benchmarks/results/v0.6.0-p100x2-mtp-width.md).
 [`benchmarks/results/v0.6.0-p100x2-baseline-q41-q4km.md`](benchmarks/results/v0.6.0-p100x2-baseline-q41-q4km.md).
 
+A third measurement that day closes a candidate instead of shipping one. The next item on the list was
+the fork's tensor-parallel exchange overlap (`1f92a1b48`, +4.5% pp2048 on their board), so the
+exchange was costed first: doubling the bytes on the wire (`GGML_CUDA_AR_BF16_THRESHOLD=0`) costs
+**8.46% of pp2048**, which is any overlap's ceiling; doing the whole exchange with SM kernels instead
+of the copy engines costs 0.96%, so the transport is not the problem; and the copy-engine chunk-size
+heuristic is already at its optimum. The blocker is a CUDA primitive, not an amount of work — the
+overlap needs the host-enqueued AllReduce to wait on an event recorded *inside* a captured prefill
+subgraph, and on sm_60 under CUDA 12.4 an ordinary stream cannot: `cudaEventRecord` during capture
+leaves no event node and the external wait is rejected outright, while a record node appended to the
+graph is accepted and does not synchronise at all. **Not ported.** Same session, first time the two
+increments inside patch 49 have been separated: the H2D stream alone is **+3.47% pp2048, +0.00%
+tg128**, still off by default, and its gate for flipping is `test-backend-ops` plus perplexity rather
+than that number. [`benchmarks/results/v0.6.0-p100x2-exchange-cost.md`](benchmarks/results/v0.6.0-p100x2-exchange-cost.md),
+probe source in [`benchmarks/tools/graph-event-wait.cu`](benchmarks/tools/graph-event-wait.cu).
+
 ### Scripted - 2026-10-11, `v0.6.0`, 44 patches, internal AllReduce off in both arms
 
 Four configurations through `benchmarks/run.sh`, 5 rounds each, arms interleaved with the order
