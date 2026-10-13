@@ -1,5 +1,5 @@
 diff --git a/common/sampling.cpp b/common/sampling.cpp
-index 9e16693fb..34b7f29b2 100644
+index 564fa9c4d..6ea1b1450 100644
 --- a/common/sampling.cpp
 +++ b/common/sampling.cpp
 @@ -9,6 +9,7 @@
@@ -233,7 +233,7 @@ index 9e16693fb..34b7f29b2 100644
      dst->t_total_us = src->t_total_us;
  }
  
-@@ -615,7 +782,13 @@ llama_token common_sampler_sample(struct common_sampler * gsmpl, struct llama_co
+@@ -616,7 +783,13 @@ llama_token common_sampler_sample(struct common_sampler * gsmpl, struct llama_co
      auto & chain = gsmpl->chain;
      auto & cur_p = gsmpl->cur_p; // initialized by set_logits
  

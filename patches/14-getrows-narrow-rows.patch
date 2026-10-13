@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/getrows.cu b/ggml/src/ggml-cuda/getrows.cu
-index 6b36b8fbc..6fbf9e81f 100644
+index d97e8fdb0..99069a3da 100644
 --- a/ggml/src/ggml-cuda/getrows.cu
 +++ b/ggml/src/ggml-cuda/getrows.cu
 @@ -230,6 +230,38 @@ static void get_rows_cuda_kq(

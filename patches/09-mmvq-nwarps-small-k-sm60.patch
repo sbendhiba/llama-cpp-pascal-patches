@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index 4d343770c..086ace492 100644
+index 1ae78f94d..facd5a45d 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
 @@ -470,8 +470,32 @@ static constexpr __device__ int get_mmvq_mmid_max_batch_for_device() {

@@ -169,10 +169,10 @@ index a7a87d8fc..d7dcdce85 100644
 +
  void ggml_cuda_dup(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index a05d1dda1..f8c287975 100644
+index fac1ab3cb..2733d9448 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -3604,6 +3604,126 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph *                cgraph,
+@@ -3655,6 +3655,126 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph *                cgraph,
      return false;
  }
  
@@ -299,7 +299,7 @@ index a05d1dda1..f8c287975 100644
  // try and fuse nodes and return the number of nodes to skip
  static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph * cgraph, int i) {
  
-@@ -3674,6 +3794,49 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -3724,6 +3844,49 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
          }
      }
  
