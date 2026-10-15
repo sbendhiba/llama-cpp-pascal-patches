@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 4d0d7c2a9..2e2047334 100644
+index 37d1bcaab..b543c931b 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -1406,6 +1406,42 @@ struct batched_mul_mat_traits<GGML_TYPE_F16> {
+@@ -1451,6 +1451,42 @@ struct batched_mul_mat_traits<GGML_TYPE_F16> {
      static inline auto convert_nc(ggml_type src_type) { return ggml_get_to_fp16_nc_cuda(src_type); }
  };
  
@@ -45,9 +45,9 @@ index 4d0d7c2a9..2e2047334 100644
  template<ggml_type compute_type>
  static void ggml_cuda_mul_mat_cublas_impl(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
      using traits = batched_mul_mat_traits<compute_type>;
-@@ -1549,14 +1585,24 @@ static void ggml_cuda_mul_mat_cublas_impl(ggml_backend_cuda_context & ctx, const
+@@ -1594,14 +1630,24 @@ static void ggml_cuda_mul_mat_cublas_impl(ggml_backend_cuda_context & ctx, const
                                             (const float *) src1_ptr, s11,
-                     (const float *) beta,  (float       *)  dst_ptr, ne0));
+                     (const float *) beta,  (float       *)  dst_ptr, ldc));
      } else if (ne12 == 1 && ne13 == 1) {
 -        CUBLAS_CHECK(
 -            cublasGemmEx(cublas_h, CUBLAS_OP_T, CUBLAS_OP_N,
@@ -56,7 +56,7 @@ index 4d0d7c2a9..2e2047334 100644
                      ne01, ne11, ne10,
                      alpha, src0_ptr, cu_data_type_a, s01,
                             src1_ptr, cu_data_type_b, s11,
-                     beta,   dst_ptr, cu_data_type,   ne0,
+                     beta,   dst_ptr, cu_data_type,   ldc,
                      cu_compute_type,
 -                    CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 +                    algo);
@@ -65,7 +65,7 @@ index 4d0d7c2a9..2e2047334 100644
 +                    ne01, ne11, ne10,
 +                    alpha, src0_ptr, cu_data_type_a, s01,
 +                           src1_ptr, cu_data_type_b, s11,
-+                    beta,   dst_ptr, cu_data_type,   ne0,
++                    beta,   dst_ptr, cu_data_type,   ldc,
 +                    cu_compute_type,
 +                    CUBLAS_GEMM_DEFAULT_TENSOR_OP);
 +        }

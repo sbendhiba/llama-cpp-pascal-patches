@@ -1,32 +1,42 @@
 # llama-cpp-pascal-patches
 
-46 performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
-measured on Tesla P100 (GP100, `sm_60`). Generated against llama.cpp **`v0.6.0`**, tagged `v0.6.0`
-here. The `b11539` branch trails a llama.cpp prerelease and has **not been measured on a card**;
-this branch is the one to use unless you are chasing that specific build.
+Performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
+measured on Tesla P100 (GP100, `sm_60`). This branch is the **`v0.7.0`** set (41 patches); the set is
+tagged per llama.cpp ref (`git tag -l` lists them - `v0.6.0`, `v0.7.0`, and the prerelease line
+`b11601`), and the branch is always the newest one.
+
+**Status of this `v0.7.0` set:** all 41 patches are regenerated against llama.cpp **`v0.7.0`**
+(`620d2225c`) and verified to apply in numeric order at zero fuzz and zero offset, with every
+identifier they introduce resolving in the patched tree. Stock and patched trees at that commit have
+both been **built** at `sm_60` under CUDA 12.4 with zero errors, and the patched arm has had **one
+quick 2-round run** on the dense 27B (`+14.0%` pp2048, `+42.5%` tg128 under `-sm tensor`) - see
+[What to expect](#what-to-expect). That is not the scripted 5-round protocol, so every number below it
+is inherited from `v0.6.0` and belongs to those builds, not to this one. The porting notes - one patch
+dropped because upstream absorbed it, one patch brought back from parked, and one deliberate divergence
+in patch 22 - are at the top of [`docs/patches.md`](docs/patches.md).
 
 Unofficial, and unaffiliated with the llama.cpp project. MIT, matching llama.cpp.
 
 GP100 is the reason any of this exists: alone among Pascal chips it has no `DP4A` and has
 full-rate `HFMA2`. So llama.cpp's quantized matmul paths fall back to emulation and cuBLAS, while
 the one instruction the card is genuinely good at goes unused. The patches named `sm60` exploit
-that asymmetry — but only 11 of the 46 are gated to Pascal-era hardware. 34 are not
+that asymmetry — but only 10 of the 41 are gated to Pascal-era hardware. 30 are not
 hardware-scoped at all, and one (07) changes an unconditional constant every GPU sees.
 
 ## Apply
 
-Both trees at the **same ref**. Released llama.cpp versions are tags in this repo (`git tag -l`
-lists them, e.g. `v0.6.0`); llama.cpp prereleases and work in progress are branches, like `b11539`.
+Both trees at the **same ref**. Every ref this set is generated against is a tag in this repo
+(`git tag -l` lists them - `v0.6.0`, `v0.7.0`, and the prerelease line `b11601`); `main` is the newest.
 
 ```sh
 # 1. the patch set, at the ref you are building against
 git clone https://github.com/sbendhiba/llama-cpp-pascal-patches
 cd llama-cpp-pascal-patches
-git checkout v0.6.0        # a prerelease would be a branch: git checkout b11539
+git checkout v0.7.0        # any ref this set was cut against is a tag: git tag -l
 cd ..
 
 # 2. llama.cpp at that same ref
-git clone --branch v0.6.0 https://github.com/ggml-org/llama.cpp
+git clone --branch v0.7.0 https://github.com/ggml-org/llama.cpp
 cd llama.cpp
 
 # 3. apply in numeric order, stop at the first failure
@@ -58,7 +68,7 @@ Every patch carries its measurement in the comments it adds to the source, and
 [docs/patches.md](docs/patches.md) is the index: per patch, the scope tag, the effect, the kill
 switch, what it changes about the output, and the alternatives that were tried and rejected.
 
-### Scripted - 2026-10-12, `v0.6.0`, 45 patches, **this is what ships**
+### Scripted - 2026-10-12, `v0.6.0`, 45 patches - the newest **measured** configuration
 
 The same four configurations, re-taken after the two defaults that changed this week: patch 49's
 Pascal gate is now on, and patch 50 (`cuda-graphs-pascal`) is new and on. Same box, same runner, 5
@@ -265,6 +275,41 @@ flipping with the ubatch, and the internal path the closer one to the control at
 clears "wrong" (qr0n's broken build was 7.68 against 3.53); it does not clear "checked", because no
 logit-level comparison exists yet. Reproduce it with [`benchmarks/ppl.sh`](benchmarks/ppl.sh). 
 
+### Quick look - 2026-10-15, `v0.7.0`, 2x Tesla P100 - 2 rounds, not the scripted protocol
+
+The first run on this ref. `llama-bench` direct, `Qwen3.8-27B Q4_0` (dense, 27.32B, 14.94 GiB),
+`-fa on -sm tensor -t 28 -ub 2048 -ngl 99 -p 2048,4096 -n 128 -r 2`, both arms reporting build
+`11669 (620d2225c)`, so the ref is not a variable here. Arm order reversed between the two pairs:
+
+| Split | pp2048 t/s | | pp4096 t/s | | tg128 t/s | |
+|---|---:|---:|---:|---:|---:|---:|
+| `-sm tensor`, stock | 392.36 | | 384.10 | | 23.415 | |
+| `-sm tensor`, patched | **447.38** | **+14.0%** | **436.64** | **+13.7%** | **33.365** | **+42.5%** |
+
+Means of two passes each: stock 395.37 / 389.34, 386.12 / 382.08, 23.42 / 23.41; patched 448.29 /
+446.47, 437.00 / 436.28, 33.36 / 33.37. Stock's two passes disagree by 1.5% at pp2048, patched's by
+0.4%, and the cards were left at 63 C - so the deltas are well outside the spread, but the absolute
+t/s are **not** comparable to the scripted rows, which cooled to 45 C between configs and ran five
+rounds.
+
+**What this run establishes is that the port holds, not that anything new appeared.** The `v0.6.0`
+scripted session with the internal AllReduce switched on measured this same cell at pp2048
+382.39 -> 434.27 (**+13.6%**) and tg128 23.27 -> 33.86 (**+45.5%**). Here it is +14.0% and +42.5%.
+The decode number is a little lower and prefill a point short, both inside what a 2-round run at a
+different ending temperature moves, so the honest reading is that 41 patches at `v0.7.0` deliver the
+configuration that was measured at `v0.6.0` - gate, graphs, H2D stream and the cuBLAS pick included.
+
+One thing this run adds that no `v0.6.0` row did: **`-sm tensor` requires `-DGGML_CUDA_NCCL=OFF`,
+and that is not the flag the name suggests.** With `GGML_CUDA_NCCL` left at its default ON, both arms
+abort right after load in `ggml_backend_cuda_comm_allreduce_nccl` at `ncclGroupEnd()` on these cards.
+Stock fails identically, so it is not a patch defect, and patch 49's internal AllReduce never gets
+reached - a run built that way measures none of this set. The first attempt at the table above died
+exactly there. Both arms were rebuilt with it off, and no AllReduce init failure or fallback line
+appeared in any pass.
+
+A scripted 5-round re-take at this ref is still owed before the `v0.6.0` rows are replaced, and the
+`b11601` decode question is now moot: this ref reproduces the `v0.6.0` gain with the ported text.
+
 ### By hand - same tag, `llama-bench` direct, `-ub 2048`
 
 Whole set against stock on the same two cards, 5 reps per cell, taken before the script was usable:
@@ -306,6 +351,14 @@ no stock control either), the two transcript cells that arrived corrupted, and w
 54 GiB model makes this row nobody else's comparison:
 [benchmarks/results/v0.6.0-p100x2-qwen4exp-manual.md](benchmarks/results/v0.6.0-p100x2-qwen4exp-manual.md).
 
+**Read the vintage before you quote any of this.** Both `v0.6.0` tables above are the `v0.6.0` set
+(46 files), not the 41 this branch ships, and only one quick 2-round cell has been run at this ref (the
+`v0.7.0` subsection above). That matters in both directions: those rows were produced with five patches
+(08, 34, 39, 46, 48) that this branch no longer contains, because upstream absorbed or obsoleted them
+([docs/patches.md](docs/patches.md)), and the 41 that survived were regenerated against a different
+tree. Exactly one output-identity check exists beside any of it - patch 49's H2D stream at `v0.6.0`,
+maximum KLD 0.000000 - and there is none at this ref.
+
 For comparison, on one P100, end-to-end decode from `llama-server`, geometric mean over three
 prompts, MTP speculation and a realistic sampler:
 
@@ -329,7 +382,7 @@ are off by default behind an environment variable.
 ## Layout
 
 ```
-patches/            46 .patch files, applied in numeric order
+patches/            41 .patch files, applied in numeric order
 docs/patches.md     per-patch index: scope, effect, kill switch, output changes, dead ends
 docs/benchmarking.md  the measurement discipline this set needed - thermal control, noise floors,
                       why two microbenchmark-driven predictions were wrong
@@ -387,4 +440,6 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
   building is not the same as measuring. The `v0.6.0` patched tree *has* been built and run on a P100
   box - that is what every scripted row above is - but `test-backend-ops` has never been run against
   it, and no `-npl` or perplexity number exists beside any of these gains. The CUDA patches are
-  therefore verified by throughput and by eye, not by an op-level correctness suite.
+  therefore verified by throughput and by eye, not by an op-level correctness suite. The `v0.7.0` arms
+  build at `sm_60` as well and have had the one quick run above - neither has been near
+  `test-backend-ops`.

@@ -1,9 +1,80 @@
 # The patches
 
-46 patches, grouped by scope below; the application order is the file
+41 patches, grouped by scope below; the application order is the file
 numbering. Order matters: several touch the same files, and later ones build
-on earlier ones. All 46 are generated against llama.cpp `v0.6.0`, where they
-apply at zero fuzz and zero offset (the tag is recorded once, in the top-level README).
+on earlier ones. The tag is recorded once, in the top-level README.
+
+**This branch targets llama.cpp `v0.7.0` (`620d2225c`), 68 commits past `b11601`.** All 41 are
+regenerated against it and verified in numeric order at zero fuzz and zero offset, the clean-room
+tree they rebuild is byte-identical to the reviewed one, and all 275 identifiers they reference
+resolve in the patched tree. Stock and patched trees at this ref have both been **built** at `sm_60`,
+and one quick 2-round cell has been run on the dense 27B - see the note at the end of this section.
+
+The port was cheap because upstream barely moved: of the 33 files this set edits, 7 changed at all,
+and only two of those changes reach code a patch hooks.
+
+| upstream change | what it did to the set |
+|---|---|
+| `62df1815b` "cuda, hip: GDN chunked kernel" | inserts `ggml_cuda_gdn_mma_args_from_tensor()` between `launch_gated_delta_net()` and the code 23 and 24 hook, so those two patches come back with a different `@@` function label and nothing else - the only two content differences in the whole set, both cosmetic. The new MMA path cannot run on this card: `select_gdn_mma_path()` returns `ar` unless the cc is GA10x (860), Ada, Blackwell or DGX Spark *and* `ampere_mma_available()`, so Pascal still takes the `launch_gated_delta_net` fallthrough that 23/24/25 edit. Two new unconditional `GGML_ASSERT`s (`nev3 >= neq3`, `nek3 == neq3`) now sit above that fallthrough - upstream's strictness, not ours, and it applies to an unpatched build too |
+| `e7268bf6a` "llama : build the k-pool selection in the causal mask layout" | rewrites the mask block in `llama_model_qwen4exp::graph::build_attn_qsa`. 42 lives in `build_hc_mix`, `build_hc_combine` and the two graph constructors, so the two never meet |
+
+All 41 landed at zero fuzz on the first pass in numeric order, with nothing hand-placed. The four
+hunks that needed a person to read the surrounding code at `b11601` (24, 42, 50, 51) moved by
+themselves here, because `b11601` already carries their re-anchored text and `v0.7.0` did not touch
+those regions again. `GGML_CUDA_DISABLE_GRAPHS` is still read at this ref, so the escape-hatch claim
+survives the port.
+
+**08 `mmvq-mmid-batch-sm60` is deleted at this ref, and it should have gone at `b11601`.** Upstream
+`1623d8ce4` ("cuda: always use MMVQ for MUL_MAT_ID on sm_60", #27828) is an ancestor of `b11601`, so
+this was already true one branch ago and the claim was never checked. `get_mmvq_mmid_max_batch`
+returns `MMVQ_MAX_BATCH_SIZE` as soon as `cc == GGML_CUDA_CC_PASCAL` (`mmvq.cu:289`), and the
+device-side `get_mmvq_mmid_max_batch_for_device()` does the same when `__CUDA_ARCH__ ==
+GGML_CUDA_CC_PASCAL` (`mmvq.cu:442`). On a P100 the `get_mmvq_mmid_max_batch_pascal_older` table that
+08 rewrites is therefore never consulted. 08 still applied at zero fuzz because it edits the table
+body, which upstream left alone, while the early return that makes it dead sits above it - which is
+exactly how a no-op hides in a set like this. Its measured +2.2% is now llama.cpp's own behaviour.
+
+What is not free is the part of 08 that went past its evidence. Its ceiling also covered sm_61 (P40,
+GTX 10xx) and every pre-Volta NVIDIA, on the argument that they should follow sm_60, while 08's own
+reasoning for treating sm_60 as the special case was that elsewhere the fallback is MMQ, which has
+DP4A and is a fine place to land. Deleting 08 restores upstream's ceilings there, so a build aimed at
+sm_61 rather than the P100 this set tunes for will see different `MUL_MAT_ID` dispatch than it did on
+the `v0.6.0` or `b11601` branches. The other pre-Volta mechanism, `is_nvidia_pascal_older` (`cc <
+VOLTA`, which does include sm_60) in the `slow_pascal` list, never went through that table, so
+nothing else about the Pascal path moves.
+
+**35 `mmvq-mmid-batch-cap` comes back from parked.** It was paused at `b11601` for two reasons and
+only one survives. The 08 overlap is gone with 08; what is left is that upstream's ceiling for sm_60
+is now 8, and a verify batch of 1 + draft tokens still exceeds 8 and still leaves MMVQ for MMQ, which
+this card cannot run - so going past 8 is still precisely what 35 does, and it is now judged against
+the new dispatch instead of against 08. One hunk needed re-anchoring, because its trailing context was
+the `// NVIDIA: Volta, Ada Lovelace, ...` comment and its condition, which now name the P100; the
+other five landed unchanged. Its numbers were taken at the ref it was written for, and this branch is
+the first time that code has been compiled since - `mmvq.cu` built clean at `sm_60`. That settles
+whether it is valid, not whether it is fast.
+
+22 `decode-sched-slots` was re-authored: upstream split `llama_context::sched_new()` out of
+`sched_reserve()` and gave the scheduler a `sched_realloc_callback`, so the slot block now follows
+`sched_new(max_nodes, cparams.pipeline_parallel)` and the pipeline-parallel retry hook follows the
+`sched_new(max_nodes, false)` inside the allocation retry. **One deliberate divergence:** upstream's
+`sched_new()` sets both a copy callback and the new realloc callback on the main scheduler, and the
+ported slots set neither, exactly as the `v0.6.0` patch did. Mirroring them would be a behaviour change
+nobody has measured here, so it is recorded rather than assumed - and it is the first thing to look at
+if decode graphs misbehave on this ref.
+Nothing on this branch is measured in the sense this repo means by it, and building is not measuring.
+Both arms exist at `sm_60` under CUDA 12.4 with `-DGGML_CUDA=ON -DGGML_NCCL=OFF -DGGML_CUDA_NCCL=OFF
+-DCMAKE_CUDA_ARCHITECTURES=60 -DGGML_NATIVE=ON -DCMAKE_BUILD_TYPE=Release`, at the same commit. That
+`GGML_CUDA_NCCL` is not a spare: left at its default ON it routes `-sm tensor` through upstream NCCL,
+which aborts on these cards in `ncclGroupEnd()` identically in both arms, and patch 49 never runs.
+
+One quick cell has been run - dense 27B, `-sm tensor`, 2 passes per arm, pp2048 **+14.0%**, tg128
+**+42.5%** - and it reproduces the `v0.6.0` scripted row taken with the internal AllReduce on (+13.6%
+and +45.5%), which is the useful result: the port preserves that configuration rather than adding to
+it. It is not the scripted protocol, so no number below this line is re-established here, and no
+default inherited from the `v0.6.0` line (patch 49's gate and H2D stream, 50's graphs, 51's algorithm)
+is claimed at this ref until it has been. `test-backend-ops` and any perplexity or logit-identity check
+remain unrun on this tree.
+
 
 Patch 43 `fuse-hc-combine` was deleted at `v0.5.0`. Upstream added dedicated
 `GGML_OP_DSV4_HC_PRE` / `DSV4_HC_POST` ops for hyper-connections and enabled
@@ -35,6 +106,26 @@ node. Porting 45 is a redesign against that API plus a fresh measurement, not a
 rebase, and neither is possible without the model and the card. The sparse-gather
 work remains open upstream-of-this-set, so to speak; 38's F16 `get_rows` path was
 its only in-set consumer.
+Patches 34, 39, 46 and 48 were deleted at `b11539`, for different reasons.
+
+**46 `qwen4exp-moe-expert-cache` and 34 `mul-mat-id-negative-ids` - fixed upstream.** `b11539` added
+a MoE expert cache of its own (`src/llama-moe-cache.{h,cpp}`, `cparams.moe_cache_size`, reached from
+the shared `build_moe_ffn` through `build_moe_cache_slots`), which is 46's mechanism in general form
+rather than per model. 34 existed only to let 46 hand it negative expert ids, and part of what 34
+worked around is now upstream's own doing (`cparams.moe_cache_size == 0` turns off pipeline
+parallelism). Neither was on by default, so nothing changes for a default build.
+
+**39 `gdn-lanes-per-column` - fixed upstream, differently.** `gated_delta_net_cuda` now splits each
+warp into `lanes_per_col = warp_size / cols_per_warp` segments unconditionally, so the structure 39
+introduced is upstream's; what 39 still added is the `GGML_GDN_LPC` override, which cannot be
+reconciled with a `constexpr`. Its own -4.3% prefill figure predates that.
+
+**48 `fuse-rms-norm-scale` - dropped as unmeasurable here, not because it is wrong.** Upstream has
+fused one `RMS_NORM`->`SCALE` pair itself since `v0.6.0`, so what 48 contributed on top was the
+batching of several identically-shaped pairs into a single launch, and its +1.1% / +2.5% was never
+re-taken past `v0.5.0`. Re-porting it means hand-editing the norm kernel that 17 and 19 already
+restructure - and nothing in this loop can compile CUDA. It was left out rather than carried blind;
+re-add it on a card if the multi-pair batching is worth proving.
 
 Patch 50 `allreduce-h2d-stream` was **folded into 49** rather than deleted: the
 Pascal gate, the H2D stream and the N-GPU rewrite rewrite the same lines of
@@ -121,23 +212,6 @@ not done without DP4A. The kernel is 20.1% of an MoE decode step.
 **This one is not architecture-gated.** The constant is a plain `constexpr`, so
 every GPU gets 4 and upstream's 2 is not preserved anywhere. Only sm_60 was
 measured; if you are on Turing or later, measure or revert this one.
-
-### 08 · `mmvq-mmid-batch-sm60` — `pre-Volta`
-
-The table gating quantized `MUL_MAT_ID` into the fused MoE matvec is keyed on
-`cc < VOLTA`, lumping sm_60 in with sm_61. They differ in exactly the thing
-that decides where the crossover belongs: past the cap sm_61 lands on MMQ,
-which is fine, while sm_60 falls all the way to sorted-gather.
-
-**+2.2%** (geometric mean over three prompts, no workload regressing).
-
-Two caveats the patch states and this entry should not bury. Only IQ2_XS and
-IQ3_XXS were measured directly — the whole table is raised because the reason
-(on sm_60 the fallback is the slow path for every type) does not depend on the
-type, which is an argument rather than a measurement, and it is the weakest link
-here. And the table is keyed on `cc < VOLTA`, so the ceiling is removed for
-sm_61 (P40, GTX 10xx) too, where the argument above does not hold: there the
-fallback is MMQ, which is a fine place to land.
 
 ### 09 · `mmvq-nwarps-small-k-sm60` — `pre-Turing`
 
@@ -909,8 +983,9 @@ batches go to MMQ, which needs DP4A, or to cuBLAS. The kernel itself has no
 such limit — the token index lives in `threadIdx.y` and the real constraint is
 `warp_size × ncols_dst <= 1024`. 8 is where Pascal measured MMQ to win, not a
 correctness bound. MMQ also cannot take a repeated id in one token
-(`mm_ids_helper` writes out of bounds), which the expert cache in patch 46 does
-deliberately, so that path must stay on MMVQ.
+(`mm_ids_helper` writes out of bounds), so any expert cache that repeats an id within a token has to
+keep that path on MMVQ - patch 46 did so deliberately and was deleted at `b11539`, where upstream's
+own `llama_moe_cache` takes its place.
 
 `LLAMA_MMVQ_MMID_MAX=<n>` raises the cap to at most 32, and never past
 `1024/warp_size` since one block is `warp_size × ncols_dst` threads (unset keeps
@@ -1053,36 +1128,6 @@ Kernel 133 → **74.8 µs** at the decode shape, 65.6 → **28.6 ms** at 4,096 r
 End to end: decode 40k 48.6 → **47.5 ms (−2.3%)**, prefill of 2,050 tokens
 126.8 → **131.1 t/s (+3.4%)**, decode at 210k unchanged.
 
-### 48 · `fuse-rms-norm-scale` — `CUDA`
-
-Since `v0.5.0` gated delta-net normalizes q and k as `scale(rms_norm(x, eps/n),
-1/sqrt(n))` instead of `l2_norm` (ggml-org/llama.cpp#28068), so 17's and 18's L2-norm halves stop
-firing on these models and each layer launches four small kernels. It matches any
-run of contiguous F32 RMS_NORM → SCALE pairs, not only those, and runs it as one
-launch of a kernel built from `rms_norm_f32<256>`'s implementation, with the
-scale applied in its epilogue the way `scale_f32` applies it, so the output is
-bit-identical (9B, 256 greedy tokens: same tokens and same top-5
-log-probabilities with and without it). It does not fuse when an output would
-alias any input, when the RMS_NORM result has another consumer, or for rows of
-1,024 or more, nor while the graph runs concurrent streams
-(`GGML_CUDA_GRAPH_OPT=1`). `GGML_CUDA_DISABLE_FUSE_RMS_SCALE=1` turns it off.
-
-`llama-bench` tg64, four rounds, order reversed every other round: 9B 72.93 →
-73.72 t/s (+1.1%), 35B-A3B 79.39 → 81.34 (+2.5%).
-
-**Those two numbers describe `v0.5.0` and have not been re-taken.** Since
-`v0.6.0` upstream fuses a single `RMS_NORM`->`SCALE` pair itself
-(`ggml_cuda_op_rms_norm_scale_fused`, reached from `ggml_cuda_can_fuse` with a
-host-side `scale_out`), so on the gated delta-net q/k pattern a layer now costs
-two launches unpatched rather than four. What this patch adds on top of that is
-the batching of up to `CUDA_RMS_SCALE_FUSE_MAX` identically-shaped pairs into
-**one** launch, which is what its entry above has always done; its incremental
-value is therefore 2 -> 1 launches on `v0.6.0` where it was 4 -> 1 on `v0.5.0`.
-It runs ahead of upstream's case in `ggml_cuda_try_fuse` and falls through to it
-when it declines, so the two do not fight over the same pair. The kernel side was
-reworked to fit upstream's new `do_scale` template parameter (`rms_norm_f32` is
-now a thin `__global__` over `rms_norm_f32_impl`, and the pair path is a sixth
-template argument), which is a compile-level fact, not a measurement.
 
 ## Delta-net / gated-delta-net (Qwen3-Next, Qwen3.5)
 
@@ -1141,32 +1186,6 @@ Kill switches: `GGML_CUDA_DISABLE_CONCAT_ROWS`,
 
 ---
 
-### 39 · `gdn-lanes-per-column` — `CUDA`
-
-The gated delta-net kernel spreads one state column over a whole warp, so every
-token pays a full warp reduction per column. Making lanes-per-column a template
-parameter and using 16 lanes halves the reductions per token and raises the
-FMA-to-shuffle ratio — but it also halves the parallelism, which only pays once
-there are enough tokens to hide it. Gated on the token count:
-`GGML_GDN_LPC=8|16` selects the lane count (unset = a full warp as before) and
-`GGML_GDN_LPC_MIN_TOK` the threshold (default 32). Only `S_v == 128` has the
-narrow instantiations, so on any other head size the variable is ignored.
-
-Re-measured on the published build by flipping only this variable, two rounds
-with the order reversed and both arms cooled to ≤56 °C: a fresh 40k prefill
-**165.0 vs 172.5 s (−4.3%)**. During development it measured −4.9% (161 / 167 →
-154 / 158 s).
-
-Decode is untouched by construction: the override needs `n_tokens >= 32`, and a
-decode step without speculation is one token. The same two rounds did show decode
-at 40k moving 49.2 → 47.7 ms/token, which is therefore this protocol's
-server-to-server spread and not the flag — worth knowing when reading the decode
-figures of the other variable re-measured the same way (46, since 45 was deleted
-at `v0.6.0`), where the
-flag *can* act but the spread is the same size.
-Output is not bit-identical — the reduction order changes — and a paired
-per-chunk perplexity comparison against the unchanged build gives t = +0.25, i.e.
-no detectable difference.
 
 ## Host side
 
@@ -1358,16 +1377,6 @@ VRAM does not grow. The peak while filling a 262k context *fell*, 15,231 →
 14,009 MiB: the prefetch replaces a partial-copy path that synchronized the
 device to read `ids` on every split.
 
-### 34 · `mul-mat-id-negative-ids` — `host`
-
-`mul_mat_id` assumes every id selects a real expert row. Two changes let a
-negative id mean "this row contributes nothing": the CPU backend writes zeros
-for it instead of indexing out of bounds, and the scheduler's used-expert bitset
-skips it (and tolerates a split where no expert is used at all).
-
-No effect on its own — it is what lets patch 46 route the experts it did not
-cache to the CPU by masking them out of the GPU call with −1, and what keeps a
-graph where every expert of a layer missed the cache from asserting.
 
 ### 47 · `sched-split-inputs-cap` — `host`
 
@@ -1537,85 +1546,3 @@ Fine-tuning through `llama_opt` builds graphs too, so with the fold on the
 for training. The `CONT` removal
 is on with no kill switch; its bit-identity rests on the whole-set comparison at
 the top of this section rather than on a check of its own.
-
-### 46 · `qwen4exp-moe-expert-cache` — `model`
-
-With 48 layers of 512 experts the routed weights do not fit on a 16 GiB card, so
-`--n-cpu-moe 48` computes them on the CPU. This keeps the recently used ones on
-the GPU instead: C slots per layer, filled from a flat count over a ring window
-of recent tokens and replanned every so often. The routing history is written
-out to a device tensor and collected at the next `set_input`. Experts that hit
-the cache are computed by a GPU `mul_mat_id`, the misses by the CPU one with −1
-in the id (patch 34), and the two are added. The cache refuses to start on a
-model whose experts need anything the cached path does not reproduce: fused
-gate/up tensors, a non-zero SwiGLU clamp, per-expert scale tensors, or experts
-that are not all host-side.
-
-`LLAMA_MOE_CACHE=<slots>` enables it (off when unset), with
-`LLAMA_MOE_CACHE_INTERVAL` (default 32) the replan period,
-`LLAMA_MOE_CACHE_WINDOW` (default 1024) the ring window,
-`LLAMA_MOE_CACHE_MAXTOK` (default 8) the ubatch width it stays active for — it
-is also capped at `GGML_OP_OFFLOAD_MIN_BATCH − 1`, since above that threshold
-the CPU experts are offloaded to the GPU anyway, and at `LLAMA_MMVQ_MMID_MAX`
-(patch 35), because the shared zero slot repeats ids within a token and only
-MMVQ tolerates that (4 when that variable is unset, see below). The cache is not
-built at all if the caps leave nothing, or if the model routes experts in groups,
-which `build_moe_cached` does not reproduce. `LLAMA_MOE_WARM`
-(default 32) the number of tokens after a prefill during which the replan period
-is shortened to 8.
-
-Slot count, decode ms/token, interleaved two rounds:
-
-| slots | 40k | 210k |
-|---:|---:|---:|
-| 48 | 55.2 ms | 53.0 ms |
-| 54 | 51.9 | 53.1 |
-| 60 | **51.0** | **52.4** |
-
-A slot costs about 92.5 MiB across the 48 layers. A longer replan period is
-better than the default. Re-measured on this build with the slot restored so the
-arms see the same context, two rounds with the order reversed: 128 gives
-**47.45 vs 48.65 ms/token (−2.5%)** against 32, and one of the two rounds showed
-no difference (47.2 / 47.7 against 49.8 / 47.5). During development it measured
-−3.8% (44.3 → 42.6 ms at 40k) with the 26-question long-context bench answering
-identically.
-
-The cache is cold right after a fresh prompt, and prefill routing does not
-predict generation routing well enough to warm it (that was tried and dropped).
-Shortening the replan period for the first 32 generated tokens instead takes the
-first window's hit rate from 7.2% to **46.6%**: 94.2 → **83.7 ms/token** for a
-32-token generation (−11%) and 75.8 → **70.0** for 64 tokens (−8%), with the
-steady state unchanged. Each of those points needs its own server: measuring
-several generation lengths against one server lets the earlier generation warm
-the cache and reverses the result.
-
-Two graph-order changes ride along, both bit-identical: the shared expert and
-the hyper-connection inject matmul are expanded *before* the CPU split rather
-than after it, so they run under patch 32's overlap (−0.5% at 40k, −1.0% at
-210k; `LLAMA_INJECT_LATE` restores the old order for the inject).
-
-The cache also lends its buffer to patch 33 as a staging area during prefill,
-and repairs the slots it loses: on an epoch change it invalidates the layers
-inside the clobbered extent, re-zeroes the shared zero slot, re-sends the maps
-and refills on the next decode.
-
-The clamp against the MMVQ ceiling uses `LLAMA_MMVQ_MMID_MAX`, which is the
-override patch 35 applies to every type. The built-in ceiling is per type and
-per architecture, and outside sm_60 it is below 8 for several types (Turing and
-later: 5 for Q3_K, 6 for IQ3_S, 7 for Q2_K, IQ2_S, IQ3_XXS and MXFP4; the AMD
-tables are lower still). The host side cannot read that table — it reads the
-variable, capped at 32, and cannot see the device's own `1024/warp_size` limit,
-which is 16 on a 64-lane device and is where the two limits diverge. Unset, the
-cache therefore assumes the smallest entry in any table (4). To get a wider
-batch on any architecture other than the one this was measured on, **set
-`LLAMA_MMVQ_MMID_MAX` to a width that device and those expert types take**: set
-too wide, a ubatch past the real ceiling sends the GPU expert matmul to MMQ,
-which folds together the repeated ids the shared zero slot produces and leaves
-the rows of the folded-away experts unwritten.
-
-Accuracy over the whole configuration is 62/78 on the 26-question × 3-depth
-long-context benchmark, against 59/78 for the same model without any of this. The
-two ends are not one experiment: 59/78 is the pre-patch production build, 62/78
-was taken during development on a 56-slot configuration, and the p ≥ 0.5 figure
-comes from the 59/78-against-61/78 comparison in between. Nothing here was
-re-scored on the published build.
