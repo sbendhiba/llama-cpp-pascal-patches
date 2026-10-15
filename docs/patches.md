@@ -7,8 +7,8 @@ on earlier ones. The tag is recorded once, in the top-level README.
 **This branch targets llama.cpp `v0.7.0` (`620d2225c`), 68 commits past `b11601`.** All 41 are
 regenerated against it and verified in numeric order at zero fuzz and zero offset, the clean-room
 tree they rebuild is byte-identical to the reviewed one, and all 275 identifiers they reference
-resolve in the patched tree. Nothing here is compiled or measured at this ref - see the note at the
-end of this section.
+resolve in the patched tree. Stock and patched trees at this ref have both been **built** at `sm_60`;
+nothing has been measured - see the note at the end of this section.
 
 The port was cheap because upstream barely moved: of the 33 files this set edits, 7 changed at all,
 and only two of those changes reach code a patch hooks.
@@ -49,8 +49,9 @@ is now 8, and a verify batch of 1 + draft tokens still exceeds 8 and still leave
 this card cannot run - so going past 8 is still precisely what 35 does, and it is now judged against
 the new dispatch instead of against 08. One hunk needed re-anchoring, because its trailing context was
 the `// NVIDIA: Volta, Ada Lovelace, ...` comment and its condition, which now name the P100; the
-other five landed unchanged. Its numbers were taken at the ref it was written for, and it has not
-been compiled since - neither at `b11601` nor here - so it is the first thing to check at `sm_60`.
+other five landed unchanged. Its numbers were taken at the ref it was written for, and this branch is
+the first time that code has been compiled since - `mmvq.cu` built clean at `sm_60`. That settles
+whether it is valid, not whether it is fast.
 
 22 `decode-sched-slots` was re-authored: upstream split `llama_context::sched_new()` out of
 `sched_reserve()` and gave the scheduler a `sched_realloc_callback`, so the slot block now follows
@@ -60,8 +61,11 @@ been compiled since - neither at `b11601` nor here - so it is the first thing to
 ported slots set neither, exactly as the `v0.6.0` patch did. Mirroring them would be a behaviour change
 nobody has measured here, so it is recorded rather than assumed - and it is the first thing to look at
 if decode graphs misbehave on this ref.
-Nothing on this branch is measured yet. A ported patch is only worth its number on this hardware once
-it has been compiled at `sm_60` and benchmarked against the `v0.6.0` line, and no default inherited
+Nothing on this branch is measured yet, and building it is not measuring it. Both arms now exist at
+`sm_60` under CUDA 12.4 (`-DGGML_CUDA=ON -DGGML_NCCL=OFF -DCMAKE_CUDA_ARCHITECTURES=60
+-DGGML_NATIVE=ON -DCMAKE_BUILD_TYPE=Release`, stock and patched at the same commit), so the set is
+known to compile on the card - but a ported patch is only worth its number once it has been
+benchmarked against the `v0.6.0` line, and no default inherited
 from `main` (patch 49's gate and H2D stream, 50's graphs, 51's algorithm) is claimed here until it is
 re-measured at this ref.
 

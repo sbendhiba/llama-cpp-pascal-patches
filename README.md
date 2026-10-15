@@ -7,11 +7,12 @@ llama.cpp ref this set tracks gets its own branch in this repo, and released one
 
 **Status of this `v0.7.0` branch:** all 41 patches are regenerated against llama.cpp **`v0.7.0`**
 (`620d2225c`) and verified to apply in numeric order at zero fuzz and zero offset, with every
-identifier they introduce resolving in the patched tree. It has **not** been compiled or benchmarked
-at this ref, so every number below is inherited from `v0.6.0` and belongs to those builds, not to
-this one. The porting notes - one patch dropped because upstream absorbed it, one patch brought back
-from parked, and one deliberate divergence in patch 22 - are at the top of
-[`docs/patches.md`](docs/patches.md).
+identifier they introduce resolving in the patched tree. Stock and patched trees at that commit have
+both been **built** at `sm_60` under CUDA 12.4 with zero errors - so this set compiles on the card -
+but it has **not been benchmarked** at this ref. Every number below is inherited from `v0.6.0` and
+belongs to those builds, not to this one. The porting notes - one patch dropped because upstream
+absorbed it, one patch brought back from parked, and one deliberate divergence in patch 22 - are at
+the top of [`docs/patches.md`](docs/patches.md).
 
 Unofficial, and unaffiliated with the llama.cpp project. MIT, matching llama.cpp.
 
@@ -125,7 +126,7 @@ first: layer-35b agrees to a quarter of a point with a stock arm identical to 0.
 has three runs agreeing, and tensor-35b fell from +8.6% to +5.7%.
 
 **Read the vintage before you quote any of this.** Both tables above are the `v0.6.0` set (46 files),
-not the 41 this branch ships, and this branch has never been measured or even compiled on a card. That
+not the 41 this branch ships, and nothing on this branch has been run on a card - it only builds. That
 matters in both directions: those rows were produced with five patches (08, 34, 39, 46, 48) that this
 branch no longer contains, because upstream absorbed or obsoleted them
 ([docs/patches.md](docs/patches.md)), and the 41 that survived were regenerated against a different
@@ -180,4 +181,6 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
   building is not the same as measuring. The `v0.6.0` patched tree *has* been built and run on a P100
   box - that is what every scripted row above is - but `test-backend-ops` has never been run against
   it, and no `-npl` or perplexity number exists beside any of these gains, so the CUDA patches are
-  verified by throughput and by eye rather than by an op-level correctness suite.
+  verified by throughput and by eye rather than by an op-level correctness suite. The `v0.7.0` arms
+  are further behind: stock and patched both build at `sm_60` at that commit, and neither has been
+  run at all.
