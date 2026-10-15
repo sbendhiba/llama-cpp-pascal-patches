@@ -169,7 +169,7 @@ index a7a87d8fc..d7dcdce85 100644
 +
  void ggml_cuda_dup(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index fac1ab3cb..2733d9448 100644
+index 0058eda56..39b5daf8d 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -3655,6 +3655,126 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph *                cgraph,

@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 2733d9448..101d7973c 100644
+index 39b5daf8d..5847e21d8 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -3775,6 +3775,73 @@ static int ggml_cuda_collect_same_op(ggml_cgraph * cgraph, int i, ggml_op op, in

@@ -39,10 +39,12 @@ lines earlier ones wrote, and a fix late in the sequence can invalidate an earli
 
 **Fixed upstream — delete it.** Upstream implemented the same thing, or made it unnecessary. Delete
 the `.patch`, remove its row from the README table and its entry from `docs/patches.md`, and write
-down what replaced it, with the upstream commit or PR number. This repo has shrunk three times on
+down what replaced it, with the upstream commit or PR number. This repo has shrunk four times on
 this rule: 43 went at `v0.5.0` (upstream added `DSV4_HC_PRE`/`DSV4_HC_POST`), 44 went at `v0.6.0`
-(upstream added the indexer key pool), and 48 lost most of its reason to exist at `v0.6.0`
-(upstream fuses one `RMS_NORM`->`SCALE` pair itself). Carrying a patch upstream already provides is
+(upstream added the indexer key pool), 48 lost most of its reason to exist at `v0.6.0`
+(upstream fuses one `RMS_NORM`->`SCALE` pair itself), 34/39/46 went at `b11539` (upstream's
+`llama_moe_cache`, GDN lanes-per-column), and 08 went at `v0.7.0` (upstream gives `sm_60` the whole
+MMVQ `MUL_MAT_ID` ceiling it existed to raise). Carrying a patch upstream already provides is
 not conservative - it allocates a second copy of a feature and can silently fight the real one.
 
 **Moved — port it and regenerate.** The intent is still needed, the code around it shifted.
@@ -56,6 +58,15 @@ Before you port anything, check whether upstream **retuned a constant** your pat
 Several patches here exist only because of a value upstream tuned for other hardware. If it applies
 and the value is now the same, it does nothing. If the value changed for the better, delete the
 patch and note why.
+
+Worse, and this is the case `v0.7.0` caught: the patch can edit a value the caller **no longer
+reaches**. Upstream put an early `return` for `cc == GGML_CUDA_CC_PASCAL` above the table that
+08 rewrites, on both the host dispatch and the device constexpr, so 08 applied at zero fuzz, zero
+offset, with byte-exact context - and did nothing at all, because no path to it survives on this
+card. All three gates pass a patch like that. The only check is to read the caller: for every value
+a patch sets, find the branch that decides whether the card takes it, and confirm that branch still
+leads to the patched code. Note that a patch like this can sit in a published branch for a whole ref
+before anything notices - `1623d8ce4` is an ancestor of `b11601`, so 08 was already dead there.
 
 ## 3. Regenerate every patch at exact context
 

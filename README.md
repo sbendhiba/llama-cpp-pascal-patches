@@ -1,43 +1,45 @@
 # llama-cpp-pascal-patches
 
-39 performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
-measured on Tesla P100 (GP100, `sm_60`). Generated against llama.cpp **`b11539`** (`10a60cf30`);
-the `v0.6.0` set is tagged `v0.6.0` in this repo.
+Performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
+measured on Tesla P100 (GP100, `sm_60`). This branch is the **`v0.7.0`** set (41 patches); every
+llama.cpp ref this set tracks gets its own branch in this repo, and released ones are tagged too
+(`git tag -l`).
 
-**Status of this `b11601` branch:** 41 of its 42 patches are regenerated against llama.cpp **`b11601`**
-(`ec0bfac17`) and verified to apply in numeric order at zero fuzz and zero offset. It has **not** been
-compiled or benchmarked at this ref, so every number below is inherited from `v0.6.0`/`b11539` and
-belongs to those builds, not to this one. Patch 35 is parked, and the porting notes (including one
-deliberate divergence in patch 22) are at the top of [`docs/patches.md`](docs/patches.md).
+**Status of this `v0.7.0` branch:** all 41 patches are regenerated against llama.cpp **`v0.7.0`**
+(`620d2225c`) and verified to apply in numeric order at zero fuzz and zero offset, with every
+identifier they introduce resolving in the patched tree. It has **not** been compiled or benchmarked
+at this ref, so every number below is inherited from `v0.6.0` and belongs to those builds, not to
+this one. The porting notes - one patch dropped because upstream absorbed it, one patch brought back
+from parked, and one deliberate divergence in patch 22 - are at the top of
+[`docs/patches.md`](docs/patches.md).
 
 Unofficial, and unaffiliated with the llama.cpp project. MIT, matching llama.cpp.
 
 GP100 is the reason any of this exists: alone among Pascal chips it has no `DP4A` and has
 full-rate `HFMA2`. So llama.cpp's quantized matmul paths fall back to emulation and cuBLAS, while
 the one instruction the card is genuinely good at goes unused. The patches named `sm60` exploit
-that asymmetry — but only 8 of the 39 are gated to Pascal-era hardware. The other 30 are not
-hardware-scoped at all, and one (07) changes an unconditional constant every GPU sees.
+that asymmetry — but only 8 of them are gated to Pascal-era hardware, and this branch drops one of
+those 8 (08, absorbed by upstream). The rest are not hardware-scoped at all, and one (07) changes an
+unconditional constant every GPU sees.
 
 ## Apply
 
-Both trees at the **same ref**. Released llama.cpp versions are tags in this repo (`git tag -l`
-lists them, e.g. `v0.6.0`); llama.cpp prereleases and work in progress are branches like this one.
+Both trees at the **same ref**. llama.cpp releases are tagged in this repo (`git tag -l` lists them,
+e.g. `v0.6.0`, `v0.7.0`); prereleases and work in progress get a branch named after the build number.
 
 ```sh
 # 1. the patch set, at the ref you are building against
 git clone https://github.com/sbendhiba/llama-cpp-pascal-patches
 cd llama-cpp-pascal-patches
-git checkout b11601        # a released ref would be: git checkout v0.6.0
+git checkout v0.7.0        # or a prerelease branch, e.g: git checkout b11601
 cd ..
 
 # 2. llama.cpp at that same ref
-git clone --branch b11601 https://github.com/ggml-org/llama.cpp
+git clone --branch v0.7.0 https://github.com/ggml-org/llama.cpp
 cd llama.cpp
 
 # 3. apply in numeric order, stop at the first failure
-#    35 is parked at this ref (see docs/patches.md) - skipping it is expected, not a failure
 for p in ../llama-cpp-pascal-patches/patches/*.patch; do
-  case "${p##*/}" in 35-mmvq-mmid-batch-cap.patch) echo "SKIP $p (parked)"; continue;; esac
   patch -p1 -F0 < "$p" || { echo "FAILED: $p"; break; }
 done
 ```
@@ -122,11 +124,11 @@ three rows survived the scripted re-measurement and one did not, which is why th
 first: layer-35b agrees to a quarter of a point with a stock arm identical to 0.02 t/s, tensor-27b now
 has three runs agreeing, and tensor-35b fell from +8.6% to +5.7%.
 
-**Read the vintage before you quote any of this.** Both tables above are the `v0.6.0` set (43 patches),
-not the `b11539` set this branch ships, and `b11539` has never been measured or even compiled on a
-card. That matters in both directions: these rows were produced with four patches (34, 39, 46, 48)
-this branch no longer contains, because upstream absorbed or obsoleted them
-([docs/patches.md](docs/patches.md)), and the 39 that survived were regenerated against a different
+**Read the vintage before you quote any of this.** Both tables above are the `v0.6.0` set (46 files),
+not the 41 this branch ships, and this branch has never been measured or even compiled on a card. That
+matters in both directions: those rows were produced with five patches (08, 34, 39, 46, 48) that this
+branch no longer contains, because upstream absorbed or obsoleted them
+([docs/patches.md](docs/patches.md)), and the 41 that survived were regenerated against a different
 tree. No output-identity check exists beside any of it.
 
 For comparison, the older single-P100 figures, end-to-end decode from `llama-server`, geometric mean
@@ -151,7 +153,7 @@ are off by default behind an environment variable.
 ## Layout
 
 ```
-patches/            42 .patch files, applied in numeric order (41 ported to this ref, 35 parked)
+patches/            41 .patch files, applied in numeric order
 docs/patches.md     per-patch index: scope, effect, kill switch, output changes, dead ends
 docs/benchmarking.md  the measurement discipline this set needed - thermal control, noise floors,
                       why two microbenchmark-driven predictions were wrong

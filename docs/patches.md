@@ -1,27 +1,56 @@
 # The patches
 
-42 patches, grouped by scope below; the application order is the file
+41 patches, grouped by scope below; the application order is the file
 numbering. Order matters: several touch the same files, and later ones build
 on earlier ones. The tag is recorded once, in the top-level README.
 
-**This branch targets llama.cpp `b11601` (`ec0bfac17`).** 41 of the 42 patches are regenerated against
-it and verified in numeric order at zero fuzz and zero offset, against a clean room identical to the
-reviewed tree, with all 285 identifiers they reference resolving. One is parked. Nothing here is
-compiled or measured yet - see the note at the end of this section.
+**This branch targets llama.cpp `v0.7.0` (`620d2225c`), 68 commits past `b11601`.** All 41 are
+regenerated against it and verified in numeric order at zero fuzz and zero offset, the clean-room
+tree they rebuild is byte-identical to the reviewed one, and all 275 identifiers they reference
+resolve in the patched tree. Nothing here is compiled or measured at this ref - see the note at the
+end of this section.
 
-| parked | why |
+The port was cheap because upstream barely moved: of the 33 files this set edits, 7 changed at all,
+and only two of those changes reach code a patch hooks.
+
+| upstream change | what it did to the set |
 |---|---|
-| 35 `mmvq-mmid-batch-cap` | one hunk moved, but the reason to stop is upstream `1623d8ce4` ("always use MMVQ for MUL_MAT_ID on sm_60"), now in range: `get_mmvq_mmid_max_batch` returns `MMVQ_MAX_BATCH_SIZE` for `GGML_CUDA_CC_PASCAL`, which is what patch 08 exists to achieve. So 08 is a probable no-op at this ref and 35's override has to be re-judged against it. The `b11539` notes flagged both for exactly this moment. Neither was deleted on evidence, only paused |
+| `62df1815b` "cuda, hip: GDN chunked kernel" | inserts `ggml_cuda_gdn_mma_args_from_tensor()` between `launch_gated_delta_net()` and the code 23 and 24 hook, so those two patches come back with a different `@@` function label and nothing else - the only two content differences in the whole set, both cosmetic. The new MMA path cannot run on this card: `select_gdn_mma_path()` returns `ar` unless the cc is GA10x (860), Ada, Blackwell or DGX Spark *and* `ampere_mma_available()`, so Pascal still takes the `launch_gated_delta_net` fallthrough that 23/24/25 edit. Two new unconditional `GGML_ASSERT`s (`nev3 >= neq3`, `nek3 == neq3`) now sit above that fallthrough - upstream's strictness, not ours, and it applies to an unpatched build too |
+| `e7268bf6a` "llama : build the k-pool selection in the causal mask layout" | rewrites the mask block in `llama_model_qwen4exp::graph::build_attn_qsa`. 42 lives in `build_hc_mix`, `build_hc_combine` and the two graph constructors, so the two never meet |
 
-How the rest went matters for reading these diffs. 25, 27 and 33 failed on the first sweep and were not
-conflicts at all - they sit on code that 24, 25 and 32 had not been given yet, and each landed at zero
-fuzz once its predecessor was committed. Four needed a person rather than a tool: 24's
-`GGML_CUDA_FUSE_DEFERRED` block (insert-only hunk, trailing context moved), 42's `hc_fold()` call (the
-line after it became upstream's new `ASSERT_EMBD_OR_TOKEN`), 50's arch gate (now sits above upstream's
-new `ggml_cuda_graph_debug_enabled()` condition), and 51 - upstream replaced the literal `ne0` with a
-named `ldc` **in the middle** of the hunk, where fuzz cannot reach, so porting our text verbatim would
-have silently reverted an upstream fix. `GGML_CUDA_DISABLE_GRAPHS` still exists at this ref
-(`common.cuh`, now read once), so that escape-hatch claim survives the port.
+All 41 landed at zero fuzz on the first pass in numeric order, with nothing hand-placed. The four
+hunks that needed a person to read the surrounding code at `b11601` (24, 42, 50, 51) moved by
+themselves here, because `b11601` already carries their re-anchored text and `v0.7.0` did not touch
+those regions again. `GGML_CUDA_DISABLE_GRAPHS` is still read at this ref, so the escape-hatch claim
+survives the port.
+
+**08 `mmvq-mmid-batch-sm60` is deleted at this ref, and it should have gone at `b11601`.** Upstream
+`1623d8ce4` ("cuda: always use MMVQ for MUL_MAT_ID on sm_60", #27828) is an ancestor of `b11601`, so
+this was already true one branch ago and the claim was never checked. `get_mmvq_mmid_max_batch`
+returns `MMVQ_MAX_BATCH_SIZE` as soon as `cc == GGML_CUDA_CC_PASCAL` (`mmvq.cu:289`), and the
+device-side `get_mmvq_mmid_max_batch_for_device()` does the same when `__CUDA_ARCH__ ==
+GGML_CUDA_CC_PASCAL` (`mmvq.cu:442`). On a P100 the `get_mmvq_mmid_max_batch_pascal_older` table that
+08 rewrites is therefore never consulted. 08 still applied at zero fuzz because it edits the table
+body, which upstream left alone, while the early return that makes it dead sits above it - which is
+exactly how a no-op hides in a set like this. Its measured +2.2% is now llama.cpp's own behaviour.
+
+What is not free is the part of 08 that went past its evidence. Its ceiling also covered sm_61 (P40,
+GTX 10xx) and every pre-Volta NVIDIA, on the argument that they should follow sm_60, while 08's own
+reasoning for treating sm_60 as the special case was that elsewhere the fallback is MMQ, which has
+DP4A and is a fine place to land. Deleting 08 restores upstream's ceilings there, so a build aimed at
+sm_61 rather than the P100 this set tunes for will see different `MUL_MAT_ID` dispatch than it did on
+the `v0.6.0` or `b11601` branches. The other pre-Volta mechanism, `is_nvidia_pascal_older` (`cc <
+VOLTA`, which does include sm_60) in the `slow_pascal` list, never went through that table, so
+nothing else about the Pascal path moves.
+
+**35 `mmvq-mmid-batch-cap` comes back from parked.** It was paused at `b11601` for two reasons and
+only one survives. The 08 overlap is gone with 08; what is left is that upstream's ceiling for sm_60
+is now 8, and a verify batch of 1 + draft tokens still exceeds 8 and still leaves MMVQ for MMQ, which
+this card cannot run - so going past 8 is still precisely what 35 does, and it is now judged against
+the new dispatch instead of against 08. One hunk needed re-anchoring, because its trailing context was
+the `// NVIDIA: Volta, Ada Lovelace, ...` comment and its condition, which now name the P100; the
+other five landed unchanged. Its numbers were taken at the ref it was written for, and it has not
+been compiled since - neither at `b11601` nor here - so it is the first thing to check at `sm_60`.
 
 22 `decode-sched-slots` was re-authored: upstream split `llama_context::sched_new()` out of
 `sched_reserve()` and gave the scheduler a `sched_realloc_callback`, so the slot block now follows
@@ -163,23 +192,6 @@ not done without DP4A. The kernel is 20.1% of an MoE decode step.
 **This one is not architecture-gated.** The constant is a plain `constexpr`, so
 every GPU gets 4 and upstream's 2 is not preserved anywhere. Only sm_60 was
 measured; if you are on Turing or later, measure or revert this one.
-
-### 08 · `mmvq-mmid-batch-sm60` — `pre-Volta`
-
-The table gating quantized `MUL_MAT_ID` into the fused MoE matvec is keyed on
-`cc < VOLTA`, lumping sm_60 in with sm_61. They differ in exactly the thing
-that decides where the crossover belongs: past the cap sm_61 lands on MMQ,
-which is fine, while sm_60 falls all the way to sorted-gather.
-
-**+2.2%** (geometric mean over three prompts, no workload regressing).
-
-Two caveats the patch states and this entry should not bury. Only IQ2_XS and
-IQ3_XXS were measured directly — the whole table is raised because the reason
-(on sm_60 the fallback is the slow path for every type) does not depend on the
-type, which is an argument rather than a measurement, and it is the weakest link
-here. And the table is keyed on `cc < VOLTA`, so the ceiling is removed for
-sm_61 (P40, GTX 10xx) too, where the argument above does not hold: there the
-fallback is MMQ, which is a fine place to land.
 
 ### 09 · `mmvq-nwarps-small-k-sm60` — `pre-Turing`
 

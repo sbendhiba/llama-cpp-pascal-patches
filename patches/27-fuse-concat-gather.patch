@@ -330,7 +330,7 @@ index aa506a05f..436985623 100644
 +
  void ggml_cuda_op_concat(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index f8cde6ec5..7277b0b04 100644
+index bdf0bc23d..11a2e3138 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -3868,6 +3868,55 @@ static bool ggml_cuda_node_reads(const ggml_tensor * n, const ggml_tensor * t) {
