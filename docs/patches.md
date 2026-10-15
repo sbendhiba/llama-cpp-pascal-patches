@@ -8,7 +8,8 @@ on earlier ones. The tag is recorded once, in the top-level README.
 regenerated against it and verified in numeric order at zero fuzz and zero offset, the clean-room
 tree they rebuild is byte-identical to the reviewed one, and all 275 identifiers they reference
 resolve in the patched tree. Stock and patched trees at this ref have both been **built** at `sm_60`,
-and one quick 2-round cell has been run on the dense 27B - see the note at the end of this section.
+and the full scripted session (5 rounds, four configs, both models and both splits) has been run on it -
+see the note at the end of this section.
 
 The port was cheap because upstream barely moved: of the 33 files this set edits, 7 changed at all,
 and only two of those changes reach code a patch hooks.
@@ -61,19 +62,19 @@ whether it is valid, not whether it is fast.
 ported slots set neither, exactly as the `v0.6.0` patch did. Mirroring them would be a behaviour change
 nobody has measured here, so it is recorded rather than assumed - and it is the first thing to look at
 if decode graphs misbehave on this ref.
-Nothing on this branch is measured in the sense this repo means by it, and building is not measuring.
 Both arms exist at `sm_60` under CUDA 12.4 with `-DGGML_CUDA=ON -DGGML_NCCL=OFF -DGGML_CUDA_NCCL=OFF
 -DCMAKE_CUDA_ARCHITECTURES=60 -DGGML_NATIVE=ON -DCMAKE_BUILD_TYPE=Release`, at the same commit. That
 `GGML_CUDA_NCCL` is not a spare: left at its default ON it routes `-sm tensor` through upstream NCCL,
 which aborts on these cards in `ncclGroupEnd()` identically in both arms, and patch 49 never runs.
 
-One quick cell has been run - dense 27B, `-sm tensor`, 2 passes per arm, pp2048 **+14.0%**, tg128
-**+42.5%** - and it reproduces the `v0.6.0` scripted row taken with the internal AllReduce on (+13.6%
-and +45.5%), which is the useful result: the port preserves that configuration rather than adding to
-it. It is not the scripted protocol, so no number below this line is re-established here, and no
-default inherited from the `v0.6.0` line (patch 49's gate and H2D stream, 50's graphs, 51's algorithm)
-is claimed at this ref until it has been. `test-backend-ops` and any perplexity or logit-identity check
-remain unrun on this tree.
+This branch is measured now. The full scripted session - 5 interleaved rounds, four configs, both models
+and both splits - is in `benchmarks/results/v0.7.0-p100x2-{tensor,layer}-{27b,35b}.csv` and tabulated at
+the top of the README: decode **+42.0%** (27B tensor) / **+36.1%** (27B layer) / **+34.3%** (MoE tensor,
++39.8% if one bad stock round is counted) / **+20.4%** (MoE layer), prefill **+74.2%** pp512 and
+**+14.9%** pp2048 on 27B tensor. What that does *not* do is re-establish the per-patch numbers quoted
+below this line: the session measures the set, not its parts, and every individual percentage there still
+belongs to `v0.6.0`. Also still unrun on this tree: `test-backend-ops`, and any perplexity or
+logit-identity check.
 
 
 Patch 43 `fuse-hc-combine` was deleted at `v0.5.0`. Upstream added dedicated

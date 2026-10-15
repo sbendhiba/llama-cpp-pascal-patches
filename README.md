@@ -8,12 +8,13 @@ tagged per llama.cpp ref (`git tag -l` lists them - `v0.6.0`, `v0.7.0`, and the 
 **Status of this `v0.7.0` set:** all 41 patches are regenerated against llama.cpp **`v0.7.0`**
 (`620d2225c`) and verified to apply in numeric order at zero fuzz and zero offset, with every
 identifier they introduce resolving in the patched tree. Stock and patched trees at that commit have
-both been **built** at `sm_60` under CUDA 12.4 with zero errors, and the patched arm has had **one
-quick 2-round run** on the dense 27B (`+14.0%` pp2048, `+42.5%` tg128 under `-sm tensor`) - see
-[What to expect](#what-to-expect). That is not the scripted 5-round protocol, so every number below it
-is inherited from `v0.6.0` and belongs to those builds, not to this one. The porting notes - one patch
-dropped because upstream absorbed it, one patch brought back from parked, and one deliberate divergence
-in patch 22 - are at the top of [`docs/patches.md`](docs/patches.md).
+both been **built** at `sm_60` under CUDA 12.4 with zero errors, and the patched arm has been through
+the **full scripted session** - 5 interleaved rounds, four configs, on the 27B and the 35B, both splits
+- so the numbers in [What to expect](#what-to-expect) below the `v0.7.0` heading belong to this set.
+The `v0.6.0` rows are kept beside them because that is what the gain is compared against, not because
+they describe this tree. The porting notes - one patch dropped because upstream absorbed it, one patch
+brought back from parked, and one deliberate divergence in patch 22 - are at the top of
+[`docs/patches.md`](docs/patches.md).
 
 Unofficial, and unaffiliated with the llama.cpp project. MIT, matching llama.cpp.
 
@@ -68,7 +69,53 @@ Every patch carries its measurement in the comments it adds to the source, and
 [docs/patches.md](docs/patches.md) is the index: per patch, the scope tag, the effect, the kill
 switch, what it changes about the output, and the alternatives that were tried and rejected.
 
-### Scripted - 2026-10-12, `v0.6.0`, 45 patches - the newest **measured** configuration
+### Scripted - 2026-10-15, `v0.7.0`, 41 patches - **the shipping set at this ref**
+
+The first full scripted session on this ref, and the first one that had 49, 50 and 51 in the set from
+the start. Same box, same runner, 5 rounds, arms interleaved with the order reversed on even rounds,
+both arms build line `620d2225c (11669)`, nothing exported for either arm, cooled to 45 C between
+configs (38-60, 43-56, 43-54 and 42-52 C in table order). `-fa on -t 28 -ub 2048 -n 128`,
+`-p 512,2048` on the 27B and `-p 4096` on the 35B, and both arms built with `-DGGML_CUDA_NCCL=OFF`.
+One row per arm, round and test is in `benchmarks/results/` as `v0.7.0-p100x2-tensor-27b.csv`,
+`-layer-27b`, `-tensor-35b` and `-layer-35b`, each with the summary `run.sh` printed beside it.
+
+| Model | Split | pp512 t/s | | pp2048 t/s | | tg128 t/s | |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Qwen3.8-27B Q4_0 dense | `-sm tensor` | 233.62 → **406.92** | **+74.2%** | 390.63 → **448.95** | **+14.9%** | 23.43 → **33.28** | **+42.0%** |
+| Qwen3.8-27B Q4_0 dense | `-sm layer` | 147.86 → **217.44** | **+47.1%** | 228.27 → 232.29 | **+1.8%** | 15.20 → **20.68** | **+36.1%** |
+
+| Model | Split | pp4096 t/s | | tg128 t/s | |
+|---|---|---:|---:|---:|---:|
+| Ornith-1.0-35B-A3B UD-Q4_K_M | `-sm tensor` | 1101.23 → **1257.15** | **+14.2%** | 55.51 → **77.60** | **+34.3%** † |
+| Ornith-1.0-35B-A3B UD-Q4_K_M | `-sm layer` | 967.28 → **995.21** | **+2.9%** | 55.14 → **66.41** | **+20.4%** |
+
+† One stock round on that cell came back at 46.38 t/s against 57.49 / 57.38 / 57.76 / 58.56 for the
+other four. Including it, the stock mean is 55.51 and the delta is **+39.8%**; +34.3% is quoted instead,
+which assumes that round was the anomaly - a judgement, not a measurement, so both are recorded. Every
+other cell in the session has a spread across rounds under 1% except 27B tensor pp2048 (stock sd 2.96,
+patched 3.36).
+
+Four things to read out of it:
+
+- **The pp512 numbers are patch 51, not the new ref.** Patch 51 landed on 2026-10-13, so the `v0.6.0`
+  session below it never had it in the set - which is exactly why that table shows only +5.7% at pp512.
+  51's own A/B at `v0.6.0` measured pp512 242.92 → 369.04 (**+51.9%**) and pp1024 **+29.1%** with decode
+  flat, and this session reproduces that shape on both splits (+74.2% tensor, +47.1% layer, decode
+  unchanged by it). It is the first full four-config session that has 49, 50 and 51 in it together.
+- **Decode holds, within session drift.** +42.0% against +44.5% on 27B tensor, +36.1% against +37.6% on
+  27B layer, +20.4% against +23.4% on 35B layer. Nothing here says the port lost decode.
+- **Tensor-split prefill is now clearly positive on both models**: +14.9% (27B) and +14.2% (35B) at
+  `-p 2048` / `-p 4096`, against +9.7% and +7.2% at `v0.6.0`. Layer-split prefill stays modest (+1.8%,
+  +2.9%), as it has been all along.
+- **The split recommendation is unchanged and now measured on this ref**: patched tensor beats patched
+  layer on decode in absolute terms on both models (33.28 against 20.68, 77.60 against 66.41) and by
+  more on prefill, so tensor is the arm to run.
+
+An earlier 2-pass run at this ref, taken before this session, reported +14.0% pp2048 and +42.5% tg128 on
+the 27B tensor cell. Superseded, but it is the run that found the `-DGGML_CUDA_NCCL=OFF` requirement:
+with NCCL left at its default ON, both arms abort after load in `ggml_backend_cuda_comm_allreduce_nccl`
+at `ncclGroupEnd()` on these cards, stock fails identically, and patch 49 never executes.
+### Scripted - 2026-10-12, `v0.6.0`, 45 patches - the same set before the port
 
 The same four configurations, re-taken after the two defaults that changed this week: patch 49's
 Pascal gate is now on, and patch 50 (`cuda-graphs-pascal`) is new and on. Same box, same runner, 5
@@ -275,41 +322,6 @@ flipping with the ubatch, and the internal path the closer one to the control at
 clears "wrong" (qr0n's broken build was 7.68 against 3.53); it does not clear "checked", because no
 logit-level comparison exists yet. Reproduce it with [`benchmarks/ppl.sh`](benchmarks/ppl.sh). 
 
-### Quick look - 2026-10-15, `v0.7.0`, 2x Tesla P100 - 2 rounds, not the scripted protocol
-
-The first run on this ref. `llama-bench` direct, `Qwen3.8-27B Q4_0` (dense, 27.32B, 14.94 GiB),
-`-fa on -sm tensor -t 28 -ub 2048 -ngl 99 -p 2048,4096 -n 128 -r 2`, both arms reporting build
-`11669 (620d2225c)`, so the ref is not a variable here. Arm order reversed between the two pairs:
-
-| Split | pp2048 t/s | | pp4096 t/s | | tg128 t/s | |
-|---|---:|---:|---:|---:|---:|---:|
-| `-sm tensor`, stock | 392.36 | | 384.10 | | 23.415 | |
-| `-sm tensor`, patched | **447.38** | **+14.0%** | **436.64** | **+13.7%** | **33.365** | **+42.5%** |
-
-Means of two passes each: stock 395.37 / 389.34, 386.12 / 382.08, 23.42 / 23.41; patched 448.29 /
-446.47, 437.00 / 436.28, 33.36 / 33.37. Stock's two passes disagree by 1.5% at pp2048, patched's by
-0.4%, and the cards were left at 63 C - so the deltas are well outside the spread, but the absolute
-t/s are **not** comparable to the scripted rows, which cooled to 45 C between configs and ran five
-rounds.
-
-**What this run establishes is that the port holds, not that anything new appeared.** The `v0.6.0`
-scripted session with the internal AllReduce switched on measured this same cell at pp2048
-382.39 -> 434.27 (**+13.6%**) and tg128 23.27 -> 33.86 (**+45.5%**). Here it is +14.0% and +42.5%.
-The decode number is a little lower and prefill a point short, both inside what a 2-round run at a
-different ending temperature moves, so the honest reading is that 41 patches at `v0.7.0` deliver the
-configuration that was measured at `v0.6.0` - gate, graphs, H2D stream and the cuBLAS pick included.
-
-One thing this run adds that no `v0.6.0` row did: **`-sm tensor` requires `-DGGML_CUDA_NCCL=OFF`,
-and that is not the flag the name suggests.** With `GGML_CUDA_NCCL` left at its default ON, both arms
-abort right after load in `ggml_backend_cuda_comm_allreduce_nccl` at `ncclGroupEnd()` on these cards.
-Stock fails identically, so it is not a patch defect, and patch 49's internal AllReduce never gets
-reached - a run built that way measures none of this set. The first attempt at the table above died
-exactly there. Both arms were rebuilt with it off, and no AllReduce init failure or fallback line
-appeared in any pass.
-
-A scripted 5-round re-take at this ref is still owed before the `v0.6.0` rows are replaced, and the
-`b11601` decode question is now moot: this ref reproduces the `v0.6.0` gain with the ported text.
-
 ### By hand - same tag, `llama-bench` direct, `-ub 2048`
 
 Whole set against stock on the same two cards, 5 reps per cell, taken before the script was usable:
@@ -351,13 +363,13 @@ no stock control either), the two transcript cells that arrived corrupted, and w
 54 GiB model makes this row nobody else's comparison:
 [benchmarks/results/v0.6.0-p100x2-qwen4exp-manual.md](benchmarks/results/v0.6.0-p100x2-qwen4exp-manual.md).
 
-**Read the vintage before you quote any of this.** Both `v0.6.0` tables above are the `v0.6.0` set
-(46 files), not the 41 this branch ships, and only one quick 2-round cell has been run at this ref (the
-`v0.7.0` subsection above). That matters in both directions: those rows were produced with five patches
-(08, 34, 39, 46, 48) that this branch no longer contains, because upstream absorbed or obsoleted them
-([docs/patches.md](docs/patches.md)), and the 41 that survived were regenerated against a different
-tree. Exactly one output-identity check exists beside any of it - patch 49's H2D stream at `v0.6.0`,
-maximum KLD 0.000000 - and there is none at this ref.
+**Read the vintage before you quote any of this.** Only the first section above is this set: everything
+from the `v0.6.0` heading onward is the 46-file `v0.6.0` tree, produced with five patches (08, 34, 39,
+46, 48) that this branch no longer contains, because upstream absorbed or obsoleted them
+([docs/patches.md](docs/patches.md)), and regenerated against a different llama.cpp. They stay because
+they are the control the `v0.7.0` session is read against, not because they describe what ships.
+Exactly one output-identity check exists beside any of it - patch 49's H2D stream at `v0.6.0`, maximum
+KLD 0.000000 - and there is none at this ref.
 
 For comparison, on one P100, end-to-end decode from `llama-server`, geometric mean over three
 prompts, MTP speculation and a realistic sampler:
