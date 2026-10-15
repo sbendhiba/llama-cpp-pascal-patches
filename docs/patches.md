@@ -61,7 +61,8 @@ whether it is valid, not whether it is fast.
 ported slots set neither, exactly as the `v0.6.0` patch did. Mirroring them would be a behaviour change
 nobody has measured here, so it is recorded rather than assumed - and it is the first thing to look at
 if decode graphs misbehave on this ref.
-Nothing on this branch is measured yet, and building it is not measuring it. Both arms now exist at
+Nothing on this branch is measured in the sense this repo means by it, and building is not measuring.
+Both arms now exist at
 `sm_60` under CUDA 12.4 (`-DGGML_CUDA=ON -DGGML_NCCL=OFF -DCMAKE_CUDA_ARCHITECTURES=60
 -DGGML_NATIVE=ON -DCMAKE_BUILD_TYPE=Release`, stock and patched at the same commit), so the set is
 known to compile on the card - but a ported patch is only worth its number once it has been

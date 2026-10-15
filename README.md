@@ -8,11 +8,12 @@ llama.cpp ref this set tracks gets its own branch in this repo, and released one
 **Status of this `v0.7.0` branch:** all 41 patches are regenerated against llama.cpp **`v0.7.0`**
 (`620d2225c`) and verified to apply in numeric order at zero fuzz and zero offset, with every
 identifier they introduce resolving in the patched tree. Stock and patched trees at that commit have
-both been **built** at `sm_60` under CUDA 12.4 with zero errors - so this set compiles on the card -
-but it has **not been benchmarked** at this ref. Every number below is inherited from `v0.6.0` and
-belongs to those builds, not to this one. The porting notes - one patch dropped because upstream
-absorbed it, one patch brought back from parked, and one deliberate divergence in patch 22 - are at
-the top of [`docs/patches.md`](docs/patches.md).
+both been **built** at `sm_60` under CUDA 12.4 with zero errors, and the patched arm has had **one
+quick 2-round run** on the dense 27B (`+14.0%` pp2048, `+42.5%` tg128 under `-sm tensor`) - see
+[What to expect](#what-to-expect). That is not the scripted 5-round protocol, and every other number
+below is inherited from `v0.6.0` and belongs to those builds, not to this one. The porting notes - one
+patch dropped because upstream absorbed it, one patch brought back from parked, and one deliberate
+divergence in patch 22 - are at the top of [`docs/patches.md`](docs/patches.md).
 
 Unofficial, and unaffiliated with the llama.cpp project. MIT, matching llama.cpp.
 
@@ -108,6 +109,39 @@ Three things to read out of that table, and the middle one is a correction:
   below. The stock arm moved, not the patched one (58.27 here against 56.23 there, with about 1 t/s of
   spread on each), so the older figure was flattered by a slow control. Quote +5.7%.
 
+### Quick look - 2026-10-15, `v0.7.0`, 2x Tesla P100 - 2 rounds, not the scripted protocol
+
+The first run on this ref. `llama-bench` direct, `Qwen3.8-27B Q4_0` (dense, 27.32B, 14.94 GiB),
+`-fa on -sm tensor -t 28 -ub 2048 -ngl 99 -p 2048,4096 -n 128 -r 2`, both arms reporting build
+`11669 (620d2225c)`, so the ref is not a variable here. Arm order reversed between the two pairs:
+
+| Split | pp2048 t/s | | pp4096 t/s | | tg128 t/s | |
+|---|---:|---:|---:|---:|---:|---:|
+| `-sm tensor`, stock | 392.36 | | 384.10 | | 23.415 | |
+| `-sm tensor`, patched | **447.38** | **+14.0%** | **436.64** | **+13.7%** | **33.365** | **+42.5%** |
+
+Means of two passes each: stock 395.37 / 389.34, 386.12 / 382.08, 23.42 / 23.41; patched 448.29 /
+446.47, 437.00 / 436.28, 33.36 / 33.37. Stock's two passes disagree by 1.5% at pp2048, patched's by
+0.4%, and the cards were left at 63 C - so the deltas are well outside the spread, but the absolute
+t/s are **not** comparable to the scripted rows above, which cooled to 45 C between configs and ran
+five rounds. Treat this as "the port works and the gain is alive at `v0.7.0`", nothing more.
+
+Two things it says that the table above does not:
+
+- **Prefill is strongly positive here, and that is not a contradiction of the `v0.6.0` rows.** The
+  2026-10-11 scripted session ran before 49, 50 and 51 joined the set - 51, the cuBLAS
+  accumulation pick, is the prefill patch and landed two days later. The "prefill is flat to mildly
+  negative" reading out of that table describes the set as it was then, not this one.
+- **`-sm tensor` needs `-DGGML_CUDA_NCCL=OFF`, and the flag is not the one you would guess.** With
+  `GGML_CUDA_NCCL` left at its default ON, both arms abort right after load in
+  `ggml_backend_cuda_comm_allreduce_nccl` at `ncclGroupEnd()` on these cards - stock fails identically,
+  so it is not a patch defect - and patch 49's internal AllReduce is never reached, so a run built that
+  way measures nothing of what this set does. Both arms above were rebuilt with it off; no AllReduce
+  init failure or fallback line appeared in any pass.
+
+A scripted 5-round re-take at this ref is still owed before any number here replaces the `v0.6.0`
+line, and the reason the patched arm moves more than it did at `v0.6.0` is not established yet.
+
 ### By hand - same tag, `llama-bench` direct, `-ub 2048`
 
 Whole set against stock on the same two cards, 5 reps per cell, taken before the script was usable:
@@ -125,8 +159,9 @@ three rows survived the scripted re-measurement and one did not, which is why th
 first: layer-35b agrees to a quarter of a point with a stock arm identical to 0.02 t/s, tensor-27b now
 has three runs agreeing, and tensor-35b fell from +8.6% to +5.7%.
 
-**Read the vintage before you quote any of this.** Both tables above are the `v0.6.0` set (46 files),
-not the 41 this branch ships, and nothing on this branch has been run on a card - it only builds. That
+**Read the vintage before you quote any of this.** Both `v0.6.0` tables above are the `v0.6.0` set
+(46 files), not the 41 this branch ships, and only one quick 2-round cell has been run at this ref (the
+`v0.7.0` subsection above). That
 matters in both directions: those rows were produced with five patches (08, 34, 39, 46, 48) that this
 branch no longer contains, because upstream absorbed or obsoleted them
 ([docs/patches.md](docs/patches.md)), and the 41 that survived were regenerated against a different
