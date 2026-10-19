@@ -9,8 +9,10 @@ tagged per llama.cpp ref (`git tag -l` lists them - `v0.6.0`, `v0.7.0`, and the 
 (`620d2225c`) and verified to apply in numeric order at zero fuzz and zero offset, with every
 identifier they introduce resolving in the patched tree. Stock and patched trees at that commit have
 both been **built** at `sm_60` under CUDA 12.4 with zero errors, and the patched arm has been through
-the **full scripted session** - 5 interleaved rounds, four configs, on the 27B and the 35B, both splits
-- so the numbers in [What to expect](#what-to-expect) below the `v0.7.0` heading belong to this set.
+the **full scripted session** - 5 interleaved rounds, four configs, on the 27B and the 35B, both splits -
+and a 3x P100 session, which found that patch 49's AllReduce stops at two devices unless
+`GGML_CUDA_AR_NGPU=1` is set - so the numbers in [What to expect](#what-to-expect) below the `v0.7.0`
+heading belong to this set.
 The `v0.6.0` rows are kept beside them because that is what the gain is compared against, not because
 they describe this tree. The porting notes - one patch dropped because upstream absorbed it, one patch
 brought back from parked, and one deliberate divergence in patch 22 - are at the top of
@@ -115,6 +117,68 @@ An earlier 2-pass run at this ref, taken before this session, reported +14.0% pp
 the 27B tensor cell. Superseded, but it is the run that found the `-DGGML_CUDA_NCCL=OFF` requirement:
 with NCCL left at its default ON, both arms abort after load in `ggml_backend_cuda_comm_allreduce_nccl`
 at `ncclGroupEnd()` on these cards, stock fails identically, and patch 49 never executes.
+### Scripted - 2026-10-19, `v0.7.0`, 3x Tesla P100 - the third card needs `GGML_CUDA_AR_NGPU=1`
+
+A third P100 went into the box, and the first thing it showed is that the set's largest effect stops at
+two cards: `ggml_cuda_ar_pipeline_init` caps `n_devices` at 2 unless `GGML_CUDA_AR_NGPU` is set, so a
+3-way tensor split silently loses patch 49. Three arms, 5 interleaved rounds, same runner and same flags
+as the 2-card session above, both arms built `-DGGML_CUDA_NCCL=OFF`, cooled to 45 C between configs. The
+`NGPU=1` arm is the **same binary** as the default arm behind a wrapper that exports one variable, so
+that pair isolates the gate from everything else. Rows in
+`benchmarks/results/v0.7.0-p100x3-{tensor,layer}-{27b,35b}.csv`.
+
+Qwen3.8-27B Q4_0 dense, `-sm tensor`:
+
+| arm | pp512 | pp2048 | tg128 |
+|---|---:|---:|---:|
+| stock | 282.30 | 399.53 | 24.81 |
+| patched, as shipped today | 364.79 | 408.31 | 28.79 |
+| patched + `GGML_CUDA_AR_NGPU=1` | **503.11** | **561.80** | **38.95** |
+
+Ornith-1.0-35B-A3B UD-Q4_K_M, `-sm tensor`:
+
+| arm | pp4096 | tg128 |
+|---|---:|---:|
+| stock | 1018.26 | 41.03 |
+| patched, as shipped today | 1042.76 | 55.70 |
+| patched + `GGML_CUDA_AR_NGPU=1` | **1271.45** | **78.33** |
+
+`-sm layer` at three cards, where the variable must make no difference:
+
+| model / arm | pp512 | pp2048 | pp4096 | tg128 |
+|---|---:|---:|---:|---:|
+| 27B stock | 147.19 | 228.13 | - | 15.04 |
+| 27B patched (either arm) | 218.9 | 234.1 | - | 20.4 |
+| 35B stock | - | - | 1133.54 | 54.37 |
+| 35B patched (either arm) | - | - | 1162.5 | 65.6 |
+
+Read it in this order, because the obvious percentage is the least trustworthy one:
+
+- **The gate on its own** (same binary, off to on): 27B tensor pp2048 **+37.6%**, decode **+35.3%**;
+  35B tensor pp4096 **+21.9%**, decode **+40.6%**. Against stock the totals read +40.6% pp / +57.0% tg
+  on the 27B and +24.9% pp / **+90.9%** tg on the MoE - but quote the within-build pair, because the
+  MoE's *stock* arm falls when it gains a third peer (55.51 -> 41.03 decode from 2 to 3 cards), so that
+  +90.9% is partly a weakened control.
+- **The third card is real on the dense model, and nearly free on the MoE.** Patched with the gate on,
+  2 cards to 3: 27B tensor 448.95 -> 561.80 at pp2048 and 33.28 -> 38.95 decode, while the 35B moves
+  1257.15 -> 1271.45 and 77.60 -> 78.33, under 1%. On the MoE the gate buys protection against the
+  fallback's cost, not extra throughput.
+- **The layer control passes.** `NGPU=1` and the default agree within noise (1162.54 against 1162.55 at
+  pp4096), which is what a layer split should do since it never reaches this code. The patch deltas on
+  layer are also card-count independent: +2.9% / +20.4% at two cards, +2.6% / +20.6% at three.
+- **Correctness was settled before anything here was believed.** At ctx 2048, ub 2048, three cards, the
+  N-way reduce against the host fallback in the same build: PPL 2.8037 against 2.8025 (-0.04%), mean
+  KLD 0.000343, 98.5% of positions keeping the same top token. It is not bit-identical - a different
+  summation cannot be - and the gap is about 3x the 2-card equivalent at the mean and 12x at the max,
+  which is why perplexity, not identity, is the bar for this one.
+- **The failure is silent.** With the gate unset at three cards, nothing was logged - not by
+  `llama-bench`, not by `llama-cli`, and the code does contain an init-failure warning on that path. A
+  user adding a third card therefore sees a ~38-point prefill loss and no diagnostic. Why the warning
+  never reaches the terminal is still open, and it matters more than the flip does.
+
+The default is **not** flipped on this evidence. One shape was exercised (single sequence, ctx/ub 2048),
+this is spin/arrival synchronisation, and a fourth peer has never existed in any run here. Three or more
+cards is permitted by the code up to `GGML_CUDA_MAX_DEVICES` = 16, but only two and three are measured.
 ### Scripted - 2026-10-12, `v0.6.0`, 45 patches - the same set before the port
 
 The same four configurations, re-taken after the two defaults that changed this week: patch 49's
@@ -430,12 +494,14 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
   gate is **on by default** — the only part of this set that is not output-neutral without saying so
   in the code — and so since 2026-10-13 is the H2D stream, which puts the copy-engine return leg on a
   second stream (`GGML_CUDA_AR_H2D_STREAM=0` puts it back). `GGML_CUDA_AR_NGPU=1`, which allows more
-  than two devices, is the only variable still off.
+  than two devices, is the only variable still off — and at three or more cards that means the whole of
+  patch 49 is silently absent, with nothing logged (see the 3x P100 section above).
   `GGML_CUDA_AR_PASCAL=0` restores upstream's behavior exactly. The gate changes which reduction runs
   across a tensor split, so it can change output; it was flipped on the strength of a paired
   perplexity check whose widest spread is 0.46% and, now, a logit-level KLD against the fallback
   (see [What to expect](#what-to-expect)), and the N-GPU half was validated by its author on *virtual*
-  devices, not on three or four cards. It compiles with nvcc 12.4 at `sm_60`, and on two real cards
+  devices; as of 2026-10-19 it has run on three real P100s - worth +37.6% pp2048 and +35.3% decode over
+  the same binary with the gate off - but never on four. It compiles with nvcc 12.4 at `sm_60`, and on two real cards
   the two parts measure **+13.6% pp / +45.5% decode on the dense 27B and +9.9% / +21.4% on the 35B MoE**
   against the same arms on the fallback — better than qr0n's +10.1% / +9.6% at `b10660` — with the
   stream since separated out of that: **+3.47% pp2048, +0.00% tg128** on its own, bit-identical

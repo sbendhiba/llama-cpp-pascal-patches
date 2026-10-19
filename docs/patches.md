@@ -453,8 +453,14 @@ peer; the add kernel walks those slices with a stride; and the chunked kernel ta
 a per-launch table of every rank's staging buffer and arrival slot, signals once,
 spins on each peer in turn and sums all N contributions. In `ggml-cuda.cu`,
 `ggml_backend_cuda_comm_allreduce_internal`'s `n_backends == 2` assert becomes
-`>= 2` and the init-failure warning stops guessing at the reason. Off by default
-because the N-way path has never run on real 3+ GPU hardware here.
+`>= 2` and the init-failure warning stops guessing at the reason. Off by default at the time it was
+written, because the N-way path had never run on real 3+ GPU hardware here. **It has now run at
+three cards** (2026-10-19, `benchmarks/results/v0.7.0-p100x3-*`): opening the gate on the same binary is
+worth +37.6% pp2048 and +35.3% decode on the dense 27B and +21.9% / +40.6% on the MoE, `-sm layer` is a
+clean null control, and the reduce itself passes a perplexity/KLD check against the host fallback
+(PPL 2.8037 against 2.8025, mean KLD 0.000343). The default is still off, now for a narrower reason:
+one shape was tested, a fourth peer has never existed anywhere in this set, and the fallback is silent
+when it happens - see the 3x P100 section in the README.
 
 **What is not gated: the shape of the reduction itself.** Making it N-way means both
 kernels loop over ranks instead of naming a peer, so that rewrite is live at two
