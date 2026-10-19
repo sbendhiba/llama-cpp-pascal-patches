@@ -443,7 +443,8 @@ single-stream path, and the comment at `ggml_cuda_ar_h2d_stream_enabled` says so
 lines are the only change to this patch; the confirmation A/B, default against opt-out, is in
 [`…-h2d-default.csv`](../benchmarks/results/v0.6.0-p100x2-h2d-default.csv).
 
-**N GPUs** (`GGML_CUDA_AR_NGPU=1`). Upstream accepts exactly two devices:
+**N GPUs** (2..4 devices by default; `GGML_CUDA_AR_NGPU` moves the ceiling). Upstream accepts
+exactly two devices:
 `ggml_cuda_ar_pipeline_init` refuses anything else, `ggml_cuda_ar_allreduce_copy_impl`
 and `ggml_cuda_ar_allreduce` assert it, and both kernels take one peer computed as
 `1 - i`. So `-sm tensor` on three or four cards fell back to the meta backend's
@@ -458,9 +459,14 @@ written, because the N-way path had never run on real 3+ GPU hardware here. **It
 three cards** (2026-10-19, `benchmarks/results/v0.7.0-p100x3-*`): opening the gate on the same binary is
 worth +37.6% pp2048 and +35.3% decode on the dense 27B and +21.9% / +40.6% on the MoE, `-sm layer` is a
 clean null control, and the reduce itself passes a perplexity/KLD check against the host fallback
-(PPL 2.8037 against 2.8025, mean KLD 0.000343). The default is still off, now for a narrower reason:
-one shape was tested, a fourth peer has never existed anywhere in this set, and the fallback is silent
-when it happens - see the 3x P100 section in the README.
+(PPL 2.8037 against 2.8025, mean KLD 0.000343). **The default is now 2..4 devices** (2026-10-19). `GGML_CUDA_AR_NGPU` stops being an opt-in for the
+reduce and becomes a ceiling control: unset means four, `=1` lifts it to `GGML_CUDA_MAX_DEVICES` for
+hardware measured past four, `=0` restores the original 2-device cap. Four cards are inside the default
+but outside the evidence - three is the largest count this set has ever run - and what made the old
+behaviour a bug rather than a conservatism was the silence: at three cards nothing was logged in either
+llama-bench or llama-cli, so a user lost ~38 points of prefill and could not see why. See the 3x P100
+section in the README for the flips' own verification (2-card inertness, long context, multi-sequence
+serving, perplexity across chunks).
 
 **What is not gated: the shape of the reduction itself.** Making it N-way means both
 kernels loop over ranks instead of naming a peer, so that rewrite is live at two

@@ -10,9 +10,9 @@ tagged per llama.cpp ref (`git tag -l` lists them - `v0.6.0`, `v0.7.0`, and the 
 identifier they introduce resolving in the patched tree. Stock and patched trees at that commit have
 both been **built** at `sm_60` under CUDA 12.4 with zero errors, and the patched arm has been through
 the **full scripted session** - 5 interleaved rounds, four configs, on the 27B and the 35B, both splits -
-and a 3x P100 session, which found that patch 49's AllReduce stops at two devices unless
-`GGML_CUDA_AR_NGPU=1` is set - so the numbers in [What to expect](#what-to-expect) below the `v0.7.0`
-heading belong to this set.
+and a 3x P100 session, which found patch 49's AllReduce stopping at two devices - a third card silently
+lost it, and that default has since been widened to 2..4. So the numbers in
+[What to expect](#what-to-expect) below the `v0.7.0` heading belong to this set.
 The `v0.6.0` rows are kept beside them because that is what the gain is compared against, not because
 they describe this tree. The porting notes - one patch dropped because upstream absorbed it, one patch
 brought back from parked, and one deliberate divergence in patch 22 - are at the top of
@@ -117,11 +117,12 @@ An earlier 2-pass run at this ref, taken before this session, reported +14.0% pp
 the 27B tensor cell. Superseded, but it is the run that found the `-DGGML_CUDA_NCCL=OFF` requirement:
 with NCCL left at its default ON, both arms abort after load in `ggml_backend_cuda_comm_allreduce_nccl`
 at `ncclGroupEnd()` on these cards, stock fails identically, and patch 49 never executes.
-### Scripted - 2026-10-19, `v0.7.0`, 3x Tesla P100 - the third card needs `GGML_CUDA_AR_NGPU=1`
+### Scripted - 2026-10-19, `v0.7.0`, 3x Tesla P100 - the third card, and why patch 49 stopped at two
 
-A third P100 went into the box, and the first thing it showed is that the set's largest effect stops at
-two cards: `ggml_cuda_ar_pipeline_init` caps `n_devices` at 2 unless `GGML_CUDA_AR_NGPU` is set, so a
-3-way tensor split silently loses patch 49. Three arms, 5 interleaved rounds, same runner and same flags
+A third P100 went into the box, and the first thing it showed is that the set's largest effect stopped at
+two cards: `ggml_cuda_ar_pipeline_init` capped `n_devices` at 2 unless `GGML_CUDA_AR_NGPU` was set, so a
+3-way tensor split silently lost patch 49. That cap has been widened by the end of this session - see the
+flip below. Three arms, 5 interleaved rounds, same runner and same flags
 as the 2-card session above, both arms built `-DGGML_CUDA_NCCL=OFF`, cooled to 45 C between configs. The
 `NGPU=1` arm is the **same binary** as the default arm behind a wrapper that exports one variable, so
 that pair isolates the gate from everything else. Rows in
@@ -171,14 +172,31 @@ Read it in this order, because the obvious percentage is the least trustworthy o
   KLD 0.000343, 98.5% of positions keeping the same top token. It is not bit-identical - a different
   summation cannot be - and the gap is about 3x the 2-card equivalent at the mean and 12x at the max,
   which is why perplexity, not identity, is the bar for this one.
-- **The failure is silent.** With the gate unset at three cards, nothing was logged - not by
-  `llama-bench`, not by `llama-cli`, and the code does contain an init-failure warning on that path. A
-  user adding a third card therefore sees a ~38-point prefill loss and no diagnostic. Why the warning
-  never reaches the terminal is still open, and it matters more than the flip does.
+- **How it failed was the worse half: silently.** With the gate unset at three cards, nothing was
+  logged - not by `llama-bench`, not by `llama-cli`, and the code does contain an init-failure warning
+  on that path. A user adding a third card therefore lost ~38 points of prefill with no diagnostic. Why
+  that warning never reaches the terminal is still open, and it matters more than the flip does.
 
-The default is **not** flipped on this evidence. One shape was exercised (single sequence, ctx/ub 2048),
-this is spin/arrival synchronisation, and a fourth peer has never existed in any run here. Three or more
-cards is permitted by the code up to `GGML_CUDA_MAX_DEVICES` = 16, but only two and three are measured.
+**The flip (2026-10-19): 2..4 cards now take the internal AllReduce by default.** `GGML_CUDA_AR_NGPU=1`
+lifts the ceiling to `GGML_CUDA_MAX_DEVICES` (16) for machines measured past four cards,
+`GGML_CUDA_AR_NGPU=0` restores the original 2-device cap, and unset means four. The ceiling is
+deliberately narrow rather than maximal: three cards are measured here and four are not, so a four-card
+machine gets the internal path on code that has only ever run three peers - a stated risk instead of a
+silent absence - and 5..16 stay behind the variable.
+
+Before flipping, the shapes this session had not touched were exercised on three cards with the gate on.
+pp8192 **529.02** against 390.88 with it off; tg512 **39.57** against 29.14; perplexity over 3 chunks at
+ctx 4096 **3.7324** against 3.7314, 0.03% apart; and `llama-server -np 4` with six concurrent 32-token
+completions - all six returned, and the log showed `graphs reused = 60` with `graph reallocs = 0`, so
+patch 50's graphs and the N-way reduce coexist under multi-sequence serving. The only error-shaped line in
+that log was upstream's own `llama_params_fit is not implemented for SPLIT_MODE_TENSOR` warning, present
+in both arms.
+
+After the rebuild the change measures inert exactly where it was already on: two cards give 451.82
+pp2048 / 33.34 tg against the scripted 448.95 / 33.28. Three cards with nothing set in the environment
+give **569.25 / 39.34**, and `GGML_CUDA_AR_NGPU=0` reproduces the pre-flip default's 409.21 / 28.95 - so
+the escape hatch is the old behaviour, not something new.
+
 ### Scripted - 2026-10-12, `v0.6.0`, 45 patches - the same set before the port
 
 The same four configurations, re-taken after the two defaults that changed this week: patch 49's
@@ -376,8 +394,9 @@ N-GPU port were folded into one, which is how the merge was shown to be free at 
 30.07 and 70.64 → 70.66 decode, with both arms of the 27B drifting the same way.
 
 **The Pascal gate is on by default**, so a pre-Volta tensor split gets that table without being
-asked; since 2026-10-13 the H2D stream is on by default too, and `GGML_CUDA_AR_NGPU` is the only
-variable still off. The gate is the one part of
+asked; since 2026-10-13 the H2D stream is on by default too, and since 2026-10-19 the reduce covers
+2..4 devices with nothing set, so `GGML_CUDA_AR_NGPU` only moves that ceiling now - `=1` raises it to
+`GGML_CUDA_MAX_DEVICES` (16), `=0` puts it back at two. The gate is the one part of
 this set that is not output-neutral, so the flip was made on
 [`benchmarks/results/v0.6.0-p100x2-tensor-27b-perplexity.md`](benchmarks/results/v0.6.0-p100x2-tensor-27b-perplexity.md):
 wikitext-2 on the 27B, one binary, four arms — internal 5.2524 / 5.2487, fallback 5.2360 / 5.2603,
@@ -493,9 +512,10 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
   ([qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp), MIT), not written here. Its Pascal
   gate is **on by default** — the only part of this set that is not output-neutral without saying so
   in the code — and so since 2026-10-13 is the H2D stream, which puts the copy-engine return leg on a
-  second stream (`GGML_CUDA_AR_H2D_STREAM=0` puts it back). `GGML_CUDA_AR_NGPU=1`, which allows more
-  than two devices, is the only variable still off — and at three or more cards that means the whole of
-  patch 49 is silently absent, with nothing logged (see the 3x P100 section above).
+  second stream (`GGML_CUDA_AR_H2D_STREAM=0` puts it back). `GGML_CUDA_AR_NGPU` no longer decides whether
+  the reduce runs at all: since 2026-10-19 the internal AllReduce covers 2..4 devices by default, `=1`
+  lifts that to `GGML_CUDA_MAX_DEVICES` (16), and `=0` restores the old 2-device cap. Before that change a
+  third card silently lost the whole of patch 49 — nothing logged (see the 3x P100 section above).
   `GGML_CUDA_AR_PASCAL=0` restores upstream's behavior exactly. The gate changes which reduction runs
   across a tensor split, so it can change output; it was flipped on the strength of a paired
   perplexity check whose widest spread is 0.46% and, now, a logit-level KLD against the fallback

@@ -83,6 +83,12 @@ Keep one commit per patch. If you fix a placement mistake after the fact, fold i
 own diff (`git diff <base> HEAD -- <the files that patch owns>`) rather than letting the correction
 live only in a later commit - the file on disk and the patch that produces it must not diverge.
 
+Folding a change into a patch in the middle of the set means resetting to that patch's **parent** and
+re-running the loop from there, so the patches after it get rebuilt too. `git reset --hard <sha>^^` is a
+grandparent, not a parent: doing that for patch 49 dropped patch 47's commit, and the only reason it was
+caught is that gate 2 then reported a diff in `ggml-backend.cpp` - a file the fold never touched. A
+mystery file in the identity gate is a history error, not a patch error.
+
 ## 4. Gates to run before touching a card
 
 **Clean-room apply.** Fresh tree at the new tag, apply every regenerated patch, and require no
