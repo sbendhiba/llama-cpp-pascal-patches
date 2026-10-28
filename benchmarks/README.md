@@ -138,6 +138,11 @@ now covers the 27B tensor-split case it used to describe alone.
 ## Before a number goes in the README
 
 - both arms on the same tag, same tree, differing only by the patches
+- **the power limit, recorded with the run.** The cards take `nvidia-smi -pl 125|160|185` and it
+  changes absolute throughput (27B patched pp512: 468 t/s at 125 W, 511 at 185 W). Every published
+  row up to `v0.7.0` was taken at 185 W; full sessions from 2026-10-28 on run at **160 W**, because
+  the UPS cuts out above 600 W of system draw. Rows from different limits are not comparable, and a
+  session re-run at a new limit needs the limit stated in the README table, not just in the csv
 - rounds interleaved with the order reversed (run.sh does this)
 - the card cooled to a stated temperature before each arm - run.sh records what it actually was, and
   a round taken 15 C above your threshold is a round to discard, not to average in. Between runs in a
