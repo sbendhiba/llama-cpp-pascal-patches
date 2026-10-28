@@ -8,15 +8,14 @@ tagged per llama.cpp ref (`git tag -l` lists them - `v0.6.0`, `v0.7.0`, and the 
 **Status of this `v0.8.0` set:** all 40 patches are regenerated against llama.cpp **`v0.8.0`**
 (`8642541b2`) and verified to apply in numeric order at zero fuzz and zero offset, with every
 identifier they introduce resolving in the patched tree. Stock and patched trees at that commit have
-both been **built** at `sm_60` under CUDA 12.4 with zero errors, and the patched arm has been
-smoke-run on the 27B (`-sm tensor`, one rep: pp512 468.5 t/s, tg128 39.9 t/s against stock 283.6 /
-25.3). That is a compile-and-run check, **not** a session - the published measurements in
-[What to expect](#what-to-expect) are still the `v0.7.0` ones, which describe the same code with
-three upstream-refresh differences: patch 17 is gone (upstream `623c16393` now does the same
-register cache with float4 loads), and 02/09 and 42 were re-anchored onto restructured upstream code.
-The `v0.6.0` rows are kept beside them because that is what the gain is compared against, not because
-they describe this tree. The porting notes - two patches dropped because upstream absorbed them, one
-patch brought back from parked, and one deliberate divergence in patch 22 - are at the top of
+both been **built** at `sm_60` under CUDA 12.4 with zero errors, and the set has been through a
+**full scripted session** at 160 W - 5 interleaved rounds, four configs, four arms: `v0.7.0` and
+`v0.8.0`, stock and patched, on the 27B and the 35B, both splits. The `v0.8.0` set is ahead of the
+`v0.7.0` set by 1.1-3.7% on every cell, and upstream `v0.8.0` is within ±2% of `v0.7.0` at that
+power. The numbers below the `v0.8.0` heading are this set's; the `v0.7.0` and `v0.6.0` rows are
+kept beside them because they are what the gain is compared against. The porting notes - patch 17
+gone (upstream `623c16393` now does the same register cache with float4 loads) and 02/09, 19, 42, 50
+re-anchored onto restructured upstream code - are at the top of
 [`docs/patches.md`](docs/patches.md).
 
 Unofficial, and unaffiliated with the llama.cpp project. MIT, matching llama.cpp.
@@ -72,25 +71,69 @@ Every patch carries its measurement in the comments it adds to the source, and
 [docs/patches.md](docs/patches.md) is the index: per patch, the scope tag, the effect, the kill
 switch, what it changes about the output, and the alternatives that were tried and rejected.
 
-### Compile + smoke - 2026-10-28, `v0.8.0`, 40 patches - **the shipping set at this ref**
+### Scripted - 2026-10-28, `v0.8.0`, 40 patches, 160 W - **the shipping set at this ref**
 
-Both trees at `8642541b2 (11960)`, built for `sm_60` under CUDA 12.4 with zero errors, nothing
-exported for either arm, cards at their 185 W limit. Two `llama-bench` reps on the 27B
-(`-fa on -t 28 -ub 2048 -sm tensor`, `-p 512,2048 -n 128`) to prove the patched build runs and its
-fusions reach the model:
+Two cards (`CUDA_VISIBLE_DEVICES=0,1`), all three cards at their **160 W** limit because the machine
+is on a UPS that trips above 600 W of system draw, 5 rounds per config, **four arms interleaved** -
+`v0.7.0` and `v0.8.0`, stock and patched - with the order reversed on even rounds and a cooldown to
+45 C before each config. Flags are the published ones: `-fa on -t 28 -ub 2048 -n 128`, `-p 512,2048`
+on the 27B and `-p 4096` on the 35B. Build lines `620d2225c (11669)` for both `v0.7.0` arms and
+`8642541b2 (11960)` for both `v0.8.0` arms, nothing exported for any arm, all four built with
+`-DGGML_CUDA_NCCL=OFF`. Raw rows: `benchmarks/results/v0.8.0-160w-p100x2-{tensor,layer}-{27b,35b}.csv`.
 
-| arm | pp512 t/s | pp2048 t/s | tg128 t/s |
-|---|---:|---:|---:|
-| stock `v0.8.0` | 284.5 ± 0.3 | 405.0 ± 0.1 | 25.29 ± 0.05 |
-| patched `v0.8.0` | **511.2 ± 2.7** | **563.7 ± 0.4** | **39.42 ± 0.98** |
+| Model | Split | arm | pp512 t/s | pp2048 t/s | tg128 t/s |
+|---|---|---:|---:|---:|
+| Qwen3.8-27B Q4_0 dense | `-sm tensor` | `v0.7.0` stock | 233.17 ± 0.58 | 375.59 ± 0.97 | 23.38 ± 0.02 |
+| | | `v0.7.0` patched | 386.89 ± 4.11 | 424.66 ± 1.68 | 33.28 ± 0.02 |
+| | | `v0.8.0` stock | 234.59 ± 0.41 | 379.83 ± 0.66 | 23.82 ± 0.04 |
+| | | `v0.8.0` patched | **391.37 ± 1.59** | **429.16 ± 0.62** | **34.21 ± 0.02** |
+| Qwen3.8-27B Q4_0 dense | `-sm layer` | `v0.7.0` stock | 145.79 ± 0.43 | 223.90 ± 0.48 | 15.11 ± 0.02 |
+| | | `v0.7.0` patched | 206.38 ± 0.65 | 222.38 ± 0.58 | 20.65 ± 0.01 |
+| | | `v0.8.0` stock | 146.45 ± 0.32 | 226.39 ± 0.22 | 15.44 ± 0.01 |
+| | | `v0.8.0` patched | **209.26 ± 0.59** | **224.72 ± 0.29** | **21.19 ± 0.01** |
 
-Two reps do not make a measurement - this table is a smoke test, and the scripted session for this
-ref has not been run yet. The power limit matters: the first pass of this check ran at 125 W and
-the patched pp512 read 468 t/s instead of 511. The `v0.7.0` session below is still the last
-full one, and it describes the same code modulo the three upstream-refresh differences listed at
-the top of this file.
+| Model | Split | arm | pp4096 t/s | tg128 t/s |
+|---|---|---:|---:|---:|
+| Ornith-1.0-35B-A3B UD-Q4_K_M | `-sm tensor` | `v0.7.0` stock | 1100.38 ± 1.21 | 58.00 ± 1.18 |
+| | | `v0.7.0` patched | 1256.01 ± 0.64 | 77.60 ± 0.08 |
+| | | `v0.8.0` stock | 1119.66 ± 0.51 | 56.72 ± 1.87 |
+| | | `v0.8.0` patched | **1279.20 ± 1.57** | **79.71 ± 0.08** |
+| Ornith-1.0-35B-A3B UD-Q4_K_M | `-sm layer` | `v0.7.0` stock | 950.75 ± 3.82 | 55.19 ± 0.03 |
+| | | `v0.7.0` patched | 987.80 ± 1.15 | 66.31 ± 0.05 |
+| | | `v0.8.0` stock | 965.23 ± 1.58 | 57.36 ± 0.04 |
+| | | `v0.8.0` patched | **1003.32 ± 0.59** | **68.76 ± 0.02** |
 
-### Scripted - 2026-10-15, `v0.7.0`, 41 patches - **the last fully scripted session**
+The gains, stock to patched within each ref:
+
+| config | `v0.7.0` set | `v0.8.0` set |
+|---|---|---|
+| 27B tensor | +65.9% pp512, +13.1% pp2048, +42.3% tg | **+67.9%, +14.3%, +46.3%** |
+| 27B layer | +41.6%, -0.7%, +36.7% | **+43.5%, +0.4%, +40.3%** |
+| 35B tensor | +14.1% pp4096, +33.8% tg | **+16.3%, +37.4%** |
+| 35B layer | +3.9%, +20.2% | **+5.5%, +24.6%** |
+
+Four things to read out of it:
+
+- **The `v0.8.0` set is faster than the `v0.7.0` set on every cell**, by +1.1 to +3.7% at equal
+  power among the patched arms. The sets differ by patch 17's deletion, which should point the other
+  way, and by the re-anchoring onto new upstream code, so this is the same patches landing
+  differently on the new base, not a deliberate gain. Decode is where it is most visible and
+  least noisy (27B tensor 34.21 vs 33.28, 35B layer 68.76 vs 66.31).
+- **Upstream `v0.8.0` is within ±2% of `v0.7.0` at 160 W** on this hardware - `v0.8.0` stock is
+  +0.6/+1.1/+1.9% on 27B tensor, +0.5/+1.1/+2.2% on 27B layer, +1.8% pp4096 / -2.2% tg on 35B
+  tensor and +1.5/+3.9% on 35B layer. A 185 W smoke during the port showed `v0.8.0` stock +22% pp512;
+  that run had **three** cards visible and is not comparable, which is why it is not quoted.
+- **Prefill is what the 160 W cap costs.** Against the 185 W `v0.7.0` session below, stock pp512 is
+  flat (233.6 → 233.2) but stock pp2048 lost 3.8% (390.6 → 375.6), and the patched arm lost 4.9%
+  pp512 and 5.4% pp2048; decode is unchanged (33.28 in both sessions). So the `v0.7.0` gain reads
+  +74.2% pp512 here as +65.9%, and +14.9% pp2048 as +13.1%, while tg stays at +42%. On the layer
+  split the 185 W +1.8% pp2048 becomes -0.7%. The 35B MoE is memory-bound and barely notices the
+  cap (`v0.7.0` patched: 1256.01 vs 1257.15 pp4096, 77.60 both).
+- The 160 W session re-measured the `v0.7.0` 35B tensor stock tg128 at **58.00 ± 1.18** over 5 clean
+  rounds, against 55.51 in the 185 W session, which carried one 46.38 outlier among 57-58 rounds.
+  The new row is the better estimate of that cell.
+
+### Scripted - 2026-10-15, `v0.7.0`, 41 patches - **the earlier, 185 W session**
 
 The first full scripted session on this ref, and the first one that had 49, 50 and 51 in the set from
 the start. Same box, same runner, 5 rounds, arms interleaved with the order reversed on even rounds,
