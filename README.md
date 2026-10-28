@@ -75,16 +75,18 @@ switch, what it changes about the output, and the alternatives that were tried a
 ### Compile + smoke - 2026-10-28, `v0.8.0`, 40 patches - **the shipping set at this ref**
 
 Both trees at `8642541b2 (11960)`, built for `sm_60` under CUDA 12.4 with zero errors, nothing
-exported for either arm. One `llama-bench` rep on the 27B (`-fa on -t 28 -ub 2048 -sm tensor`,
-`-p 512 -n 128`) to prove the patched build runs and its fusions reach the model:
+exported for either arm, cards at their 185 W limit. Two `llama-bench` reps on the 27B
+(`-fa on -t 28 -ub 2048 -sm tensor`, `-p 512,2048 -n 128`) to prove the patched build runs and its
+fusions reach the model:
 
-| arm | pp512 t/s | tg128 t/s |
-|---|---:|---:|
-| stock `v0.8.0` | 283.6 | 25.3 |
-| patched `v0.8.0` | **468.5** | **39.9** |
+| arm | pp512 t/s | pp2048 t/s | tg128 t/s |
+|---|---:|---:|---:|
+| stock `v0.8.0` | 284.5 ± 0.3 | 405.0 ± 0.1 | 25.29 ± 0.05 |
+| patched `v0.8.0` | **511.2 ± 2.7** | **563.7 ± 0.4** | **39.42 ± 0.98** |
 
-Error bars on a single rep do not exist, so this table is a smoke test, not a measurement; the
-scripted session for this ref has not been run yet. The `v0.7.0` session below is still the last
+Two reps do not make a measurement - this table is a smoke test, and the scripted session for this
+ref has not been run yet. The power limit matters: the first pass of this check ran at 125 W and
+the patched pp512 read 468 t/s instead of 511. The `v0.7.0` session below is still the last
 full one, and it describes the same code modulo the three upstream-refresh differences listed at
 the top of this file.
 

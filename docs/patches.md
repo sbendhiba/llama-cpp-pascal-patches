@@ -8,9 +8,9 @@ on earlier ones. The tag is recorded once, in the top-level README.
 regenerated against it and verified in numeric order at zero fuzz and zero offset, the clean-room
 tree they rebuild is byte-identical to the reviewed one, and all 273 identifiers they reference
 resolve in the patched tree. Stock and patched trees at this ref have both been **built** at `sm_60`,
-and the patched arm has been smoke-run on the 27B (one rep, 468.5 pp512 / 39.9 tg128 against stock
-283.6 / 25.3) - a compile-and-run check, not a session. The last full scripted session is the
-`v0.7.0` one in the README.
+and the patched arm has been smoke-run on the 27B at 185 W (two reps, 511.2 pp512 / 563.7 pp2048 /
+39.4 tg128 against stock 284.5 / 405.0 / 25.3) - a compile-and-run check, not a session. The last
+full scripted session is the `v0.7.0` one in the README.
 
 This port is the opposite of the last one: 16 of the 33 files the set edits changed upstream, and
 three of those changes landed on code a patch hooks.
