@@ -89,6 +89,19 @@ grandparent, not a parent: doing that for patch 49 dropped patch 47's commit, an
 caught is that gate 2 then reported a diff in `ggml-backend.cpp` - a file the fold never touched. A
 mystery file in the identity gate is a history error, not a patch error.
 
+Two ways to get that fold wrong, both seen on the `v0.8.0` port:
+
+- **Fold at the patch, not at the tip.** `git diff <patch>^ HEAD -- <files>` while HEAD is the last
+  patch of the set sweeps every later patch that touched those files into the old one. The result
+  applies, compiles and is wrong: patch 19 came back 312 lines longer than it should be and the next
+  patch then landed at a 312-line offset, which gate 1 caught. Use a throwaway worktree at that
+  patch's commit, add the fix there, and diff its parent against it.
+- **Port in numeric order, hand-ports included.** A regenerated patch records the context of the
+  tree it was cut on. Cut 19 before 18 existed and 18's own diff then expects 19's helper block to be
+  present, so 18 no longer applies at its position even though both patches are fine. Apply, commit
+  and regenerate strictly in file-number order; if a patch cannot be cut yet, park it (`pending.txt`)
+  and come back.
+
 ## 4. Gates to run before touching a card
 
 **Clean-room apply.** Fresh tree at the new tag, apply every regenerated patch, and require no

@@ -1,29 +1,40 @@
 # The patches
 
-41 patches, grouped by scope below; the application order is the file
+40 patches, grouped by scope below; the application order is the file
 numbering. Order matters: several touch the same files, and later ones build
 on earlier ones. The tag is recorded once, in the top-level README.
 
-**This branch targets llama.cpp `v0.7.0` (`620d2225c`), 68 commits past `b11601`.** All 41 are
+**This branch targets llama.cpp `v0.8.0` (`8642541b2`), 291 commits past `v0.7.0`.** All 40 are
 regenerated against it and verified in numeric order at zero fuzz and zero offset, the clean-room
-tree they rebuild is byte-identical to the reviewed one, and all 275 identifiers they reference
+tree they rebuild is byte-identical to the reviewed one, and all 273 identifiers they reference
 resolve in the patched tree. Stock and patched trees at this ref have both been **built** at `sm_60`,
-and the full scripted session (5 rounds, four configs, both models and both splits) has been run on it -
-see the note at the end of this section.
+and the patched arm has been smoke-run on the 27B (one rep, 468.5 pp512 / 39.9 tg128 against stock
+283.6 / 25.3) - a compile-and-run check, not a session. The last full scripted session is the
+`v0.7.0` one in the README.
 
-The port was cheap because upstream barely moved: of the 33 files this set edits, 7 changed at all,
-and only two of those changes reach code a patch hooks.
+This port is the opposite of the last one: 16 of the 33 files the set edits changed upstream, and
+three of those changes landed on code a patch hooks.
 
 | upstream change | what it did to the set |
 |---|---|
-| `62df1815b` "cuda, hip: GDN chunked kernel" | inserts `ggml_cuda_gdn_mma_args_from_tensor()` between `launch_gated_delta_net()` and the code 23 and 24 hook, so those two patches come back with a different `@@` function label and nothing else - the only two content differences in the whole set, both cosmetic. The new MMA path cannot run on this card: `select_gdn_mma_path()` returns `ar` unless the cc is GA10x (860), Ada, Blackwell or DGX Spark *and* `ampere_mma_available()`, so Pascal still takes the `launch_gated_delta_net` fallthrough that 23/24/25 edit. Two new unconditional `GGML_ASSERT`s (`nev3 >= neq3`, `nek3 == neq3`) now sit above that fallthrough - upstream's strictness, not ours, and it applies to an unpatched build too |
-| `e7268bf6a` "llama : build the k-pool selection in the causal mask layout" | rewrites the mask block in `llama_model_qwen4exp::graph::build_attn_qsa`. 42 lives in `build_hc_mix`, `build_hc_combine` and the two graph constructors, so the two never meet |
+| `2744e48d1` "CUDA: faster MMVQ for low-bit types" | `calc_rows_per_block()` gained a `type` parameter and a type-specific rule (Q1_0, Q2_K, Q3_K, IQ1_S, IQ1_M get two rows), and `VDR` for those types rose to 2. 02 and 09 were re-anchored: the GENERIC table keeps the measured four rows for every type, which is what `v0.7.0` shipped, and the `small_k` warp count is unchanged. Upstream's type list is deliberately not used on this table - it was not measured on Pascal |
+| `623c16393` "rms_norm: float4 loads, store x in registers" | **absorbed 17** (see below) and restructured `rms_norm_f32` into a vec/scalar dispatch. 19 was re-authored on top of it: the pre-add fusion runs on the scalar path and forces it when fusing, because the fused prologue writes each value twice. 18 applied unchanged |
+| `a4699400e` "llama : move no_alloc out of llama_hparams" | one anchor in 22: `model.hparams.no_alloc` is now `model.no_alloc()` |
+| `4b851fbee` / `ff5a23376` / `2280f0fd1` qwen4exp | `build_hc_mix` now returns a `{mixed, inject}` struct, the down and inject rows can share one matmul (`w_down_inject`), and the 1/hc scale moved to where `inject` is built while the hc_post output is fused. 42 was re-authored: the fold now skips the two separate-path scales, `build_hc_combine` keeps its four-argument signature (upstream no longer scales there), and the combined-weight path is untouched - its scale cannot be folded per row |
+| `280141e6d` "CUDA: chunk graphs to amortize graph launch" | 25's per-graph reset still lands in the graph evaluate; the hunk applied at an offset |
+| `9ff0d7e90`, `13786fbb3`, `ff5a23376`, `f2f667b02`, `c49edf096` | new upstream fusions and graph-pool clears around `try_fuse` and the graph evaluate. 23/24/25/27/28/41 applied with line offsets only; nothing was hand-placed |
 
-All 41 landed at zero fuzz on the first pass in numeric order, with nothing hand-placed. The four
-hunks that needed a person to read the surrounding code at `b11601` (24, 42, 50, 51) moved by
-themselves here, because `b11601` already carries their re-anchored text and `v0.7.0` did not touch
-those regions again. `GGML_CUDA_DISABLE_GRAPHS` is still read at this ref, so the escape-hatch claim
-survives the port.
+50's only hunk moved too: the gate now sits behind `graph->instances.empty()` instead of
+`graph->graph == nullptr`, because graphs became chunked. 49 and 51 applied unchanged.
+
+**17 `norm-register-cache` is deleted at this ref, and upstream did it better.** 17 kept `x` in
+registers so `rms_norm_f32` would not read the row twice. `623c16393` ("CUDA: HIP: rms_norm: add
+variants that load float4 at a time and store x in registers") now does exactly that in a vector path,
+plus 4-wide loads, for every aligned F32 row up to 16384 wide - which covers the 4096-wide norms that
+17 measured (7.79 → 6.50 µs, +0.71% dense / +0.95% MoE). Keeping 17 would have added a scalar
+register cache that the new dispatch only reaches for unaligned or non-multiple-of-4 rows, i.e. not
+the measured case. The `l2_norm` half is also gone; since #28068 upstream normalizes gated delta-net
+q/k with `rms_norm` + `scale`, so only rwkv7 uses `ggml_l2_norm`, and it was never measured.
 
 **08 `mmvq-mmid-batch-sm60` is deleted at this ref, and it should have gone at `b11601`.** Upstream
 `1623d8ce4` ("cuda: always use MMVQ for MUL_MAT_ID on sm_60", #27828) is an ancestor of `b11601`, so
@@ -187,6 +198,11 @@ figure is `llama-bench tg32`, which has no speculative decoding — see
 [benchmarking.md](benchmarking.md) on why that harness can disagree with the
 real workload. Turing and later and GCN keep upstream values.
 
+At `v0.8.0`, upstream `2744e48d1` made `calc_rows_per_block()` take the tensor type and gave five
+low-bit types two rows. This patch re-anchors onto that signature and keeps four for every GENERIC
+type - the value the sweep above measured - rather than adopting a type list that was not measured
+on Pascal.
+
 ### 05 · `mmvf-f32-pascal` — `pre-Turing`
 
 `mmvf.cu` caps the F32 vector path at `ne11 <= 3` for pre-Turing NVIDIA, but 3
@@ -225,6 +241,11 @@ Q3_K 106.59 → 48.27, IQ2_XS 24.00 → 20.76.
 
 **+1.29% MoE decode; dense unchanged within noise (+0.12%, floor ±0.17%).** Raising `rows_per_block` cannot fix this —
 rows are iterated by the same threads, so the idle ones stay idle.
+
+At `v0.8.0` upstream made `small_k` carry a warp count (`bool` → `int`, 0 = table value) and raised
+`VDR` to 2 for the low-bit types, so `blocks_per_iter_1warp` doubles for them and `need` shrinks
+accordingly; the predicate is unchanged. `calc_rows_per_block()` also gained a `type` parameter,
+which the re-anchored hunks carry.
 
 Only 1, 2 and 4 warps are instantiated, so a K that needs three of the four gets
 two and each thread accumulates two terms instead of one. That is the same set
@@ -527,6 +548,10 @@ One line: the architecture gate in `ggml_cuda_graph_set_enabled` takes
 `GGML_CUDA_CC_PASCAL` where upstream keeps `GGML_CUDA_CC_VOLTA`, so GP100 gets CUDA graph
 capture and replay like every newer NVIDIA card.
 
+At `v0.8.0` the line moved behind a new one-word condition - `graph->instances.empty()` replaced
+`graph->graph == nullptr` when graphs became chunked - so the patch carries the new context and the
+same one-line change.
+
 Upstream switched graphs off below Volta because of #6766 (2024), which measured a regression on a
 **P40** — that is GP102, sm_61. The measurement that set the policy never covered sm_60, and
 [llama.cpp#27721](https://github.com/ggml-org/llama.cpp/pull/27721) is now trying to undo it for
@@ -661,7 +686,11 @@ applies.
 
 At the real shape: **11.26 → 4.96 µs per call (−56%)**, +0.82% end-to-end.
 
-### 17 · `norm-register-cache` — `CUDA`
+### 17 · `norm-register-cache` — `CUDA` — **deleted at `v0.8.0`**
+
+Upstream `623c16393` now loads float4 and keeps the row in registers in `rms_norm_f32`, which is
+the whole of what this patch measured; see the header for why keeping it would only affect rows the
+new vector path does not take. The text below is the `v0.7.0` record.
 
 `rms_norm_f32` and `l2_norm_f32` read `x` twice: once for the sum of squares,
 once to scale. Single-token decode gives them `grid = (1,1)` — one of 56 SMs —
@@ -709,6 +738,12 @@ in its prologue.
 **Off by default since the v0.4.0 rebase.** See the hazard note after patch
 20 below for why, and what enabling it (`GGML_CUDA_FUSE_PRE_ADD=1`) actually
 does and does not guarantee.
+
+At `v0.8.0` upstream split `rms_norm_f32` into a vector path and a scalar path (and absorbed 17).
+This patch was re-authored on top of that: the pre-add prologue lives in the scalar path, the
+dispatch forces the scalar path whenever it fuses, and the launch macro passes the new
+`pre_a/pre_b/pre_dst` arguments explicitly - `ggml_cuda_kernel_launch` forwards to a lambda and does
+not apply default arguments. Still off by default; the numbers above are the `v0.7.0` kernel's.
 
 ### 20 · `fuse-add-unary-mul` — `CUDA`
 
@@ -1266,6 +1301,9 @@ to 88% still gained only +0.21%.
 Giving each slot its own scheduler restores the real thing: skip build, reset,
 split and alloc entirely.
 
+At `v0.8.0` the one false claim the merge left behind (the slot pool in `memory_breakdown`) needed
+one anchor: `model.hparams.no_alloc` became `model.no_alloc()`.
+
 Merged with upstream's two-arena retention of the previous graph (`gf_res_prev`
 is now a `std::array`, and `gf_res_prev_active` marks the arena holding the main
 scheduler's current allocation). Decode through a slot does not rewrite
@@ -1542,6 +1580,13 @@ built before any target graph would capture a `1/hc` SCALE that the target graph
 then folds into the same weights a second time. Neither change is measured on its
 own; with `LLAMA_QWEN4EXP_HC_FOLD` unset nothing folds and both paths are the
 original.
+
+**At `v0.8.0` the `w_inject` plumbing is gone.** `build_hc_mix` now returns a `{mixed, inject}`
+struct and upstream applies `1/hc` where `inject` is built, so `build_hc_combine` no longer scales
+and keeps its four-argument signature. The fold therefore skips the two separate-path scales
+(`w_down` before SILU, `w_inject` at creation) and leaves the combined `w_down_inject` matmul alone:
+its rows are one tensor and folding would have to apply to both halves. The graph-side changes are
+otherwise unchanged, and the fold stays opt-in.
 
 The original three-change patch was worth about **−1% decode** (0.5 ms); what
 remains has not been re-measured on its own. Event-level profiles had made

@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-backend.cpp b/ggml/src/ggml-backend.cpp
-index ffbcba366..3c812d422 100644
+index 22e5fd9c7..d50dcbb23 100644
 --- a/ggml/src/ggml-backend.cpp
 +++ b/ggml/src/ggml-backend.cpp
 @@ -1978,6 +1978,12 @@ ggml_backend_sched_t ggml_backend_sched_new(

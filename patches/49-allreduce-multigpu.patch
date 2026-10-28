@@ -659,10 +659,10 @@ index 39b23bed7..d361a6825 100644
  
                  if (last_chunk) {
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 86cf5e2de..064312b8c 100644
+index d30c15e5a..445f133be 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -1122,7 +1122,7 @@ static bool ggml_backend_cuda_comm_allreduce_internal(
+@@ -1126,7 +1126,7 @@ static bool ggml_backend_cuda_comm_allreduce_internal(
      GGML_ASSERT(comm_ctx->ar_pipeline != nullptr);
  
      const size_t n_backends = comm_ctx->backends.size();
@@ -671,7 +671,7 @@ index 86cf5e2de..064312b8c 100644
      GGML_ASSERT(tensors[0] != nullptr);
  
      const int64_t   ne   = ggml_nelements(tensors[0]);
-@@ -1211,7 +1211,7 @@ static void ggml_backend_cuda_comm_init_internal(ggml_backend_cuda_comm_context
+@@ -1215,7 +1215,7 @@ static void ggml_backend_cuda_comm_init_internal(ggml_backend_cuda_comm_context
  
      // Clear sticky CUDA error from the failed init.
      (void) cudaGetLastError();

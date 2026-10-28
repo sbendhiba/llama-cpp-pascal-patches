@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index bf8bc40cb..a8df03989 100644
+index 1c82be0fb..df290e498 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
 @@ -449,8 +449,32 @@ static constexpr __device__ int get_mmvq_mmid_max_batch_for_device() {
@@ -36,12 +36,12 @@ index bf8bc40cb..a8df03989 100644
          switch (ncols_dst) {
              case 1:
              case 2:
-@@ -576,10 +600,17 @@ static constexpr __host__ __device__ int calc_nwarps(ggml_type type, int ncols_d
-     return 1;
- }
+@@ -582,10 +606,17 @@ static constexpr __host__ __device__ int calc_nwarps(ggml_type type, int ncols_d
+ // two rows (Q1_0, Q2_K, Q3_K, IQ1_S, IQ1_M) is not used here: the 4 is the value this table was
+ // measured at, and keeping one value for the whole table is what those benchmarks ran.
  
--static constexpr __host__ __device__ int calc_rows_per_block(int ncols_dst, int table_id, bool small_k = false, int nwarps = 1) {
-+static constexpr __host__ __device__ int calc_rows_per_block(int ncols_dst, int table_id, int small_k = 0, int nwarps = 1) {
+-static constexpr __host__ __device__ int calc_rows_per_block(ggml_type type, int ncols_dst, int table_id, bool small_k = false, int nwarps = 1) {
++static constexpr __host__ __device__ int calc_rows_per_block(ggml_type type, int ncols_dst, int table_id, int small_k = 0, int nwarps = 1) {
      if (table_id == MMVQ_PARAMETERS_GENERIC || table_id == MMVQ_PARAMETERS_GCN || table_id == MMVQ_PARAMETERS_TURING || table_id == MMVQ_PARAMETERS_GB10) {
          switch (ncols_dst) {
              case 1:
@@ -55,7 +55,7 @@ index bf8bc40cb..a8df03989 100644
                  if (small_k) {
                      return nwarps;
                  }
-@@ -589,7 +620,7 @@ static constexpr __host__ __device__ int calc_rows_per_block(int ncols_dst, int
+@@ -598,7 +629,7 @@ static constexpr __host__ __device__ int calc_rows_per_block(ggml_type type, int
                  // so several rows per block pay off.  Decode sweep (9B Q4_0, llama-bench tg32):
                  // 1 -> 46.9 / 2 -> 54.1 (+15.4%) / 4 -> 57.7 (+23.0%) / 8 -> 57.2 t/s.
                  // Turing+ / GCN are not measured here and keep the upstream value.
@@ -64,7 +64,7 @@ index bf8bc40cb..a8df03989 100644
              case 2:
              case 3:
              case 4:
-@@ -613,7 +644,7 @@ static constexpr __host__ __device__ int calc_rows_per_block(int ncols_dst, int
+@@ -622,7 +653,7 @@ static constexpr __host__ __device__ int calc_rows_per_block(ggml_type type, int
      return 1;
  }
  
@@ -73,16 +73,16 @@ index bf8bc40cb..a8df03989 100644
  __launch_bounds__(calc_nwarps(type, ncols_dst, get_device_table_id(), small_k, halve_iters)*ggml_cuda_get_physical_warp_size(), 1)
  static __global__ void mul_mat_vec_q(
          const void * vx_ptr, const void * vy_ptr, const int32_t * ids_ptr, const ggml_cuda_mm_fusion_args_device fusion, float * dst_ptr,
-@@ -1028,7 +1059,7 @@ static __global__ void mul_mat_vec_q_moe(
+@@ -1038,7 +1069,7 @@ static __global__ void mul_mat_vec_q_moe(
  template<ggml_type type>
  static std::pair<dim3, dim3> calc_launch_params(
          const int ncols_dst, const int nrows_x, const int nchannels_dst, const int nsamples_or_ntokens,
 -        const int warp_size, const mmvq_parameter_table_id table_id, const bool small_k = false, const bool halve_iters = false) {
 +        const int warp_size, const mmvq_parameter_table_id table_id, const int small_k = 0, const bool halve_iters = false) {
      const int nwarps = calc_nwarps(type, ncols_dst, table_id, small_k, halve_iters);
-     const int rpb = calc_rows_per_block(ncols_dst, table_id, small_k, nwarps);
+     const int rpb = calc_rows_per_block(type, ncols_dst, table_id, small_k, nwarps);
      const int64_t nblocks = (nrows_x + rpb - 1) / rpb;
-@@ -1037,7 +1068,7 @@ static std::pair<dim3, dim3> calc_launch_params(
+@@ -1047,7 +1078,7 @@ static std::pair<dim3, dim3> calc_launch_params(
      return {block_nums, block_dims};
  }
  
@@ -91,7 +91,7 @@ index bf8bc40cb..a8df03989 100644
  static void mul_mat_vec_q_switch_fusion(
          const void * vx, const void * vy, const int32_t * ids, const ggml_cuda_mm_fusion_args_device fusion, float * dst,
          const uint32_t ncols_x, const uint3 nchannels_y, const uint32_t stride_row_x, const uint32_t stride_col_y,
-@@ -1146,12 +1177,29 @@ static void mul_mat_vec_q_switch_ncols_dst(
+@@ -1156,12 +1187,29 @@ static void mul_mat_vec_q_switch_ncols_dst(
      const int     blocks_per_row_x      = ncols_x / qk;
      const int     blocks_per_iter_1warp = vdr * warp_size / qi;
  
@@ -122,7 +122,7 @@ index bf8bc40cb..a8df03989 100644
          constexpr std::array<ggml_type, 2> iq_slow_turing = {
              GGML_TYPE_IQ3_XXS,
              GGML_TYPE_IQ3_S,
-@@ -1160,15 +1208,15 @@ static void mul_mat_vec_q_switch_ncols_dst(
+@@ -1170,15 +1218,15 @@ static void mul_mat_vec_q_switch_ncols_dst(
              GGML_TYPE_IQ1_S, GGML_TYPE_IQ1_M,   GGML_TYPE_IQ2_XXS, GGML_TYPE_IQ2_XS,
              GGML_TYPE_IQ2_S, GGML_TYPE_IQ3_XXS, GGML_TYPE_IQ3_S,   GGML_TYPE_IQ4_XS,
          };
@@ -141,7 +141,7 @@ index bf8bc40cb..a8df03989 100644
          if (is_nvidia_turing_plus) {
              if (ncols_dst == 1 &&
                      std::find(iq_slow_turing.begin(), iq_slow_turing.end(), type) != iq_slow_turing.end()) {
-@@ -1180,7 +1228,15 @@ static void mul_mat_vec_q_switch_ncols_dst(
+@@ -1190,7 +1238,15 @@ static void mul_mat_vec_q_switch_ncols_dst(
              use = false;
          }
  
@@ -158,7 +158,7 @@ index bf8bc40cb..a8df03989 100644
      };
  
      // Whether doubling nwarps pays off on the ncols_dst == 1 path, where K sets the K loop trip count.
-@@ -1222,11 +1278,11 @@ static void mul_mat_vec_q_switch_ncols_dst(
+@@ -1232,11 +1288,11 @@ static void mul_mat_vec_q_switch_ncols_dst(
  
              // Tag types keep the flags compile-time, so __launch_bounds__ matches what is launched.
              const auto launch = [&](auto small_k_tag, auto halve_iters_tag) {
@@ -173,7 +173,7 @@ index bf8bc40cb..a8df03989 100644
  
                  constexpr bool c_halve_iters = decltype(halve_iters_tag)::value && c_promoted;
  
-@@ -1239,12 +1295,16 @@ static void mul_mat_vec_q_switch_ncols_dst(
+@@ -1249,12 +1305,16 @@ static void mul_mat_vec_q_switch_ncols_dst(
                      stream);
              };
  

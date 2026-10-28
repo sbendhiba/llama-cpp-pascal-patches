@@ -1,15 +1,35 @@
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index 8068ba364..354d920a0 100644
+index 930f1adc4..9b9e3378d 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
-@@ -580,10 +580,27 @@ static constexpr __host__ __device__ int calc_rows_per_block(int ncols_dst, int
+@@ -578,19 +578,9 @@ static constexpr __host__ __device__ int calc_nwarps(ggml_type type, int ncols_d
+     return 1;
+ }
+ 
+-// Low bit types load few weight bytes per thread, a second row per block shares the q8_1 loads and adds memory parallelism.
+-static constexpr __host__ __device__ bool mmvq_two_rows_ncols1(ggml_type type) {
+-    switch (type) {
+-        case GGML_TYPE_Q1_0:
+-        case GGML_TYPE_Q2_K:
+-        case GGML_TYPE_Q3_K:
+-        case GGML_TYPE_IQ1_S:
+-        case GGML_TYPE_IQ1_M:
+-            return true;
+-        default:
+-            return false;
+-    }
+-}
++// The GENERIC table returns 4 rows for ncols_dst == 1 on every type.  Upstream's type list for
++// two rows (Q1_0, Q2_K, Q3_K, IQ1_S, IQ1_M) is not used here: the 4 is the value this table was
++// measured at, and keeping one value for the whole table is what those benchmarks ran.
+ 
+ static constexpr __host__ __device__ int calc_rows_per_block(ggml_type type, int ncols_dst, int table_id, bool small_k = false, int nwarps = 1) {
      if (table_id == MMVQ_PARAMETERS_GENERIC || table_id == MMVQ_PARAMETERS_GCN || table_id == MMVQ_PARAMETERS_TURING || table_id == MMVQ_PARAMETERS_GB10) {
-         switch (ncols_dst) {
-             case 1:
--                return small_k ? nwarps : 1;
-+                if (small_k) {
-+                    return nwarps;
-+                }
+@@ -602,10 +592,24 @@ static constexpr __host__ __device__ int calc_rows_per_block(ggml_type type, int
+                 if (table_id == MMVQ_PARAMETERS_GB10) {
+                     return type == GGML_TYPE_IQ2_S || type == GGML_TYPE_IQ3_S ? 2 : 1;
+                 }
+-                return table_id == MMVQ_PARAMETERS_GENERIC && mmvq_two_rows_ncols1(type) ? 2 : 1;
 +                // One output row per block re-reads the q8_1 activation row from L2 once per
 +                // output row.  On pre-Turing NVIDIA (measured on GP100/sm_60) MMVQ is limited by
 +                // those loads, not by DRAM bandwidth (32-34% of peak) or by instruction count,

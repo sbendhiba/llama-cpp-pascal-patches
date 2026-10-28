@@ -1,21 +1,22 @@
 # llama-cpp-pascal-patches
 
 Performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
-measured on Tesla P100 (GP100, `sm_60`). This branch is the **`v0.7.0`** set (41 patches); the set is
+measured on Tesla P100 (GP100, `sm_60`). This branch is the **`v0.8.0`** set (40 patches); the set is
 tagged per llama.cpp ref (`git tag -l` lists them - `v0.6.0`, `v0.7.0`, and the prerelease line
 `b11601`), and the branch is always the newest one.
 
-**Status of this `v0.7.0` set:** all 41 patches are regenerated against llama.cpp **`v0.7.0`**
-(`620d2225c`) and verified to apply in numeric order at zero fuzz and zero offset, with every
+**Status of this `v0.8.0` set:** all 40 patches are regenerated against llama.cpp **`v0.8.0`**
+(`8642541b2`) and verified to apply in numeric order at zero fuzz and zero offset, with every
 identifier they introduce resolving in the patched tree. Stock and patched trees at that commit have
-both been **built** at `sm_60` under CUDA 12.4 with zero errors, and the patched arm has been through
-the **full scripted session** - 5 interleaved rounds, four configs, on the 27B and the 35B, both splits -
-and a 3x P100 session, which found patch 49's AllReduce stopping at two devices - a third card silently
-lost it, and that default has since been widened to 2..4. So the numbers in
-[What to expect](#what-to-expect) below the `v0.7.0` heading belong to this set.
+both been **built** at `sm_60` under CUDA 12.4 with zero errors, and the patched arm has been
+smoke-run on the 27B (`-sm tensor`, one rep: pp512 468.5 t/s, tg128 39.9 t/s against stock 283.6 /
+25.3). That is a compile-and-run check, **not** a session - the published measurements in
+[What to expect](#what-to-expect) are still the `v0.7.0` ones, which describe the same code with
+three upstream-refresh differences: patch 17 is gone (upstream `623c16393` now does the same
+register cache with float4 loads), and 02/09 and 42 were re-anchored onto restructured upstream code.
 The `v0.6.0` rows are kept beside them because that is what the gain is compared against, not because
-they describe this tree. The porting notes - one patch dropped because upstream absorbed it, one patch
-brought back from parked, and one deliberate divergence in patch 22 - are at the top of
+they describe this tree. The porting notes - two patches dropped because upstream absorbed them, one
+patch brought back from parked, and one deliberate divergence in patch 22 - are at the top of
 [`docs/patches.md`](docs/patches.md).
 
 Unofficial, and unaffiliated with the llama.cpp project. MIT, matching llama.cpp.
@@ -23,7 +24,7 @@ Unofficial, and unaffiliated with the llama.cpp project. MIT, matching llama.cpp
 GP100 is the reason any of this exists: alone among Pascal chips it has no `DP4A` and has
 full-rate `HFMA2`. So llama.cpp's quantized matmul paths fall back to emulation and cuBLAS, while
 the one instruction the card is genuinely good at goes unused. The patches named `sm60` exploit
-that asymmetry — but only 10 of the 41 are gated to Pascal-era hardware. 30 are not
+that asymmetry — but only 10 of the 40 are gated to Pascal-era hardware. 29 are not
 hardware-scoped at all, and one (07) changes an unconditional constant every GPU sees.
 
 ## Apply
@@ -35,11 +36,11 @@ Both trees at the **same ref**. Every ref this set is generated against is a tag
 # 1. the patch set, at the ref you are building against
 git clone https://github.com/sbendhiba/llama-cpp-pascal-patches
 cd llama-cpp-pascal-patches
-git checkout v0.7.0        # any ref this set was cut against is a tag: git tag -l
+git checkout v0.8.0        # any ref this set was cut against is a tag: git tag -l
 cd ..
 
 # 2. llama.cpp at that same ref
-git clone --branch v0.7.0 https://github.com/ggml-org/llama.cpp
+git clone --branch v0.8.0 https://github.com/ggml-org/llama.cpp
 cd llama.cpp
 
 # 3. apply in numeric order, stop at the first failure
@@ -71,7 +72,23 @@ Every patch carries its measurement in the comments it adds to the source, and
 [docs/patches.md](docs/patches.md) is the index: per patch, the scope tag, the effect, the kill
 switch, what it changes about the output, and the alternatives that were tried and rejected.
 
-### Scripted - 2026-10-15, `v0.7.0`, 41 patches - **the shipping set at this ref**
+### Compile + smoke - 2026-10-28, `v0.8.0`, 40 patches - **the shipping set at this ref**
+
+Both trees at `8642541b2 (11960)`, built for `sm_60` under CUDA 12.4 with zero errors, nothing
+exported for either arm. One `llama-bench` rep on the 27B (`-fa on -t 28 -ub 2048 -sm tensor`,
+`-p 512 -n 128`) to prove the patched build runs and its fusions reach the model:
+
+| arm | pp512 t/s | tg128 t/s |
+|---|---:|---:|
+| stock `v0.8.0` | 283.6 | 25.3 |
+| patched `v0.8.0` | **468.5** | **39.9** |
+
+Error bars on a single rep do not exist, so this table is a smoke test, not a measurement; the
+scripted session for this ref has not been run yet. The `v0.7.0` session below is still the last
+full one, and it describes the same code modulo the three upstream-refresh differences listed at
+the top of this file.
+
+### Scripted - 2026-10-15, `v0.7.0`, 41 patches - **the last fully scripted session**
 
 The first full scripted session on this ref, and the first one that had 49, 50 and 51 in the set from
 the start. Same box, same runner, 5 rounds, arms interleaved with the order reversed on even rounds,

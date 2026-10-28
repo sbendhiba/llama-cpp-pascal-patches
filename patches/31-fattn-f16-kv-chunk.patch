@@ -337,7 +337,7 @@ index 41d948335..c16ecdb8c 100644
      ggml_cuda_kernel_launch(fattn_kernel, launch_params,
          (const char *) Q->data,
 diff --git a/ggml/src/ggml-cuda/fattn.cu b/ggml/src/ggml-cuda/fattn.cu
-index 5fa3e5308..f81322dcf 100644
+index 1515572fe..bcf1ae7da 100644
 --- a/ggml/src/ggml-cuda/fattn.cu
 +++ b/ggml/src/ggml-cuda/fattn.cu
 @@ -748,8 +748,10 @@ size_t ggml_cuda_flash_attn_ext_get_alloc_size(int device, const ggml_tensor * d

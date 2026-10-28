@@ -20,7 +20,7 @@ index 7a65d8121..5aeffd786 100644
      // Meta backend
      //
 diff --git a/ggml/src/ggml-backend.cpp b/ggml/src/ggml-backend.cpp
-index 467cf910d..7b9a55078 100644
+index 05562c83d..cfe8e675f 100644
 --- a/ggml/src/ggml-backend.cpp
 +++ b/ggml/src/ggml-backend.cpp
 @@ -20,6 +20,7 @@

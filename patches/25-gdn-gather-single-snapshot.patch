@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index 1ce956581..859d4e1c8 100644
+index de50650ff..002c2bc3f 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
-@@ -1490,14 +1490,24 @@ struct ggml_backend_cuda_context {
+@@ -1487,14 +1487,24 @@ struct ggml_backend_cuda_context {
      // The row indices are saved at the position the GET_ROWS occupied.  Deferring execution lets
      // galloc reuse the input tensor's addresses for something else in the meantime (which really
      // happens with the small per-slot compute buffers), so reading them at gdn would be corrupt.
@@ -30,10 +30,10 @@ index 1ce956581..859d4e1c8 100644
      void q8_1_cache_clear() {
          q8_1_cache_src1   = nullptr;
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index fa6914eb5..bdf0bc23d 100644
+index 09557ba4a..2d3e34c3b 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -3979,9 +3979,15 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -4168,9 +4168,15 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
                          CUDA_CHECK(cudaMalloc((void **) &cuda_ctx->gdn_rows_scratch, 4096 * sizeof(int32_t)));
                          cuda_ctx->gdn_rows_scratch_n = 4096;
                      }
@@ -52,7 +52,7 @@ index fa6914eb5..bdf0bc23d 100644
                      cuda_ctx->gdn_gather_node  = node;
                      cuda_ctx->gdn_gather_owner = gdn;
                      return GGML_CUDA_FUSE_DEFERRED;
-@@ -4900,7 +4906,7 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
+@@ -5106,7 +5112,7 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
      // Only defer node execution when concurrent streams are not in use: reordering across streams
      // is unsafe.  The record is cleared per graph computation.
      const bool                   allow_defer = stream_ctx.concurrent_events.empty();
