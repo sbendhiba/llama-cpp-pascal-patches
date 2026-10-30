@@ -1,0 +1,19 @@
+mega-graphsoff run1 085fc853d83b
+mega-graphsoff run2 085fc853d83b
+mega-graphsoff run3 085fc853d83b
+default-graphsof run1 218ff145fba5
+default-graphsof run2 218ff145fba5
+default-graphsof run3 218ff145fba5
+== mega-graphsoff [GGML_CUDA_P60_MEGA=1 GGML_CUDA_DISABLE_GRAPHS=1]
+pp512  1085.01 ± 2.83 |
+tg128  99.67 ± 0.34 |
+== mega-graphson [GGML_CUDA_P60_MEGA=1]
+pp512  1075.95 ± 10.22 |
+tg128  100.03 ± 0.73 |
+== default-graphson []
+pp512  725.71 ± 5.51 |
+tg128  78.19 ± 0.49 |
+== default-graphsof [GGML_CUDA_DISABLE_GRAPHS=1]
+pp512  729.08 ± 0.35 |
+tg128  81.06 ± 0.21 |
+GSOFF_DONE

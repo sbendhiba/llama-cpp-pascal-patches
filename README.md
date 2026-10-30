@@ -1,8 +1,8 @@
 # llama-cpp-pascal-patches
 
 Performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
-measured on Tesla P100 (GP100, `sm_60`). This branch is the **`v0.8.0`** set (73 patches: the 40 we
-carry, plus the 33-patch P60 block on top); the set is tagged per llama.cpp ref (`git tag -l` lists
+measured on Tesla P100 (GP100, `sm_60`). This branch is the **`v0.8.0`** set (74 patches: the 40 we
+carry, plus the 34-patch P60 block on top); the set is tagged per llama.cpp ref (`git tag -l` lists
 them - `v0.6.0`, `v0.7.0`, and the prerelease line `b11601`), and the branch is always the newest one.
 
 **Status of this `v0.8.0` set:** all 40 patches are regenerated against llama.cpp **`v0.8.0`**
@@ -71,6 +71,58 @@ leaves no `sm_60` code in the binary and fails at runtime with *"named symbol no
 Every patch carries its measurement in the comments it adds to the source, and
 [docs/patches.md](docs/patches.md) is the index: per patch, the scope tag, the effect, the kill
 switch, what it changes about the output, and the alternatives that were tried and rejected.
+
+### Shipped default - 2026-10-30 (late), `v0.8.0`, 74 patches - **P60 on, no environment variables**
+
+Patch 85 makes `GGML_CUDA_P60_MEGA` on by default, so both P60 switches are now on unless you turn
+them off, which is what you asked this set to do. That needed one more change than flipping a gate:
+armed, the persistent kernels were **not reproducible run to run** - three identical greedy
+generations, three different outputs - and with `--spec-type draft-mtp` they intermittently took an
+illegal memory access on the second device. Both trace to the same thing, and 85 answers it without
+touching their kernels:
+
+The persistent kernels synchronise phases with a grid barrier whose wait target is computed on the
+host at launch time and baked into the kernel arguments. A captured CUDA graph replays those arguments
+unchanged, and v0.8.0 captures graphs in chunks, so the barrier stops synchronising. **85 refuses
+graph capture for a context once a persistent half has actually taken a layer**, and nothing else -
+`p60_mega_used` is set at the match, so a split or a model where the matchers take no layer keeps its
+graphs and its speed. `GGML_CUDA_P60_MEGA_GRAPHS=1` forces the old behaviour back.
+
+Two cards, 160 W, no variables set, `-fa on -ub 2048 -p 512 -n 128 -r 2`, Cyber-Tiel-Coder-35B-A3B
+MTP UD-Q4_K_XL (`/root/v0.8.0-patch2`, build `ca8d543+85`):
+
+| split | arm | pp512 t/s | tg128 t/s |
+|---|---|---:|---:|
+| `-sm layer` | the 40-patch set | 502.45 ± 0.12 | 69.19 ± 0.03 |
+| | 73 patches, P60 default of the day | 725.71 ± 5.51 | 78.19 ± 0.49 |
+| | 73 patches + `MEGA=1`, graphs left on | 1075.95 ± 10.22 | 100.03 ± 0.73 |
+| | **as shipped now** | **1083.26 ± 5.52** | **99.41 ± 0.38** |
+| `-sm tensor` | 73 patches + `MEGA=1`, graphs declined (the naive rule) | 1609.40 ± 0.55 | 72.97 ± 0.34 |
+| | **as shipped now** (matchers take no layer here, so graphs stay) | **1594.96 ± 20.27** | **86.92 ± 1.13** |
+| `-sm layer`, 3 cards | as shipped | 1089.18 ± 3.40 | 97.70 ± 0.46 |
+
+The tensor row is why the rule keys on a kernel having run: on that split the matchers do not fire
+(half the columns per card), so refusing graphs there cost **-16% decode for no benefit**. The dense
+27B is flat to slightly better than the 40-patch set (tensor 383.23/30.00 against 381.36/29.65, layer
+208.82/18.53 against 205.54/18.22).
+
+Reproducibility, same binary, greedy, 64 tokens, three runs, no variables: `57c5cc53cc2a` three
+times. Before 85 it was three different md5s.
+
+MTP, paired against the 40-patch build in one session, same three prompts, 192 tokens, greedy, two
+passes each, `-sm layer` (`--spec-type draft-mtp --spec-draft-n-max 5`):
+
+| prompt | 40-patch | as shipped | |
+|---|---:|---:|---:|
+| `def merge(a, b):` | 76.78 t/s | 107.93 | **+40.6%** |
+| DP4A explainer | 67.79 | 75.25 | +11.0% |
+| mechanical clock | 59.07 | 78.06 | +32.1% |
+
+Draft acceptance is the same ballpark in both arms (137/266 against 141/245 on the first prompt), so
+this is kernel speed and not the drafts drifting, and neither arm logged a CUDA error over twelve
+MTP requests. **What 85 does not do is fix the barrier** - it withholds the condition that exposes
+it. Graph capture is simply not offered to those kernels; the underlying bug is
+[open item 1](docs/p60-open-items.md) and is what a real fix has to address.
 
 ### Scripted - 2026-10-30, `v0.8.0`, three arms built from the published patch files
 
@@ -164,7 +216,7 @@ The third card changes the verdict on nothing: the 35B MoE is bound by the two c
 and the third adds ~1% to decode (82.15 vs 80.38 tg with P60 off) and nothing to prefill (847.52 vs
 843.91). The P60 gain is the same size on two or three cards.
 
-**`GGML_CUDA_P60_MEGA=1` is not the default, and that is the one place this block is not full speed.**
+SUPERSEDED 2026-10-30 (late): patch 85 made `GGML_CUDA_P60_MEGA` the default, with the graph-capture refusal described under [Shipped default](#shipped-default--2026-10-30-late-v080-74-patches--p60-on-no-environment-variables) above; the tables and the MTP findings below stay as the record of how it got there. **`GGML_CUDA_P60_MEGA=1` was not the default when this was written.**
 Two findings, both from the MTP path this repo also ships (patch 15):
 
 - with `--spec-type draft-mtp` and both switches on, the 2-6 token verify kernels **crash** -
@@ -672,7 +724,7 @@ are off by default behind an environment variable.
 ## Layout
 
 ```
-patches/            73 .patch files, applied in numeric order (52-84 are the P60 block)
+patches/            74 .patch files, applied in numeric order (52-85 are the P60 block)
 docs/p60-open-items.md  what the P60 block still needs, with the measurements behind it
 docs/patches.md     per-patch index: scope, effect, kill switch, output changes, dead ends
 docs/benchmarking.md  the measurement discipline this set needed - thermal control, noise floors,

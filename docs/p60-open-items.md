@@ -6,6 +6,13 @@ upstream intent - each item is a measurement or a graph dump.
 
 ## 1. The persistent kernels are not reproducible run to run at this ref
 
+**Status after this was written: contained by patch 85, not fixed.** 85 refuses CUDA graph capture for
+a context once a persistent half has matched a layer, which makes the path reproducible (three
+identical greedy runs, one md5) and MTP crash-free over twelve paired requests, and it is keyed on a
+kernel having run so the tensor split keeps its graphs. What follows is the diagnosis that led there -
+and the real fix is still this: give the barrier a per-launch, self-resetting protocol instead of a
+host epoch baked into the arguments, so the kernels can have their graphs back. That is task #33.
+
 Same command, same seed, same binary, greedy, `-sm layer`, Qwen3.5/3.6 MoE UD-Q4_K_XL, 48 tokens:
 
 | config | run 1 | run 2 | run 3 |
@@ -19,7 +26,9 @@ in plain decode**, before speculative decoding or the GDN matcher question comes
 
 This is the item to fix first, because it reinterprets the other two:
 
-- the `--spec-type draft-mtp` illegal memory access is most likely the same fault, one step further;
+- the `--spec-type draft-mtp` illegal memory access is most likely the same fault, one step further
+  (it did not reproduce in two later runs: 96.35 t/s with graphs, 100.76 without, and
+  `compute-sanitizer` completed a full MTP request with 0 errors);
 - the garbled greedy decode seen when the persistent GDN half was allowed to match is probably also
   it, not a conv-state layout bug.
 

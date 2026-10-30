@@ -1,6 +1,6 @@
 # The patches
 
-73 patches, grouped by scope below - 40 that we carry and the 33-patch P60 block at the end; the application order is the file
+74 patches, grouped by scope below - 40 that we carry and the 34-patch P60 block at the end; the application order is the file
 numbering. Order matters: several touch the same files, and later ones build
 on earlier ones. The tag is recorded once, in the top-level README.
 
@@ -1611,7 +1611,7 @@ for training. The `CONT` removal
 is on with no kill switch; its bit-identity rests on the whole-set comparison at
 the top of this section rather than on a check of its own.
 
-## The P60 block (52-84) — `sm_60`, Qwen3.5/3.6 MoE
+## The P60 block (52-85) — `sm_60`, Qwen3.5/3.6 MoE
 
 Source: [Mrinohk/qwen36-p100-patches](https://github.com/Mrinohk/qwen36-p100-patches), an
 independent P100 effort for the same cards and the same model family, written by their owner with
@@ -1626,7 +1626,8 @@ Two switches, and only one is on:
 | variable | default | meaning |
 |---|---|---|
 | `GGML_CUDA_P60_MMVQ` | **on** | the fp16 matvec path and everything fused into it (`=0` turns the block off) |
-| `GGML_CUDA_P60_MEGA` | off | persistent layer-half kernels and the prompt-processing GEMM/GDN/FA kernels. **Off because it crashes with `--spec-type draft-mtp`** — see the README |
+| `GGML_CUDA_P60_MEGA` | **on** | persistent layer-half kernels and the prompt-processing GEMM/GDN/FA kernels. Armed, they are not reproducible under CUDA graph replay and fault intermittently with `--spec-type draft-mtp`; 85 refuses graph capture for a context once one has matched, which removes both (see 85 and the README) |
+| `GGML_CUDA_P60_MEGA_GRAPHS` | off | `1` puts CUDA graph capture back for the persistent kernels - faster nowhere, and not reproducible; the escape hatch if a future model needs a captured graph |
 | `GGML_CUDA_P60_MMQ_EXPERT_TILE`, `_FUSE_ADD`, `_FUSE_Q8`, `_FUSE_GLU`, `_FUSE_NORM`, `_FUSE_MM_BIAS`, `_FUSE_CONV_STATE`, `_GDN_STATE`, `_Q8_STAGED`, `_MC`, `_MOE_GEMM`, `_MOE_SMALL`, `_GDN_CHUNK`, `_FA`, `_FA_PF`, `_ATTN`, `_Q8T` | on | one sub-change each, for A/B inside a build; all of them need their parent |
 | `GGML_CUDA_P60_ALL` | off | take the fp16 matvec in every supported shape, including the ones that lose |
 | `GGML_CUDA_P60_EXACT`, `_MEGAX`, `_INVAR`, `_MEGA_DEBUG`, `_MEGAT_DUMP`, `_MEGAX_DUMP`, `_MEGAX_TIME` | off | their reference/accuracy modes and debug logs; `EXACT` is slow by design |
@@ -1653,6 +1654,7 @@ Two switches, and only one is on:
 | 81 | `p60-small-batch-expert-kernel` | expert kernel for prompts where each expert sees a few tokens and the 16-pair tile is mostly padding: bit-identical, −11% on a 64-token chunk |
 | 82 | `p60-mega-attn-kv-stream` | the persistent attention kernel reads the sequence's own KV stream, so every slot of a per-slot cache matches a single-slot server (their patch 37) |
 | 83 | `p60-v080-adapt-default-on` | this port, in one patch: see below |
+| 85 | `p60-persistent-kernels-default-on` | `GGML_CUDA_P60_MEGA` on by default, plus the graph-capture refusal keyed on `p60_mega_used`. Measured as shipped: 35B `-sm layer` 1083.26/99.41, `-sm tensor` 1594.96/86.92 (matchers take no layer there, so its graphs stay), 3-card layer 1089.18/97.70; three identical greedy runs share one md5; MTP +11 to +41% against the 40-patch build on three prompts |
 | 84 | `p60-staged-q6-k-vdr2` | their staged Q6_K matvec re-derived for `VDR == 2` (two superblocks
 per warp, 8 per chunk); bit-identical, +0.6/+1.1% decode on a dense Q6_K model, not taken on the
 MoE. Replaces the `62` that `83` had to drop. `GGML_CUDA_P60_Q6_STAGED=0` turns it off |
@@ -1666,7 +1668,7 @@ and is restored. Their prompt-processing GDN chunk kernel took an `(ids, row)` p
 launcher signature and now takes the `(base, rows, stride, gather_dst)` quad that patches 24/25
 introduced, and writes the elided gather node's destination like the stock kernel does.
 
-Two things are **not** fixed, only contained. Their persistent GDN half matches the conv-state gather
+Two things are **not** fixed, only contained (and the first of them is now contained further, by 85). Their persistent GDN half matches the conv-state gather
 by the name `blk.N.conv_states`; v0.8.0 builds it unnamed over a one-row reshape
 (`cache_r_l9 (reshaped)`), so the half does not match and those layers take the normal path. Matching
 by cache name instead made it match — and garbled greedy decode from the second token at both splits,

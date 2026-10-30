@@ -1,0 +1,147 @@
+diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
+--- a/ggml/src/ggml-cuda/common.cuh
++++ b/ggml/src/ggml-cuda/common.cuh
+@@ -1557,6 +1557,9 @@
+     p60_gdn_state_src p60_gdn_state[p60_gdn_state_n];
+     int               p60_gdn_state_count = 0;
+ 
++    // set the first time a persistent layer half takes over a layer: the barrier race exists only for
++    // graphs holding one of those kernels, so the graph refusal keys on this and not on the env
++    bool p60_mega_used = false;
+     // persistent single-token layer kernels (p60-mega.cu): grid barrier counter, next barrier target base
+     unsigned * p60_mega_bar   = nullptr;
+     unsigned   p60_mega_epoch = 0;
+diff --git a/ggml/src/ggml-cuda/gated_delta_net.cu b/ggml/src/ggml-cuda/gated_delta_net.cu
+--- a/ggml/src/ggml-cuda/gated_delta_net.cu
++++ b/ggml/src/ggml-cuda/gated_delta_net.cu
+@@ -414,7 +414,7 @@
+     const uint3 rq3_magic   = init_fastdiv_values(rq3);
+ 
+     // prompt processing on sm_60 (GGML_CUDA_P60_MEGA, GGML_CUDA_P60_GDN_CHUNK=0 disables): inputs staged per chunk
+-    static const bool p60_chunk = getenv("GGML_CUDA_P60_MEGA") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGA")) != 0 &&
++    static const bool p60_chunk = (getenv("GGML_CUDA_P60_MEGA") == nullptr || atoi(getenv("GGML_CUDA_P60_MEGA")) != 0) &&
+         (getenv("GGML_CUDA_P60_GDN_CHUNK") == nullptr || atoi(getenv("GGML_CUDA_P60_GDN_CHUNK")) != 0);
+     if constexpr (!KDA) {
+         if (p60_chunk && S_v == 128 && n_tokens >= 32 && warp_size == 32 &&
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -4971,7 +4971,7 @@
+     // whole single-token layer halves as one persistent kernel each (p60-mega.cu)
+     if (node->op == GGML_OP_RMS_NORM) {
+         static const bool enabled = (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0) &&
+-            getenv("GGML_CUDA_P60_MEGA") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGA")) != 0;
++            (getenv("GGML_CUDA_P60_MEGA") == nullptr || atoi(getenv("GGML_CUDA_P60_MEGA")) != 0);
+         if (enabled && ggml_cuda_info().devices[cuda_ctx->device].cc == 600) {
+             static const bool attn = getenv("GGML_CUDA_P60_ATTN") == nullptr || atoi(getenv("GGML_CUDA_P60_ATTN")) != 0;
+             int n = p60_try_mega_gdn(cuda_ctx, cgraph, i);
+@@ -4982,6 +4982,7 @@
+                 n = p60_try_mega_attn(cuda_ctx, cgraph, i);
+             }
+             if (n > 0) {
++                cuda_ctx->p60_mega_used = true;   // graphs holding these kernels must not be replayed
+                 return n;
+             }
+         }
+@@ -5032,7 +5033,7 @@
+     }
+     if (node->op == GGML_OP_ADD && i + 1 < cgraph->n_nodes && cgraph->nodes[i + 1]->op == GGML_OP_RMS_NORM) {
+         static const bool mega = (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0) &&
+-            getenv("GGML_CUDA_P60_MEGA") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGA")) != 0;
++            (getenv("GGML_CUDA_P60_MEGA") == nullptr || atoi(getenv("GGML_CUDA_P60_MEGA")) != 0);
+         if (mega && ggml_cuda_info().devices[cuda_ctx->device].cc == 600 &&
+                 (p60_try_mega_gdn(cuda_ctx, cgraph, i + 1, true) > 0 || p60_try_mega_moe(cuda_ctx, cgraph, i + 1, true) > 0 ||
+                  ((getenv("GGML_CUDA_P60_ATTN") == nullptr || atoi(getenv("GGML_CUDA_P60_ATTN")) != 0) && p60_try_mega_attn(cuda_ctx, cgraph, i + 1, true) > 0))) {
+@@ -6346,6 +6347,14 @@
+ }
+ 
+ #ifdef USE_CUDA_GRAPH
++// The persistent layer kernels are armed (both parents on). Their grid barrier waits on a target computed
++// on the host at launch and baked into the kernel arguments, so a captured graph replays a stale target
++// and the barrier stops synchronising.
++static bool p60_mega_armed() {
++    return (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0) &&
++        (getenv("GGML_CUDA_P60_MEGA") == nullptr || atoi(getenv("GGML_CUDA_P60_MEGA")) != 0);
++}
++
+ static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, const void * graph_key) {
+     ggml_cuda_graph * graph = cuda_ctx->cuda_graph(graph_key);
+ 
+@@ -6364,6 +6373,16 @@
+         }
+     }
+ 
++    // Keyed on the kernels having actually run, not on the env alone: on the tensor split the matchers
++    // take no layer (half the columns per card), and there graphs are worth +16% decode.  2x P100 at
++    // 160 W, MoE, tg128 with the persistent kernels armed: -sm layer 99.35 with graphs declined against
++    // 100.03 with them (and three identical greedy runs go from three outputs to one md5), -sm tensor
++    // 86.93 with graphs against 72.97 without.  GGML_CUDA_P60_MEGA_GRAPHS=1 replays them anyway.
++    if (p60_mega_armed() && cuda_ctx->p60_mega_used &&
++            !(getenv("GGML_CUDA_P60_MEGA_GRAPHS") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGA_GRAPHS")) != 0)) {
++        graph->disable_due_to_gpu_arch = true;
++    }
++
+     return graph->is_enabled();
+ }
+ #endif // USE_CUDA_GRAPH
+diff --git a/ggml/src/ggml-cuda/p60-fa.cu b/ggml/src/ggml-cuda/p60-fa.cu
+--- a/ggml/src/ggml-cuda/p60-fa.cu
++++ b/ggml/src/ggml-cuda/p60-fa.cu
+@@ -390,7 +390,7 @@
+ 
+ bool ggml_cuda_p60_flash_attn_t(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
+     using namespace fa;
+-    static const bool enabled = getenv("GGML_CUDA_P60_MEGA") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGA")) != 0 &&
++    static const bool enabled = (getenv("GGML_CUDA_P60_MEGA") == nullptr || atoi(getenv("GGML_CUDA_P60_MEGA")) != 0) &&
+         (getenv("GGML_CUDA_P60_FA") == nullptr || atoi(getenv("GGML_CUDA_P60_FA")) != 0);
+     const ggml_tensor * Q = dst->src[0], * K = dst->src[1], * V = dst->src[2], * mask = dst->src[3];
+     if (!enabled || ggml_cuda_info().devices[ctx.device].cc != 600 || dst->src[4] != nullptr || mask == nullptr) {
+diff --git a/ggml/src/ggml-cuda/p60-mega.cuh b/ggml/src/ggml-cuda/p60-mega.cuh
+--- a/ggml/src/ggml-cuda/p60-mega.cuh
++++ b/ggml/src/ggml-cuda/p60-mega.cuh
+@@ -68,11 +68,11 @@
+         int64_t cs_slot, int64_t ss_slot);
+ 
+ // dense q8_0 MUL_MAT with K = 2048 and 2..6 columns (MTP verify: output layer, attention projections), fp16 x scaled
+-// as in mmvq-p60. Returns false if not applicable. Needs GGML_CUDA_P60_MEGA=1; GGML_CUDA_P60_Q8T=0 disables it.
++// as in mmvq-p60. Returns false if not applicable. Needs GGML_CUDA_P60_MEGA (on by default); GGML_CUDA_P60_Q8T=0 disables it.
+ bool ggml_cuda_p60_mul_mat_q8_0_t(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst);
+ 
+ // flash attention for 2..6 query tokens (MTP verify), head size 256, GQA 8, f16 K/V, on sm_60 (p60-fa.cu): K/V are read
+-// once for all query rows. Returns false if not applicable. Needs GGML_CUDA_P60_MEGA=1; GGML_CUDA_P60_FA=0 disables it.
++// once for all query rows. Returns false if not applicable. Needs GGML_CUDA_P60_MEGA (on by default); GGML_CUDA_P60_FA=0 disables it.
+ bool ggml_cuda_p60_flash_attn_t(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
+ 
+ // Full-attention half of a Qwen3.5/3.6 MoE layer for 1..6 tokens (p60-fa.cu): attn_norm -> q (+gate) / k / v
+@@ -112,6 +112,6 @@
+ void ggml_cuda_p60_mega_attn(ggml_backend_cuda_context & ctx, const ggml_cuda_p60_mega_attn_args & args, int n_tokens);
+ 
+ // MUL_MAT_ID of q4_K / q5_K experts for prompt processing with fp16 math (p60-moe-gemm.cu). Returns false if not
+-// applicable. Needs GGML_CUDA_P60_MEGA=1; GGML_CUDA_P60_MOE_GEMM=0 disables it.
++// applicable. Needs GGML_CUDA_P60_MEGA (on by default); GGML_CUDA_P60_MOE_GEMM=0 disables it.
+ bool ggml_cuda_p60_moe_gemm(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1,
+     const ggml_tensor * ids, ggml_tensor * dst);
+diff --git a/ggml/src/ggml-cuda/p60-mega-t.cu b/ggml/src/ggml-cuda/p60-mega-t.cu
+--- a/ggml/src/ggml-cuda/p60-mega-t.cu
++++ b/ggml/src/ggml-cuda/p60-mega-t.cu
+@@ -925,7 +925,7 @@
+ 
+ bool ggml_cuda_p60_mul_mat_q8_0_t(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+     using namespace q8t;
+-    static const bool enabled = getenv("GGML_CUDA_P60_MEGA") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGA")) != 0 &&
++    static const bool enabled = (getenv("GGML_CUDA_P60_MEGA") == nullptr || atoi(getenv("GGML_CUDA_P60_MEGA")) != 0) &&
+         (getenv("GGML_CUDA_P60_Q8T") == nullptr || atoi(getenv("GGML_CUDA_P60_Q8T")) != 0);
+     const int64_t T = src1->ne[1];
+     if (!enabled || src0->type != GGML_TYPE_Q8_0 || src1->type != GGML_TYPE_F32 || dst->type != GGML_TYPE_F32 ||
+diff --git a/ggml/src/ggml-cuda/p60-moe-gemm.cu b/ggml/src/ggml-cuda/p60-moe-gemm.cu
+--- a/ggml/src/ggml-cuda/p60-moe-gemm.cu
++++ b/ggml/src/ggml-cuda/p60-moe-gemm.cu
+@@ -319,7 +319,7 @@
+ 
+ bool ggml_cuda_p60_moe_gemm(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1,
+         const ggml_tensor * ids, ggml_tensor * dst) {
+-    static const bool enabled = getenv("GGML_CUDA_P60_MEGA") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGA")) != 0 &&
++    static const bool enabled = (getenv("GGML_CUDA_P60_MEGA") == nullptr || atoi(getenv("GGML_CUDA_P60_MEGA")) != 0) &&
+         (getenv("GGML_CUDA_P60_MOE_GEMM") == nullptr || atoi(getenv("GGML_CUDA_P60_MOE_GEMM")) != 0);
+     if (!enabled || ggml_cuda_info().devices[ctx.device].cc != 600) {
+         return false;

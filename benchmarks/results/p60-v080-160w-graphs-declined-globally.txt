@@ -1,0 +1,32 @@
+== determinism, plain decode, no env
+  run1 57c5cc53cc2a
+  run2 57c5cc53cc2a
+  run3 57c5cc53cc2a
+== MTP stress, no env (persistent kernels armed, graphs declined)
+  up after 4 polls
+  req1 112.61 t/s acc=192/308
+  req2 71.17 t/s acc=153/500
+  req3 96.59 t/s acc=180/367
+  req4 114.74 t/s acc=192/308
+  req5 71.92 t/s acc=154/495
+  req6 95.34 t/s acc=179/372
+  req7 114.76 t/s acc=192/308
+  req8 71.95 t/s acc=154/495
+  cuda errors: 0
+  graph usage: 0
+== 35b-layer-2card -sm layer -t 28
+  pp512 1086.28 ± 3.63
+  tg128 99.35 ± 0.58
+== 35b-tensor-2card -sm tensor -t 28
+  pp512 1609.40 ± 0.55
+  tg128 72.97 ± 0.34
+== 35b-layer-3card -sm layer -t 42
+  pp512 1089.18 ± 3.40
+  tg128 97.70 ± 0.46
+== 27b-tensor-2card -sm tensor -t 28
+  pp512 385.19 ± 0.65
+  tg128 30.27 ± 0.06
+== 27b-layer-2card -sm layer -t 28
+  pp512 209.15 ± 0.68
+  tg128 18.69 ± 0.00
+NEWDEFAULT_DONE

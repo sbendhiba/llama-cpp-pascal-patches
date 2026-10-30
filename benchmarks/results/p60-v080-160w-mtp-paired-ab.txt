@@ -1,0 +1,15 @@
+patch1 pass1 p0 74.73 t/s acc=137/266
+patch1 pass1 p1 67.21 t/s acc=130/304
+patch1 pass1 p2 59.08 t/s acc=120/350
+patch1 pass2 p0 78.83 t/s acc=138/261
+patch1 pass2 p1 68.36 t/s acc=130/304
+patch1 pass2 p2 59.06 t/s acc=120/350
+  patch1 cuda errors: 0
+patch2 pass1 p0 105.21 t/s acc=141/245
+patch2 pass1 p1 74.17 t/s acc=118/363
+patch2 pass1 p2 78.02 t/s acc=121/343
+patch2 pass2 p0 110.65 t/s acc=142/240
+patch2 pass2 p1 76.32 t/s acc=120/353
+patch2 pass2 p2 78.09 t/s acc=121/343
+  patch2 cuda errors: 0
+MTPAB_DONE

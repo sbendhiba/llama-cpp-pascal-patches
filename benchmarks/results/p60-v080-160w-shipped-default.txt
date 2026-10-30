@@ -1,0 +1,23 @@
+== determinism, no env, -sm layer
+  run1 57c5cc53cc2a
+  run2 57c5cc53cc2a
+  run3 57c5cc53cc2a
+== 35b-layer -sm layer -t 28
+  pp512 1083.26 ± 5.52
+  tg128 99.41 ± 0.38
+== 35b-tensor -sm tensor -t 28
+  pp512 1594.96 ± 20.27
+  tg128 86.92 ± 1.13
+== 27b-tensor -sm tensor -t 28
+  pp512 383.23 ± 0.85
+  tg128 30.00 ± 0.02
+== 27b-layer -sm layer -t 28
+  pp512 208.82 ± 0.73
+  tg128 18.53 ± 0.07
+== MTP stress, no env
+  req1 68.44 t/s acc=153/508
+  req2 113.22 t/s acc=192/308
+  req3 69.90 t/s acc=153/508
+  req4 115.06 t/s acc=193/303
+  cuda errors: 0
+V2_DONE
