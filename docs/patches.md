@@ -1611,7 +1611,7 @@ for training. The `CONT` removal
 is on with no kill switch; its bit-identity rests on the whole-set comparison at
 the top of this section rather than on a check of its own.
 
-## The P60 block (52-85) — `sm_60`, Qwen3.5/3.6 MoE
+## The P60 block (52-87) — `sm_60`, Qwen3.5/3.6 MoE
 
 Source: [Mrinohk/qwen36-p100-patches](https://github.com/Mrinohk/qwen36-p100-patches), an
 independent P100 effort for the same cards and the same model family, written by their owner with
@@ -1621,13 +1621,14 @@ duplicates of this set: `0005` (24/25/27 do the GDN gather), `0006` (absorbed by
 vocabulary, plus 63's architecture guard). `0007` did not land: it is written against the
 pre-`623c16393` `rms_norm` kernel and needs re-authoring on the vec/scalar dispatch.
 
-Two switches, and only one is on:
+Two switches are on, two are not:
 
 | variable | default | meaning |
 |---|---|---|
 | `GGML_CUDA_P60_MMVQ` | **on** | the fp16 matvec path and everything fused into it (`=0` turns the block off) |
-| `GGML_CUDA_P60_MEGA` | **on** | persistent layer-half kernels and the prompt-processing GEMM/GDN/FA kernels. Armed, they are not reproducible under CUDA graph replay and fault intermittently with `--spec-type draft-mtp`; 85 refuses graph capture for a context once one has matched, which removes both (see 85 and the README) |
-| `GGML_CUDA_P60_MEGA_GRAPHS` | off | `1` puts CUDA graph capture back for the persistent kernels - faster nowhere, and not reproducible; the escape hatch if a future model needs a captured graph |
+| `GGML_CUDA_P60_MEGA` | **on** | persistent layer-half kernels and the prompt-processing GEMM/GDN/FA kernels. 86 replaced their grid barrier with cooperative-grid synchronisation, so they are reproducible under CUDA graph replay and keep their graphs |
+| `GGML_CUDA_P60_MEGAT` | off | let the persistent kernels take a 2..6-token batch (the `--spec-type draft-mtp` verify step). Measured clean and deterministic with 86, but it changes the greedy text against the non-persistent path, so it stays a switch until that is written up |
+| `GGML_CUDA_P60_GDN_HALF` | off | 87's re-targeted persistent GDN half matcher, which takes the gate on the conv-state gather of a one-row cache reshape. Deterministic with 86, mean KLD 0.0284 against the normal path |
 | `GGML_CUDA_P60_MMQ_EXPERT_TILE`, `_FUSE_ADD`, `_FUSE_Q8`, `_FUSE_GLU`, `_FUSE_NORM`, `_FUSE_MM_BIAS`, `_FUSE_CONV_STATE`, `_GDN_STATE`, `_Q8_STAGED`, `_MC`, `_MOE_GEMM`, `_MOE_SMALL`, `_GDN_CHUNK`, `_FA`, `_FA_PF`, `_ATTN`, `_Q8T` | on | one sub-change each, for A/B inside a build; all of them need their parent |
 | `GGML_CUDA_P60_ALL` | off | take the fp16 matvec in every supported shape, including the ones that lose |
 | `GGML_CUDA_P60_EXACT`, `_MEGAX`, `_INVAR`, `_MEGA_DEBUG`, `_MEGAT_DUMP`, `_MEGAX_DUMP`, `_MEGAX_TIME` | off | their reference/accuracy modes and debug logs; `EXACT` is slow by design |
@@ -1654,10 +1655,12 @@ Two switches, and only one is on:
 | 81 | `p60-small-batch-expert-kernel` | expert kernel for prompts where each expert sees a few tokens and the 16-pair tile is mostly padding: bit-identical, −11% on a 64-token chunk |
 | 82 | `p60-mega-attn-kv-stream` | the persistent attention kernel reads the sequence's own KV stream, so every slot of a per-slot cache matches a single-slot server (their patch 37) |
 | 83 | `p60-v080-adapt-default-on` | this port, in one patch: see below |
-| 85 | `p60-persistent-kernels-default-on` | `GGML_CUDA_P60_MEGA` on by default, plus the graph-capture refusal keyed on `p60_mega_used`. Measured as shipped: 35B `-sm layer` 1083.26/99.41, `-sm tensor` 1594.96/86.92 (matchers take no layer there, so its graphs stay), 3-card layer 1089.18/97.70; three identical greedy runs share one md5; MTP +11 to +41% against the 40-patch build on three prompts |
+| 85 | `p60-persistent-kernels-default-on` | `GGML_CUDA_P60_MEGA` on by default, plus the graph-capture refusal keyed on `p60_mega_used` (that half is deleted by 86, the default-on half stays). Measured as shipped: 35B `-sm layer` 1083.26/99.41, `-sm tensor` 1594.96/86.92 (matchers take no layer there, so its graphs stay), 3-card layer 1089.18/97.70; three identical greedy runs share one md5; MTP +11 to +41% against the 40-patch build on three prompts |
 | 84 | `p60-staged-q6-k-vdr2` | their staged Q6_K matvec re-derived for `VDR == 2` (two superblocks
 per warp, 8 per chunk); bit-identical, +0.6/+1.1% decode on a dense Q6_K model, not taken on the
 MoE. Replaces the `62` that `83` had to drop. `GGML_CUDA_P60_Q6_STAGED=0` turns it off |
+| 86 | `p60-cooperative-grid-sync` | the persistent kernels' grid barrier becomes `cooperative_groups::this_grid().sync()` instead of a spin on a counter whose target the host bakes into the kernel arguments. Per-launch state, so a captured graph replays a barrier that still synchronises: the kernels keep their graphs, `GGML_CUDA_P60_MEGA_GRAPHS` and 85's refusal are deleted, and every cooperative launch now sets the device and checks `supports_cooperative_launch` before matching a layer. Measured: same three prompts, three identical greedy md5s across graphs on, graphs off and the published build (`dcc6cd744a80`, `b9954225f754`, `79f9d7c084cc`), an exported-logits file with the same sha256 under both (`a90404b914d5`), 3064 graph launches with 60 cooperative nodes captured in the replay trace, and 35B decode inside 2% of the published no-graph numbers (see `benchmarks/results/p60-v080-160w-coop-barrier-graphs.txt`) |
+| 87 | `p60-gdn-half-v080-gather` | re-targets the persistent GDN half at v0.8.0's state layout: the conv-state and recurrent-state gathers are found by walking the storage-preserving `VIEW`/`RESHAPE` edges off their named consumer and checking the row contract the kernel actually reads (`ne[0] == 3*8192` / `128*128*32`, one contiguous i32 id, row-strided f32 cache), the `conv_input` CONCAT and the GDN operand geometry are checked against the derived token count and the op's own `K`, the state-clear `SCALE` preruns are restricted to zero-scale views of those two caches, and the write-back CPYs must be rooted at the cache the gather read. Opt-in behind `GGML_CUDA_P60_GDN_HALF=1` until the accuracy writeup lands |
 
 **What `83` had to change.** Upstream moved four things under their series.
 `calc_rows_per_block()` gained a `ggml_type` argument (`2744e48d1`), so the staged Q8_0 and Q6_K

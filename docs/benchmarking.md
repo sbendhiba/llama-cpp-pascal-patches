@@ -220,6 +220,27 @@ symbol count is the check that a *specific* patch landed in the right arm - `pat
 symbols, `patch2` has 119 - and it catches the subtler version of this failure, where the binary is
 right and the library next to it is not.
 
+**Same source, different CMake option, and the crash looks like a code regression.** A candidate arm
+built as `cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=60` - which is what the Apply
+section's line says, minus the flags the older arms happened to carry - silently gets
+`GGML_CUDA_NCCL=ON` on a box that has NCCL installed. That arm's `-sm tensor` run then dies in
+`graph_compute` with `CUDA error: unhandled cuda error (run with NCCL_DEBUG=INFO for details)`, while
+`-sm layer` on the same binary is fine. It is actively misleading as a debugging target: turning the
+whole P60 block off (`GGML_CUDA_P60_MEGA=0 GGML_CUDA_P60_MMVQ=0`) and turning graphs off
+(`GGML_CUDA_DISABLE_GRAPHS=1`) both still crash, so the obvious conclusion is that the new code broke
+the tensor split. It had not - the tree was byte-identical to a build that ran the same command
+happily, and the only difference was that one cache entry.
+
+So the preflight is three checks, not two: the library md5, the symbol count, and
+
+```sh
+diff <(grep '^GGML_' "$GOOD/build/CMakeCache.txt" | sort) \
+     <(grep '^GGML_' "$NEW/build/CMakeCache.txt"    | sort)
+```
+
+with `CMAKE_HOME_DIRECTORY` ignored. Build arms from one flag list, and keep `-DGGML_NCCL=OFF
+-DGGML_CUDA_NCCL=OFF` in it - they are also the flags the AllReduce arms are measured with.
+
 ## Do not extrapolate hit counts linearly
 
 Graph reuse looked like a large win by extrapolation: 341 hits per 1000 were

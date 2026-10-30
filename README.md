@@ -62,9 +62,18 @@ The set is not all-or-nothing, but you cannot pick freely either: several patche
 lines and later ones build on earlier ones. See
 [RELEASING.md](RELEASING.md#dropping-a-single-patch) for how to find a patch's real dependency set.
 
-Then build for Pascal: `cmake -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=60 ...`. CUDA **12.x** —
-CUDA 13 dropped Pascal code generation. nixpkgs' default `cudaCapabilities` starts at 7.5, which
-leaves no `sm_60` code in the binary and fails at runtime with *"named symbol not found"*.
+Then build for Pascal:
+
+```sh
+cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=60 -DGGML_NCCL=OFF -DGGML_CUDA_NCCL=OFF
+```
+
+CUDA **12.x** — CUDA 13 dropped Pascal code generation. nixpkgs' default `cudaCapabilities` starts at
+7.5, which leaves no `sm_60` code in the binary and fails at runtime with *"named symbol not found"*.
+The two NCCL switches are not optional if you want the numbers in this README: on a box that has NCCL
+installed, leaving `GGML_CUDA_NCCL` at its default `ON` makes every `-sm tensor` run die in
+`graph_compute` with `unhandled cuda error`, which looks exactly like a regression in the patch set and
+is not ([details](docs/benchmarking.md#an-arm-can-silently-become-another-arm)).
 
 ## What to expect
 

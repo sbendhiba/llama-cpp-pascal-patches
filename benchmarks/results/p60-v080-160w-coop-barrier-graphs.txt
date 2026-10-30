@@ -1,0 +1,61 @@
+p60 persistent kernels at v0.8.0 - cooperative grid sync, graphs restored (patch 86)
+================================================================================================
+Box x99dual, 3x Tesla P100-PCIE-16GB, power limit 160 W per card, CUDA 12.4, 2026-10-30 15:40-16:40 UTC.
+
+Arms, both built from this repo's own patch files onto llama.cpp v0.8.0 (8642541b2) with `patch -p1 -F0`:
+  published  /root/v0.8.0-patch2   74 patches (85 declines CUDA graph capture once a persistent half matched)
+  candidate  /root/v0.8.0-patch3   76 patches (+86 cooperative-grid sync, +87 GDN-half matcher)
+0 rejects, 0 fuzzy hunks, 52 files touched vs stock; the patch-built tree is byte-identical to the tree
+that was measured in the scratch build (diff -rq over ggml/ and common/, no output).
+Both configured -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=60 -DGGML_NATIVE=ON -DGGML_NCCL=OFF
+-DGGML_CUDA_NCCL=OFF. No GGML_* environment variables in any bench arm: this is the shipped default.
+
+35B MoE (Cyber-Tiel-Coder-35B-A3B-MTP UD-Q4_K_XL), llama-bench -fa on -t 28 -ub 2048 -p 512 -n 128 -r 3
+
+config              published pp512   published tg128   candidate pp512   candidate tg128
+-sm layer  2 cards      1081.37 +-3.01    99.57 +-0.49     1081.31 +-6.41    97.80 +-0.66
+-sm layer  3 cards      1081.39 +-10.24   96.91 +-1.35     1079.46 +-8.94    96.99 +-0.56
+-sm tensor 2 cards      1599.91 +-16.28   87.13 +-1.16     1599.28 +-15.27   87.22 +-1.01
+-sm tensor 3 cards      1603.57 +-19.36   86.12 +-1.91     1601.75 +-19.59   86.10 +-1.95
+
+Prompt processing is unchanged everywhere. The tensor split is unchanged and keeps its graphs in both
+arms (its matchers take no layer). -sm layer decode on 2 cards costs 1.8% (99.57 -> 97.80, sd 0.49/0.66,
+so the delta is real); on 3 cards it is equal. That is the price of `this_grid().sync()` replacing the
+spin barrier in the single-token halves, and it is what buys the two things 85 could only contain:
+
+  * the kernels can be captured, so MTP and anything else that wants graphs gets them back;
+  * the path is reproducible.
+
+Determinism, same two builds, llama-server -sm layer -c 8192 -b 512 -ub 512 -fa on --parallel 1, greedy,
+seed 42, n_predict 128, three prompts, two fresh processes each, sha256 of the generated text:
+
+  dcc6cd744a80178077fe7632ce44b22dcaa58aeb5b33d751245090f76aaf730b   prompt "The Moon has three ..."
+  b9954225f754fead4090784bbc3ec09c195053cbf250408a35bb4b4089afe7cb   prompt "def merge_sorted(a, b):"
+  79f9d7c084cc190bf9a171dc42f1b7ba65c74dcf778abfaa50a35b4d2c41973b   prompt "Explain why water expands..."
+
+  candidate, graphs on        : all three, both processes
+  candidate, graphs off       : identical to graphs on
+  published (patch2)          : identical to both
+  (before 86, three identical MEGA runs gave b7687ea05c2a / 99a9fef918fb / 96b73b87b1bd)
+
+Logit level: llama-perplexity -c 256 --chunks 1 -b 1 -ub 1 --save-all-logits, one 63 MB logits file per
+arm, graphs on vs graphs off - same sha256 (a90404b914d5706a..., 63075340 bytes), and PPL 15.1581 +-3.78
+in both. The barrier is not perturbing anything a replay could hide.
+
+Proof the cooperative kernels are actually inside the replayed graphs (not quietly declined): an
+LD_PRELOAD shim on cudaGraphLaunch / cudaLaunchCooperativeKernel over one server run of the *scratch*
+build (same source, built before the clean-room tree existed) counted
+  graph_launches=3064  cooperative_launches=120  captured_cooperative_nodes=60
+
+MTP and multi-slot, candidate build, GGML_CUDA_P60_MEGAT=1 (the 2..6-token persistent kernels),
+4 slots x 12 requests, 192 tokens, greedy, graphs on and off, with and without --spec-type draft-mtp:
+one output per prompt per arm, graphs identical to no-graphs in both modes, no CUDA error in any log.
+With the GDN half of 87 also enabled (GGML_CUDA_P60_GDN_HALF=1), same result. The patch-built tree and
+the scratch tree agree on all 48 arm/request output hashes of that phase, which is what shows the half
+really matched in both (its text differs from the same switches without it: f06056e070b7 against
+c31d841d59d2). The earlier intermittent `illegal memory access` on device 1 with
+--spec-type draft-mtp has not reappeared in any run since the barrier changed.
+
+Scratch evidence kept next to this file in the repo's working notes: /root/explore/{patch3-barrier,
+patch3-logits,patch3-gdn,patch3-bench2,safe-barrier-r2,safe-logits-r1,safe-mtp-r1,safe-gdn-r1} and the
+runner scripts evaluate.py / check_logits.py / test_gather.py / tensor-repro.sh.

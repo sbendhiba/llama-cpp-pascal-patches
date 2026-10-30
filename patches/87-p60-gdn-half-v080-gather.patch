@@ -1,0 +1,159 @@
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -4210,7 +4210,8 @@
+             return false;
+         }
+     }
+-    const int lim = std::min(g->n_nodes, end + 400);
++    // A delayed consumer anywhere in the graph prevents eliding its producer.
++    const int lim = g->n_nodes;
+     for (int k = end + 1; k < lim; k++) {
+         for (int j = 0; j < GGML_MAX_SRC; j++) {
+             const ggml_tensor * src = g->nodes[k]->src[j];
+@@ -4252,10 +4253,35 @@
+ }
+ #define P60_MEGA_FAIL return p60_mega_fail(__LINE__, g->nodes[i], cur_t)
+ 
++// build_rs puts the layer name on a zero-offset VIEW of the gather in v0.8.0.
++// Follow only storage-preserving edges, and validate the row contract actually used by the kernel.
++static const ggml_tensor * p60_gdn_gather(const ggml_tensor * t, int64_t width) {
++    while (t && (t->op == GGML_OP_VIEW || t->op == GGML_OP_RESHAPE)) {
++        if (t->view_offs != 0 || !ggml_is_contiguous(t) || ggml_nelements(t) != width) {
++            return nullptr;
++        }
++        t = t->src[0];
++    }
++    if (!t || t->op != GGML_OP_GET_ROWS || !t->src[0] || !t->src[1] ||
++            !p60_f32_vec(t, width) || t->ne[0] != width ||
++            t->src[0]->type != GGML_TYPE_F32 || t->src[0]->ne[0] != width ||
++            t->src[0]->nb[0] != sizeof(float) || t->src[0]->nb[1] != width*sizeof(float) ||
++            t->src[0]->ne[2] != 1 || t->src[0]->ne[3] != 1 ||
++            t->src[1]->type != GGML_TYPE_I32 || ggml_nelements(t->src[1]) != 1 || !ggml_is_contiguous(t->src[1])) {
++        return nullptr;
++    }
++    return t;
++}
++
+ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, int i, bool dry = false) {
+     if (!ggml_cuda_info().devices[ctx->device].supports_cooperative_launch) {
+         return 0;
+     }
++    // Keep the new binding opt-in until model-level and rollback validation has passed.
++    static const bool enable_gdn = getenv("GGML_CUDA_P60_GDN_HALF") != nullptr && atoi(getenv("GGML_CUDA_P60_GDN_HALF")) != 0;
++    if (!enable_gdn || ctx->curr_stream_no != 0) {
++        return 0;
++    }
+     const ggml_tensor * norm = g->nodes[i];
+     const ggml_tensor * cur_t = nullptr;
+     if (i + 2 >= g->n_nodes) {
+@@ -4279,6 +4305,48 @@
+     if (e < 0) {
+         P60_MEGA_FAIL;
+     }
++    const ggml_tensor * conv_node = nullptr, * gdn_node = nullptr;
++    for (int k = i + 2; k < e; ++k) {
++        const auto * t = g->nodes[k];
++        if (t->op == GGML_OP_SSM_CONV) {
++            if (conv_node) P60_MEGA_FAIL;
++            conv_node = t;
++        } else if (t->op == GGML_OP_GATED_DELTA_NET) {
++            if (gdn_node) P60_MEGA_FAIL;
++            gdn_node = t;
++        }
++    }
++    if (!conv_node || !gdn_node || !conv_node->src[0] || !gdn_node->src[5]) P60_MEGA_FAIL;
++    const auto * ci_bound = conv_node->src[0];
++    const int64_t tokens = norm->src[0]->ne[1];
++    if (tokens < 1 || tokens > 6 || ci_bound->op != GGML_OP_CONCAT ||
++            !p60_is_node(ci_bound, "conv_input", il) || ci_bound->op_params[0] != 0 ||
++            ci_bound->type != GGML_TYPE_F32 || !ggml_is_contiguous(ci_bound) ||
++            ci_bound->ne[0] != tokens+3 || ci_bound->ne[1] != 8192 || ci_bound->ne[2] != 1 || ci_bound->ne[3] != 1 ||
++            !ci_bound->src[0] || !ci_bound->src[1] || ci_bound->src[0]->ne[0] != 3 ||
++            ci_bound->src[0]->ne[1] != 8192 || ci_bound->src[1]->ne[0] != tokens || ci_bound->src[1]->ne[1] != 8192) {
++        P60_MEGA_FAIL;
++    }
++    const ggml_tensor * cs_bound = p60_gdn_gather(ci_bound->src[0], 3*8192);
++    const ggml_tensor * ss_bound = p60_gdn_gather(gdn_node->src[5], 128*128*32);
++    if (!cs_bound || !ss_bound || cs_bound == ss_bound) P60_MEGA_FAIL;
++    // Scalar decay/beta and the Q/K/V geometry are hard-coded by the persistent kernel.
++    for (int k = 0; k < 6; ++k) {
++        const auto * t = gdn_node->src[k];
++        if (!t || t->type != GGML_TYPE_F32 || t->nb[0] != sizeof(float) || t->ne[3] != 1) P60_MEGA_FAIL;
++    }
++    for (int k = 0; k < 3; ++k) {
++        const auto * t = gdn_node->src[k];
++        // v carries H = 32 heads (the state's ne[2] pins it); q/k may keep their own head count.
++        const bool heads_ok = k == 2 ? t->ne[1] == 32 : (t->ne[1] == 16 || t->ne[1] == 32);
++        if (t->ne[0] != 128 || !heads_ok || t->ne[2] != tokens) P60_MEGA_FAIL;
++    }
++    for (int k = 3; k < 5; ++k) {
++        const auto * t = gdn_node->src[k];
++        if (t->ne[0] != 1 || t->ne[1] != 32 || t->ne[2] != tokens) P60_MEGA_FAIL;
++    }
++    const auto * state = gdn_node->src[5];
++    if (state->ne[0] != 128 || state->ne[1] != 128 || state->ne[2] != 32) P60_MEGA_FAIL;
+     ggml_cuda_p60_mega_gdn_args a = {};
+     const ggml_tensor * qkv = nullptr, * z = nullptr, * out = nullptr, * alpha = nullptr, * beta = nullptr;
+     const ggml_tensor * dt = nullptr, * ssa = nullptr, * conv = nullptr, * snorm = nullptr, * cs_get = nullptr, * ss_get = nullptr;
+@@ -4307,9 +4375,9 @@
+                 if (ggml_nelements(t) == 0) {
+                     break;
+                 }
+-                if (p60_is_node(t, "conv_states", il)) {
++                if (t == cs_bound && !cs_get) {
+                     cs_get = t;
+-                } else if (t->src[0]->ne[0] == 128*128*32) {
++                } else if (t == ss_bound && !ss_get) {
+                     ss_get = t;
+                 } else {
+                     P60_MEGA_FAIL;
+@@ -4339,7 +4407,9 @@
+                 if (t->src[0]->op == GGML_OP_RMS_NORM) {
+                     if (bias != 0.0f || (scale_l2 >= 0.0f && scale_l2 != sc)) P60_MEGA_FAIL;
+                     scale_l2 = sc;
+-                } else if (t->view_src != nullptr && n_prerun < 8) {
++                } else if (t->view_src != nullptr && n_prerun < 8 && sc == 0.0f && bias == 0.0f &&
++                        (p60_view_root(t) == p60_view_root(cs_bound->src[0]) ||
++                         p60_view_root(t) == p60_view_root(ss_bound->src[0]))) {
+                     if (ggml_nelements(t) > 0) {
+                         prerun[n_prerun++] = t; // in-place clear of a cache row: run it as is, before the kernel
+                     }
+@@ -4399,6 +4469,9 @@
+         P60_MEGA_FAIL;
+     }
+     const int64_t K = (gdn->ne[1] - T) / 128;
++    int32_t op_k;
++    memcpy(&op_k, gdn->op_params, sizeof(op_k));
++    if (op_k != K) P60_MEGA_FAIL;
+     constexpr int64_t SSN = 128*128*32;
+     if (T < 1 || T > 6 || K < 1 || K > 6 || gdn->ne[1] != T + 128*K || norm->src[0]->ne[1] != T) {
+         P60_MEGA_FAIL;
+@@ -4442,7 +4515,8 @@
+         ss_slot = sd->nb[2] / sizeof(float);
+     } else if (K != 1 || ggml_nelements(cs_cpy) != 3*8192 || ggml_nelements(ss_cpy) != SSN || !ggml_is_contiguous(cs_cpy) ||
+             !ggml_is_contiguous(ss_cpy) || cs_cpy->src[0]->view_offs != (size_t) T*sizeof(float) ||
+-            (T > 1 && (ss_cpy->src[0]->view_src != gdn || ss_cpy->src[0]->view_offs != (size_t) 4096*T*sizeof(float)))) {
++            (p60_view_root(ss_cpy->src[0]) != gdn ||
++             (T > 1 && ss_cpy->src[0]->view_offs != (size_t) 4096*T*sizeof(float)))) {
+         // no snapshots: the conv state after the T tokens, the recurrent state after the last one
+         P60_MEGA_FAIL;
+     }
+@@ -4456,9 +4530,17 @@
+             !p60_range_private(g, i, e, add)) {
+         P60_MEGA_FAIL;
+     }
++    if (p60_view_root(ss_cpy->src[1]) != p60_view_root(ss_get->src[0])) P60_MEGA_FAIL;
++    if (cs_cpy && p60_view_root(cs_cpy->src[1]) != p60_view_root(cs_get->src[0])) P60_MEGA_FAIL;
++    for (int k = 0; k < n_cs_snap; ++k) {
++        if (cs_snap[k]->type != GGML_TYPE_F32 || cs_snap[k]->src[0]->view_src != ci_bound ||
++                p60_view_root(cs_snap[k]->src[1]) != p60_view_root(cs_get->src[0])) P60_MEGA_FAIL;
++    }
+     if (dry) {
+         return e - i;
+     }
++    static const bool trace = getenv("GGML_CUDA_P60_MEGA_DEBUG") != nullptr;
++    if (trace) fprintf(stderr, "p60-gdn-match device=%d layer=%d T=%lld K=%lld\n", ctx->device, il, (long long) T, (long long) K);
+     memcpy(&a.eps_norm, norm->op_params, sizeof(float));
+     a.x_in = (const float *) norm->src[0]->data;  a.x_out = (float *) add->data; a.il = il;
+     a.attn_norm = (const float *) nmul->src[1]->data;

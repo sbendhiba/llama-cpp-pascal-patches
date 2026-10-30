@@ -1,0 +1,669 @@
+diff --git a/ggml/src/ggml-cuda/p60-mega.cu b/ggml/src/ggml-cuda/p60-mega.cu
+--- a/ggml/src/ggml-cuda/p60-mega.cu
++++ b/ggml/src/ggml-cuda/p60-mega.cu
+@@ -1,8 +1,13 @@
+ #include "p60-mega.cuh"
++#ifdef GGML_USE_HIP
++#include <hip/hip_cooperative_groups.h>
++#else
++#include <cooperative_groups.h>
++#endif
+ 
+ // Persistent single-token kernels for the Qwen3.5/3.6 MoE layer halves on sm_60, see p60-mega.cuh.
+-// One block of 512 threads per SM. Phases are separated by a software grid barrier on a counter that keeps growing
+-// across launches (wrap-safe compare). fp32 math throughout; k-quant and q8_0 weights are dequantized in registers.
++// One block of 512 threads per SM. Cooperative-grid phase boundaries are local to each kernel launch,
++// so CUDA graph replay needs no host epoch. fp32 math throughout; weights are dequantized in registers.
+ 
+ namespace {
+ 
+@@ -17,16 +22,10 @@
+ 
+ // ---------------- common device helpers ----------------
+ 
+-__device__ __forceinline__ void grid_sync(unsigned * bar, unsigned & target) {
+-    __syncthreads();
+-    if (threadIdx.x == 0) {
+-        target += gridDim.x;
+-        __threadfence();
+-        atomicAdd(bar, 1u);
+-        while ((int) (*(volatile unsigned *) bar - target) < 0) {}
+-        __threadfence();
+-    }
+-    __syncthreads();
++// Cooperative-grid synchronization has per-launch state, including on CUDA graph replay.
++// All threads in this cooperatively launched grid must reach every phase boundary.
++__device__ __forceinline__ void grid_sync() {
++    cooperative_groups::this_grid().sync();
+ }
+ 
+ __device__ __forceinline__ float wsum(float v) {
+@@ -228,8 +227,6 @@
+     float * zv;   // [VD]
+     float * gb;   // [2][HV] log decay | beta
+     float * o;    // [VD] recurrence output
+-    unsigned * bar;
+-    unsigned base;
+ };
+ 
+ struct conv_pre { float4 w; float s0, s1, s2; };
+@@ -242,7 +239,6 @@
+     const ggml_cuda_p60_mega_gdn_args & A = P.a;
+     const int lane = threadIdx.x & 31, warp = threadIdx.x >> 5;
+     const int gw = warp * gridDim.x + blockIdx.x, nwg = NW * gridDim.x;
+-    unsigned target = P.base;
+ 
+     block_rms_norm<true>(A.x_in, A.attn_norm, A.eps_norm, xs, red, scal);
+ 
+@@ -293,7 +289,7 @@
+                 P.zv[r - QKV] = a;
+             }
+         });
+-    grid_sync(P.bar, target);
++    grid_sync();
+ 
+     // phase 2: recurrence, one warp per (v head, state column); lane holds rows i = lane + 32 r
+     const float * ss_in = A.ss_base + (int64_t) A.ss_ids[0] * A.ss_row;
+@@ -331,7 +327,7 @@
+             P.o[h * SD + col] = at * rsqrtf((float) SD);
+         }
+     }
+-    grid_sync(P.bar, target);
++    grid_sync();
+ 
+     // phase 3: gated norm (per block, 8 elements per thread, 16 threads per head), ssm_out rows + residual
+     {
+@@ -368,8 +364,6 @@
+     float * shgu;   // [2 * FF]
+     float * egu;    // [NU][2 * FF]
+     float * shout;  // [D]
+-    unsigned * bar;
+-    unsigned base;
+ };
+ 
+ struct moe_res_pre { float x, sh; };
+@@ -384,7 +378,6 @@
+     const ggml_cuda_p60_mega_moe_args & A = P.a;
+     const int lane = threadIdx.x & 31, warp = threadIdx.x >> 5;
+     const int gw = warp * gridDim.x + blockIdx.x, nwg = NW * gridDim.x;
+-    unsigned target = P.base;
+ 
+     block_rms_norm<false>(A.x_in, A.norm, A.eps, xs, red, scal);
+ 
+@@ -405,7 +398,7 @@
+         [&](int u) { const int r = u - NE - 1; return r < FF ? A.sg + (size_t) r * Q8_ROW_D : A.su + (size_t) (r - FF) * Q8_ROW_D; },
+         [&](int) { return 0; },
+         [&](int u, float a, int) { if (lane == 0) P.shgu[u - NE - 1] = a; });
+-    grid_sync(P.bar, target);
++    grid_sync();
+ 
+     // phase 2 prologue (per block): top-8 of the router (weights renormalized over the top 8, so the softmax
+     // denominator cancels); sort key = order-preserving logit bits, then 255 - index (ties to the lower index).
+@@ -502,7 +495,7 @@
+             cur = nxt;
+         }
+     }
+-    grid_sync(P.bar, target);
++    grid_sync();
+ 
+     // phase 3: expert swiglu (per block), expert down + weighted sum + shared expert + residual
+     {
+@@ -540,24 +533,13 @@
+     }
+ }
+ 
+-unsigned * mega_bar(ggml_backend_cuda_context & ctx) {
+-    if (ctx.p60_mega_bar == nullptr) {
+-        ggml_cuda_set_device(ctx.device);  // the buffer is bound to whatever device is current here
+-        CUDA_CHECK(cudaMalloc(&ctx.p60_mega_bar, sizeof(unsigned)));
+-        CUDA_CHECK(cudaMemset(ctx.p60_mega_bar, 0, sizeof(unsigned)));
+-        ctx.p60_mega_epoch = 0;
+-    }
+-    return ctx.p60_mega_bar;
+-}
+ 
+ template <typename KP>
+-void mega_launch(ggml_backend_cuda_context & ctx, void (*kernel)(const KP), KP & kp, int n_barriers) {
++void mega_launch(ggml_backend_cuda_context & ctx, void (*kernel)(const KP), KP & kp) {
+     const int nblk = ggml_cuda_info().devices[ctx.device].nsm;
+-    kp.bar  = mega_bar(ctx);
+-    kp.base = ctx.p60_mega_epoch;
+     void * args[] = { &kp };
++    ggml_cuda_set_device(ctx.device);
+     CUDA_CHECK(cudaLaunchCooperativeKernel((const void *) kernel, dim3(nblk), dim3(NT), args, 0, ctx.stream()));
+-    ctx.p60_mega_epoch += (unsigned) (n_barriers * nblk);
+ }
+ 
+ } // namespace
+@@ -570,7 +552,7 @@
+     kp.zv   = kp.qkvc + QKV;
+     kp.gb   = kp.zv + VD;
+     kp.o    = kp.gb + 2 * HV;
+-    mega_launch(ctx, p60_mega_gdn_kernel, kp, 2);
++    mega_launch(ctx, p60_mega_gdn_kernel, kp);
+ }
+ 
+ void ggml_cuda_p60_mega_moe(ggml_backend_cuda_context & ctx, const ggml_cuda_p60_mega_moe_args & args) {
+@@ -581,5 +563,5 @@
+     kp.shgu   = kp.logits + 260;
+     kp.egu    = kp.shgu + 2 * FF;
+     kp.shout  = kp.egu + NU * 2 * FF;
+-    mega_launch(ctx, p60_mega_moe_kernel, kp, 2);
++    mega_launch(ctx, p60_mega_moe_kernel, kp);
+ }
+diff --git a/ggml/src/ggml-cuda/p60-mega-t.cu b/ggml/src/ggml-cuda/p60-mega-t.cu
+--- a/ggml/src/ggml-cuda/p60-mega-t.cu
++++ b/ggml/src/ggml-cuda/p60-mega-t.cu
+@@ -40,8 +40,6 @@
+     float * egu;        // [MAXU][TM][2 FF]
+     float * shout;      // [TM][D]
+     float * ypart;      // [TM][NU][D]
+-    unsigned * bar;
+-    unsigned base;
+ };
+ 
+ __device__ __forceinline__ half2 nib2h(unsigned v) { // two nibbles at bits 0-3 and 16-19 -> half2 of their values
+@@ -191,7 +189,6 @@
+     constexpr int T = TT, allm = (1 << T) - 1;
+     const int lane = threadIdx.x & 31, warp = threadIdx.x >> 5;
+     const int gw = warp * gridDim.x + blockIdx.x, nwg = NW * gridDim.x;
+-    unsigned target = P.base;
+     __half * xs16 = regA;
+ 
+     // ---- P0: rms norm of each token -> xs16 (pre-permuted fp16) + fp32 sub-block sums. One warp per token; a lane
+@@ -268,7 +265,7 @@
+             }
+         }
+     }
+-    tsync(P.bar, target);
++    tsync();
+ 
+     // ---- P2 prologue: top-8 per token (warp t), shared-gate sigmoid, union of experts ----
+     if (warp < T) {
+@@ -380,7 +377,7 @@
+             }
+         }
+     }
+-    tsync(P.bar, target);
++    tsync();
+ 
+     // ---- P3: expert down rows in contiguous per-block ranges (<= 2 experts per block), shared down rows ----
+     {
+@@ -508,7 +505,7 @@
+             }
+         }
+     }
+-    tsync(P.bar, target);
++    tsync();
+ 
+     // ---- P4: combine ----
+     for (int idx = blockIdx.x * NT + threadIdx.x; idx < T * D; idx += gridDim.x * NT) {
+@@ -546,7 +543,6 @@
+     float * cs_snap; int64_t cs_slot;       // snapshot slot s at cs_snap + s * cs_slot
+     float * ss_snap; int64_t ss_slot;
+     float * qkvc; float * zv; float * gb; float * o; float * y;
+-    unsigned * bar; unsigned base;
+ };
+ 
+ template <int T>
+@@ -556,7 +552,6 @@
+     const Layer & W = P.L;
+     const int lane = threadIdx.x & 31, warp = threadIdx.x >> 5;
+     const int gw = warp * gridDim.x + blockIdx.x, nwg = NW * gridDim.x;
+-    unsigned target = P.base;
+     const float * cs_in = P.cs_base + (int64_t) P.cs_ids[0] * P.cs_row;
+     const float * ss_in = P.ss_base + (int64_t) P.ss_ids[0] * P.ss_row;
+ 
+@@ -637,7 +632,7 @@
+             }
+         }
+     }
+-    tsync(P.bar, target);
++    tsync();
+ 
+     // ---- G2: recurrence over the T tokens per (v head, column); lane holds state rows i = lane + 32 r ----
+     for (int u = gw; u < HV * SD; u += nwg) {
+@@ -685,7 +680,7 @@
+             }
+         }
+     }
+-    tsync(P.bar, target);
++    tsync();
+ 
+     // ---- G3: blocks split into two K halves; gated norm of the half's 16 heads per token, then ssm_out rows ----
+     {
+@@ -736,7 +731,7 @@
+             }
+         }
+     }
+-    tsync(P.bar, target);
++    tsync();
+     // ---- G4: combine ----
+     for (int i = blockIdx.x * NT + threadIdx.x; i < T * D; i += gridDim.x * NT) {
+         const int t = i / D, r = i % D;
+@@ -818,24 +813,13 @@
+ } // namespace q8t
+ 
+ 
+-unsigned * mega_bar(ggml_backend_cuda_context & ctx) {
+-    if (ctx.p60_mega_bar == nullptr) {
+-        ggml_cuda_set_device(ctx.device);  // the buffer is bound to whatever device is current here
+-        CUDA_CHECK(cudaMalloc(&ctx.p60_mega_bar, sizeof(unsigned)));
+-        CUDA_CHECK(cudaMemset(ctx.p60_mega_bar, 0, sizeof(unsigned)));
+-        ctx.p60_mega_epoch = 0;
+-    }
+-    return ctx.p60_mega_bar;
+-}
+ 
+ template <typename KP>
+-void mega_launch(ggml_backend_cuda_context & ctx, const void * kernel, KP & kp, int n_barriers) {
++void mega_launch(ggml_backend_cuda_context & ctx, const void * kernel, KP & kp) {
+     const int nblk = ggml_cuda_info().devices[ctx.device].nsm;
+-    kp.bar  = mega_bar(ctx);
+-    kp.base = ctx.p60_mega_epoch;
+     void * args[] = { &kp };
++    ggml_cuda_set_device(ctx.device);
+     CUDA_CHECK(cudaLaunchCooperativeKernel(kernel, dim3(nblk), dim3(mt::NT), args, 0, ctx.stream()));
+-    ctx.p60_mega_epoch += (unsigned) (n_barriers * nblk);
+ }
+ 
+ } // namespace
+@@ -864,7 +848,7 @@
+ #undef P60_MOE_T_KERNELS
+     const bool gu5 = args.gate_type == GGML_TYPE_Q5_K, dn6 = args.down_type == GGML_TYPE_Q6_K;
+     GGML_ASSERT((args.gate_type == GGML_TYPE_Q4_K || gu5) && (args.down_type == GGML_TYPE_Q5_K || dn6) && (!gu5 || dn6));
+-    mega_launch(ctx, kern[gu5 ? 2 : dn6 ? 1 : 0][n_tokens - 1], kp, 3);
++    mega_launch(ctx, kern[gu5 ? 2 : dn6 ? 1 : 0][n_tokens - 1], kp);
+     // GGML_CUDA_P60_MEGAT_DUMP=layer (99 = all): token 0's l_out of that layer (debug), file per token count
+     static const int dump_il = getenv("GGML_CUDA_P60_MEGAT_DUMP") ? atoi(getenv("GGML_CUDA_P60_MEGAT_DUMP")) : -1;
+     if (args.il == dump_il || dump_il == 99) {
+@@ -903,7 +887,7 @@
+     kp.y    = kp.o + n_o;
+     static const void * const kern[TM] = { (const void *) gdn_t_kernel<1>, (const void *) gdn_t_kernel<2>, (const void *) gdn_t_kernel<3>,
+                                            (const void *) gdn_t_kernel<4>, (const void *) gdn_t_kernel<5>, (const void *) gdn_t_kernel<6> };
+-    mega_launch(ctx, kern[n_tokens - 1], kp, 3);
++    mega_launch(ctx, kern[n_tokens - 1], kp);
+     // GGML_CUDA_P60_MEGAT_DUMP=layer: token 0's intermediates of that layer (debug), file per token count
+     static const int dump_il = getenv("GGML_CUDA_P60_MEGAT_DUMP") ? atoi(getenv("GGML_CUDA_P60_MEGAT_DUMP")) : -1;
+     if (args.il == dump_il) {
+diff --git a/ggml/src/ggml-cuda/p60-mega-x.cu b/ggml/src/ggml-cuda/p60-mega-x.cu
+--- a/ggml/src/ggml-cuda/p60-mega-x.cu
++++ b/ggml/src/ggml-cuda/p60-mega-x.cu
+@@ -1,4 +1,9 @@
+ #include "p60-mega-x.cuh"
++#ifdef GGML_USE_HIP
++#include <hip/hip_cooperative_groups.h>
++#else
++#include <cooperative_groups.h>
++#endif
+ #include "vecdotq.cuh"
+ #include "unary.cuh"
+ 
+@@ -22,16 +27,10 @@
+ }
+ #define P60X_TM(i) if (P.tm && blockIdx.x == 0 && threadIdx.x == 0) P.tm[i] = gtimer()
+ 
+-__device__ __forceinline__ void grid_sync(unsigned * bar, unsigned & target) {
+-    __syncthreads();
+-    if (threadIdx.x == 0) {
+-        target += gridDim.x;
+-        __threadfence();
+-        atomicAdd(bar, 1u);
+-        while ((int) (*(volatile unsigned *) bar - target) < 0) {}
+-        __threadfence();
+-    }
+-    __syncthreads();
++// Cooperative-grid synchronization has per-launch state, including on CUDA graph replay.
++// All threads in this cooperatively launched grid must reach every phase boundary.
++__device__ __forceinline__ void grid_sync() {
++    cooperative_groups::this_grid().sync();
+ }
+ 
+ // the parts of mmvq.cu's tables for the types used here
+@@ -491,8 +490,6 @@
+     float * shd;         // [T][D] shared expert down
+     float * dbg;         // [T][NU+2][D] debug: expert down per slot, moe sum, gated shared expert (or nullptr)
+     unsigned long long * tm; // debug: globaltimer of block 0 at phase ends (or nullptr)
+-    unsigned * bar;
+-    unsigned base;
+ };
+ 
+ // Stream of weight rows through a per-warp smem stage: row m + 1 is loaded into registers while row m is computed from
+@@ -591,7 +588,6 @@
+     constexpr int T = TT;
+     const int lane = threadIdx.x % WARP_SIZE, warp = threadIdx.x / WARP_SIZE;
+     const int gw = warp * gridDim.x + blockIdx.x, nwg = NW * gridDim.x;
+-    unsigned target = P.base;
+     P60X_TM(0);
+ 
+     // phase 0: rms_norm * w per token (block t), then quantize_q8_1
+@@ -603,7 +599,7 @@
+         }
+     }
+     P60X_TM(1);
+-    grid_sync(P.bar, target);
++    grid_sync();
+ 
+     block_q8_1 * yq_s = (block_q8_1 *) ubuf;          // [T][D/32]
+     float * yq_d8 = (float *) (ubuf + YQ_BYTES);       // [T][D/32]
+@@ -640,7 +636,7 @@
+         }
+     }
+     P60X_TM(2);
+-    grid_sync(P.bar, target);
++    grid_sync();
+ 
+     // per block: top-8 + weights per token, shared expert gate sigmoid, shared swiglu quantized to q8_1, the distinct
+     // experts of all tokens (uid) with the tokens that use them (umask) and in which slot (uslot)
+@@ -701,7 +697,7 @@
+         }
+     }
+     P60X_TM(3);
+-    grid_sync(P.bar, target);
++    grid_sync();
+ 
+     // phase 3: expert swiglu, quantized to q8_1
+     for (int u = gw; u < T*NU*(FF/QK8_1); u += nwg) {
+@@ -710,7 +706,7 @@
+         quantize_block(silu_x(g) * up, P.eact + te*(FF/QK8_1) + b, lane);
+     }
+     P60X_TM(4);
+-    grid_sync(P.bar, target);
++    grid_sync();
+ 
+     // phase 4: expert down rows (each distinct expert row once), weighted sum (moe_weighted_reduction_f32), shared
+     // expert gate, residual adds
+@@ -794,13 +790,6 @@
+     static unsigned long long * tm_d = nullptr;
+     if (timing && tm_d == nullptr) CUDA_CHECK(cudaMalloc(&tm_d, 16*sizeof(unsigned long long)));
+     kp.tm = timing ? tm_d : nullptr;
+-    if (ctx.p60_mega_bar == nullptr) {
+-        CUDA_CHECK(cudaMalloc(&ctx.p60_mega_bar, sizeof(unsigned)));
+-        CUDA_CHECK(cudaMemset(ctx.p60_mega_bar, 0, sizeof(unsigned)));
+-        ctx.p60_mega_epoch = 0;
+-    }
+-    kp.bar  = ctx.p60_mega_bar;
+-    kp.base = ctx.p60_mega_epoch;
+     const int nblk = ggml_cuda_info().devices[ctx.device].nsm;
+     void * kargs[] = { &kp };
+     void (*kernel)(const moe_x_params) = nullptr;
+@@ -819,8 +808,8 @@
+         default: P60X_K(6) break;
+     }
+ #undef P60X_K
++    ggml_cuda_set_device(ctx.device);
+     CUDA_CHECK(cudaLaunchCooperativeKernel((const void *) kernel, dim3(nblk), dim3(NT), kargs, 0, ctx.stream()));
+-    ctx.p60_mega_epoch += (unsigned) (4 * nblk);
+     if (timing) {
+         unsigned long long h[6];
+         CUDA_CHECK(cudaMemcpyAsync(h, tm_d, sizeof(h), cudaMemcpyDeviceToHost, ctx.stream()));
+diff --git a/ggml/src/ggml-cuda/p60-fa.cu b/ggml/src/ggml-cuda/p60-fa.cu
+--- a/ggml/src/ggml-cuda/p60-fa.cu
++++ b/ggml/src/ggml-cuda/p60-fa.cu
+@@ -466,7 +466,6 @@
+     float * qf;   // [T][8192] q / gate projection
+     float * kvn;  // [T][1024] k then v projection
+     float * q;    // [T][16][256] normed, rotated q
+-    unsigned * bar; unsigned base;
+ };
+ 
+ struct PostParams {
+@@ -476,7 +475,6 @@
+     const float * x_in; float * x_out;
+     float * o;                  // [T][4096] gated attention output
+     float * y;                  // [2][T][2048] output projection halves
+-    unsigned * bar; unsigned base;
+ };
+ 
+ // rotation angle of pair p (0 .. n_dims/2 - 1) of token t, as ggml's rope_multi with ext_factor = 0
+@@ -508,7 +506,6 @@
+     const ggml_cuda_p60_mega_attn_args & A = P.a;
+     const int lane = threadIdx.x & 31, warp = threadIdx.x >> 5;
+     const int gw = warp * gridDim.x + blockIdx.x, nwg = NW * gridDim.x;
+-    unsigned target = P.base;
+ 
+     norm_T<D, XS>(A.x_in, A.attn_norm, A.eps_norm, T, xs16, nullptr);
+ 
+@@ -550,7 +547,7 @@
+             }
+         }
+     }
+-    tsync(P.bar, target);
++    tsync();
+ 
+     // ---- P2: per (token, head): q / k RMS norm + rotation, k / v cache rows; one warp per unit ----
+     float * hrow = (float *) xs16 + warp * HD;
+@@ -608,7 +605,6 @@
+     __shared__ __align__(16) uint8_t stage[NW][HALF];
+     const int lane = threadIdx.x & 31, warp = threadIdx.x >> 5;
+     const int gw = warp * gridDim.x + blockIdx.x, nwg = NW * gridDim.x;
+-    unsigned target = P.base;
+     constexpr int G = fa::G;
+ 
+     // ---- C1: merge the KV ranges per (token, head), normalize, sigmoid gate ----
+@@ -639,7 +635,7 @@
+             P.o[t * O + h * HD + 8 * lane + i] = (y[i] * inv) * (1.f / (1.f + expf(-gv)));
+         }
+     }
+-    tsync(P.bar, target);
++    tsync();
+ 
+     // ---- C2: output projection, blocks split in two K halves (2048 of the 4096 inputs each) -> partial sums ----
+     {
+@@ -688,7 +684,7 @@
+             }
+         }
+     }
+-    tsync(P.bar, target);
++    tsync();
+ 
+     // ---- C3: residual ----
+     for (int i = blockIdx.x * NT + threadIdx.x; i < T * D; i += gridDim.x * NT) {
+@@ -697,24 +693,13 @@
+     }
+ }
+ 
+-unsigned * attn_bar(ggml_backend_cuda_context & ctx) {
+-    if (ctx.p60_mega_bar == nullptr) {
+-        ggml_cuda_set_device(ctx.device);  // the buffer is bound to whatever device is current here
+-        CUDA_CHECK(cudaMalloc(&ctx.p60_mega_bar, sizeof(unsigned)));
+-        CUDA_CHECK(cudaMemset(ctx.p60_mega_bar, 0, sizeof(unsigned)));
+-        ctx.p60_mega_epoch = 0;
+-    }
+-    return ctx.p60_mega_bar;
+-}
+ 
+ template <typename KP>
+-void attn_coop(ggml_backend_cuda_context & ctx, const void * kernel, KP & kp, int n_barriers) {
++void attn_coop(ggml_backend_cuda_context & ctx, const void * kernel, KP & kp) {
+     const int nblk = ggml_cuda_info().devices[ctx.device].nsm;
+-    kp.bar  = attn_bar(ctx);
+-    kp.base = ctx.p60_mega_epoch;
+     void * args[] = { &kp };
++    ggml_cuda_set_device(ctx.device);
+     CUDA_CHECK(cudaLaunchCooperativeKernel(kernel, dim3(nblk), dim3(NT), args, 0, ctx.stream()));
+-    ctx.p60_mega_epoch += (unsigned) (n_barriers * nblk);
+ }
+ 
+ } // namespace at
+@@ -740,7 +725,7 @@
+     pre.qf = qf; pre.kvn = kvn; pre.q = q;
+     static const void * const kpre[TM] = { (const void *) attn_pre_kernel<1>, (const void *) attn_pre_kernel<2>, (const void *) attn_pre_kernel<3>,
+                                            (const void *) attn_pre_kernel<4>, (const void *) attn_pre_kernel<5>, (const void *) attn_pre_kernel<6> };
+-    attn_coop(ctx, kpre[T - 1], pre, 1);
++    attn_coop(ctx, kpre[T - 1], pre);
+ 
+     fa::Params fp = {};
+     fp.Q = q; fp.q_t = NQ * HD; fp.q_h = HD;
+@@ -758,6 +743,6 @@
+     post.o = o; post.y = y;
+     static const void * const kpost[TM] = { (const void *) attn_post_kernel<1>, (const void *) attn_post_kernel<2>, (const void *) attn_post_kernel<3>,
+                                             (const void *) attn_post_kernel<4>, (const void *) attn_post_kernel<5>, (const void *) attn_post_kernel<6> };
+-    attn_coop(ctx, kpost[T - 1], post, 2);
++    attn_coop(ctx, kpost[T - 1], post);
+     CUDA_CHECK(cudaGetLastError());
+ }
+diff --git a/ggml/src/ggml-cuda/p60-mt.cuh b/ggml/src/ggml-cuda/p60-mt.cuh
+--- a/ggml/src/ggml-cuda/p60-mt.cuh
++++ b/ggml/src/ggml-cuda/p60-mt.cuh
+@@ -1,6 +1,11 @@
+ #pragma once
+ 
+ #include "common.cuh"
++#ifdef GGML_USE_HIP
++#include <hip/hip_cooperative_groups.h>
++#else
++#include <cooperative_groups.h>
++#endif
+ 
+ // Shared device helpers of the sm_60 multi-token persistent kernels (p60-mega-t.cu, p60-fa.cu).
+ // Activations are fp16 in shared memory, groups of 4 stored as [x0, x2, x1, x3] so that a 32-bit weight word turns
+@@ -48,17 +53,9 @@
+ 
+ __device__ __forceinline__ float h2sum(half2 a) { const float2 f = __half22float2(a); return f.x + f.y; }
+ 
+-// grid barrier on a counter that keeps growing across launches (wrap-safe)
+-__device__ __forceinline__ void tsync(unsigned * bar, unsigned & target) {
+-    __syncthreads();
+-    if (threadIdx.x == 0) {
+-        target += gridDim.x;
+-        __threadfence();
+-        atomicAdd(bar, 1u);
+-        while ((int) (*(volatile unsigned *) bar - target) < 0) {}
+-        __threadfence();
+-    }
+-    __syncthreads();
++// Each cooperative launch owns its grid synchronization state, including during graph replay.
++__device__ __forceinline__ void tsync() {
++    cooperative_groups::this_grid().sync();
+ }
+ 
+ // one q8_0 block (staged, 34 B, 2 B aligned) against the pre-permuted fp16 rows of T tokens (row stride `stride`,
+diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
+--- a/ggml/src/ggml-cuda/common.cuh
++++ b/ggml/src/ggml-cuda/common.cuh
+@@ -1295,6 +1295,7 @@
+     size_t num_nodes = 0;
+     std::vector<cudaGraphNode_t> nodes;
+     bool disable_due_to_gpu_arch = false;
++    bool disable_due_to_p60_debug = false;
+     bool warmup_complete = false;
+     uint64_t uid = 0;
+     int64_t last_used_time = 0;
+@@ -1308,7 +1309,7 @@
+ 
+     bool is_enabled() const {
+         static const bool disable_cuda_graphs_due_to_env = (getenv("GGML_CUDA_DISABLE_GRAPHS") != nullptr);
+-        return !(disable_due_to_gpu_arch || disable_cuda_graphs_due_to_env);
++        return !(disable_due_to_gpu_arch || disable_due_to_p60_debug || disable_cuda_graphs_due_to_env);
+     }
+ #endif
+ };
+@@ -1557,13 +1558,6 @@
+     p60_gdn_state_src p60_gdn_state[p60_gdn_state_n];
+     int               p60_gdn_state_count = 0;
+ 
+-    // set the first time a persistent layer half takes over a layer: the barrier race exists only for
+-    // graphs holding one of those kernels, so the graph refusal keys on this and not on the env
+-    bool p60_mega_used = false;
+-    // persistent single-token layer kernels (p60-mega.cu): grid barrier counter, next barrier target base
+-    unsigned * p60_mega_bar   = nullptr;
+-    unsigned   p60_mega_epoch = 0;
+-
+     static constexpr int p60_x_cache_n = 4;
+     p60_x_cache_entry p60_x_cache[p60_x_cache_n];
+     int               p60_x_cache_next = 0;
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -750,11 +750,6 @@
+ 
+     q8_1_cache_free();
+ 
+-    if (p60_mega_bar != nullptr) {
+-        ggml_cuda_set_device(device);
+-        CUDA_CHECK(cudaFree(p60_mega_bar));
+-    }
+-
+     if (copy_event != nullptr) {
+         CUDA_CHECK(cudaEventDestroy(copy_event));
+     }
+@@ -4258,6 +4253,9 @@
+ #define P60_MEGA_FAIL return p60_mega_fail(__LINE__, g->nodes[i], cur_t)
+ 
+ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, int i, bool dry = false) {
++    if (!ggml_cuda_info().devices[ctx->device].supports_cooperative_launch) {
++        return 0;
++    }
+     const ggml_tensor * norm = g->nodes[i];
+     const ggml_tensor * cur_t = nullptr;
+     if (i + 2 >= g->n_nodes) {
+@@ -4507,6 +4505,9 @@
+ }
+ 
+ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, int i, bool dry = false, bool exact = false) {
++    if (!ggml_cuda_info().devices[ctx->device].supports_cooperative_launch) {
++        return 0;
++    }
+     const ggml_tensor * norm = g->nodes[i];
+     const ggml_tensor * cur_t = nullptr;
+     if (i + 2 >= g->n_nodes) {
+@@ -4632,6 +4633,9 @@
+ 
+ // full-attention half: attn_norm ... attn_residual, 1..6 tokens (p60-fa.cu)
+ static int p60_try_mega_attn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, int i, bool dry = false) {
++    if (!ggml_cuda_info().devices[ctx->device].supports_cooperative_launch) {
++        return 0;
++    }
+     const ggml_tensor * norm = g->nodes[i];
+     const ggml_tensor * cur_t = nullptr;
+     if (i + 2 >= g->n_nodes) {
+@@ -4982,7 +4986,6 @@
+                 n = p60_try_mega_attn(cuda_ctx, cgraph, i);
+             }
+             if (n > 0) {
+-                cuda_ctx->p60_mega_used = true;   // graphs holding these kernels must not be replayed
+                 return n;
+             }
+         }
+@@ -6347,17 +6350,15 @@
+ }
+ 
+ #ifdef USE_CUDA_GRAPH
+-// The persistent layer kernels are armed (both parents on). Their grid barrier waits on a target computed
+-// on the host at launch and baked into the kernel arguments, so a captured graph replays a stale target
+-// and the barrier stops synchronising.
+-static bool p60_mega_armed() {
+-    return (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0) &&
+-        (getenv("GGML_CUDA_P60_MEGA") == nullptr || atoi(getenv("GGML_CUDA_P60_MEGA")) != 0);
+-}
+-
+ static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, const void * graph_key) {
+     ggml_cuda_graph * graph = cuda_ctx->cuda_graph(graph_key);
+ 
++    // P60 dump/timing modes explicitly synchronize and read device memory. Keep those diagnostics
++    // outside capture; normal persistent kernels now use per-launch cooperative-grid barriers.
++    static const bool p60_debug = getenv("GGML_CUDA_P60_MEGAT_DUMP") != nullptr ||
++        getenv("GGML_CUDA_P60_MEGAX_DUMP") != nullptr || getenv("GGML_CUDA_P60_MEGAX_TIME") != nullptr;
++    graph->disable_due_to_p60_debug = p60_debug;
++
+     if (graph->instances.empty()) {
+         // Upstream gates graphs at Volta on a 2024 regression measured on a P40, which is sm_61 - sm_60
+         // was never in that measurement.  Measured on 2x P100, one build, 5 interleaved rounds at
+@@ -6373,16 +6374,6 @@
+         }
+     }
+ 
+-    // Keyed on the kernels having actually run, not on the env alone: on the tensor split the matchers
+-    // take no layer (half the columns per card), and there graphs are worth +16% decode.  2x P100 at
+-    // 160 W, MoE, tg128 with the persistent kernels armed: -sm layer 99.35 with graphs declined against
+-    // 100.03 with them (and three identical greedy runs go from three outputs to one md5), -sm tensor
+-    // 86.93 with graphs against 72.97 without.  GGML_CUDA_P60_MEGA_GRAPHS=1 replays them anyway.
+-    if (p60_mega_armed() && cuda_ctx->p60_mega_used &&
+-            !(getenv("GGML_CUDA_P60_MEGA_GRAPHS") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGA_GRAPHS")) != 0)) {
+-        graph->disable_due_to_gpu_arch = true;
+-    }
+-
+     return graph->is_enabled();
+ }
+ #endif // USE_CUDA_GRAPH

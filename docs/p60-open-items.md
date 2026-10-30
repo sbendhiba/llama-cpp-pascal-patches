@@ -4,14 +4,30 @@ Findings from 2026-10-30, exploring every candidate left over from the port. Mea
 `/root/v0.8.0-patch2` (this set at `v0.8.0`) on 2x P100 at 160 W. Nothing here is speculation about
 upstream intent - each item is a measurement or a graph dump.
 
-## 1. The persistent kernels are not reproducible run to run at this ref
+## 1. Fixed by 86: the persistent kernels' barrier now survives graph replay
 
-**Status after this was written: contained by patch 85, not fixed.** 85 refuses CUDA graph capture for
+**Status: fixed, and the kernels have their graphs back.** Patch 86 deletes the counter and the host
+epoch and calls `cooperative_groups::this_grid().sync()` at each phase boundary instead, so the
+synchronisation state belongs to the launch - which is what a captured graph replays. Measured on the
+clean-room tree (`v0.8.0` + this repo's 76 patch files, `-DGGML_CUDA_NCCL=OFF` like every other arm):
+
+| check | result |
+|---|---|
+| three prompts, greedy, two fresh server processes, `-sm layer`, 2 cards | identical md5s: `dcc6cd744a80`, `b9954225f754`, `79f9d7c084cc` |
+| same, graphs on vs `GGML_CUDA_DISABLE_GRAPHS=1` vs the published `/root/v0.8.0-patch2` build | all three arms identical |
+| `--save-all-logits` per token, graphs vs no graphs | same sha256 (`a90404b914d5`), so identity holds at logit level, not just greedy tokens |
+| CUDA API trace of one run (`LD_PRELOAD` shim) | `graph_launches=3064`, `cooperative_launches=120`, `captured_cooperative_nodes=60` - the cooperative kernels really are inside the replayed graphs |
+| 4 slots x 12 requests, `-sm layer`, MTP on and off, graphs on and off | one output per prompt per arm, graphs and no-graphs identical, no CUDA error in any log |
+| 35B MoE decode, 2 and 3 cards, layer and tensor | within 2% of the published no-graph arm, graphs restored: see `benchmarks/results/p60-v080-160w-coop-barrier-graphs.txt` |
+
+`GGML_CUDA_P60_MEGA_GRAPHS` and 85's capture refusal are gone with it - there is nothing left to
+decline. What follows is the diagnosis that led here, kept because it is the reason the old code was
+wrong and because the same trap will catch anyone who writes another persistent kernel here.
+
+**Status before this was written: contained by patch 85, not fixed.** 85 refuses CUDA graph capture for
 a context once a persistent half has matched a layer, which makes the path reproducible (three
 identical greedy runs, one md5) and MTP crash-free over twelve paired requests, and it is keyed on a
-kernel having run so the tensor split keeps its graphs. What follows is the diagnosis that led there -
-and the real fix is still this: give the barrier a per-launch, self-resetting protocol instead of a
-host epoch baked into the arguments, so the kernels can have their graphs back. That is task #33.
+kernel having run so the tensor split keeps its graphs.
 
 Same command, same seed, same binary, greedy, `-sm layer`, Qwen3.5/3.6 MoE UD-Q4_K_XL, 48 tokens:
 
@@ -62,7 +78,38 @@ The fault is intermittent - two runs that crashed did not crash later, and memch
 That fits a race, and it also means the throughput figure above (96-101 t/s against 73-74 with the
 block off) is what MTP *could* have once the barrier is graph-safe: roughly +30%.
 
-## 2. The persistent GDN half: what v0.8.0's graph actually looks like
+## 2. Fixed by 87: the persistent GDN half, re-targeted at v0.8.0's state layout
+
+**Status: it matches, it is deterministic, and it is worth +23.1% decode.** Patch 87 binds the two
+gathers by walking the *storage-preserving* edges off their named consumer instead of looking for a name
+on the gather itself: from `conv_input-<il>`'s CONCAT row-0 operand and from the GDN node's state
+operand, through `VIEW`/`RESHAPE` links only (`view_offs == 0`, contiguous, exactly one row wide), down
+to a `GET_ROWS` whose cache is f32 with `nb[1] == width*4`, one contiguous i32 id, and whose output is
+contiguous. It then checks the row contract the kernel reads (`3*8192` and `128*128*32`), the CONCAT
+shape `[3+T, 8192]`, the GDN operand geometry against the derived `T`, the op's own `K` against the
+snapshot count, that the state-clear `SCALE` preruns are zero-scale views rooted at exactly those two
+caches, and that every write-back CPY lands in the cache the gather read. `p60_range_private` also
+stopped guessing a 400-node horizon: a consumer anywhere in the graph now blocks the elision. The
+bindings are unit-tested against a live ggml context (valid chains, a shifted view, a wrong stride, two
+ids, an f16 cache, i64 ids, a bad cache stride) on both the scratch and the patch-built tree.
+
+Measured on the clean-room tree, 35B MoE, `-sm layer`, 2 cards, 160 W, interleaved rounds:
+
+| switches | pp512 | tg128 |
+|---|---|---|
+| as shipped today (`GDN_HALF` off) | 1067.36 +- 1.81 | 96.86 +- 0.25 |
+| `GGML_CUDA_P60_GDN_HALF=1` | 1067.33 +- 1.33 | **119.26 +- 0.09** (+23.1%) |
+
+Prompt processing is untouched (the half only takes batches of 1..6 tokens), the gain needs no other
+switch, and the tensor split is unaffected (its matchers still take no layer). Accuracy, same build,
+per-token logits over a 256-token corpus, half on against half off: mean KLD **0.0284 +- 0.0086**,
+median 0.0111, 99% 0.354, max 0.992 - so it does move the distribution, in the same way the rest of
+`MEGA` does, and greedy text differs from the non-persistent path (`f06056e070b7` against
+`c31d841d59d2` for the same prompt). Determinism holds: within each arm one output per prompt across 4
+slots, and the graphs arm equals the no-graphs arm, with and without `--spec-type draft-mtp`.
+
+What follows is the graph dump that answered the original question, kept because it is what the new
+bindings are derived from.
 
 Their matcher refuses the layer at the conv-state `GET_ROWS`, which it identifies by the node name
 `blk.N.conv_states`. A dump of one GDN half at this ref (nodes 2..60 of a 2-token batch, `il=0`)
@@ -79,14 +126,12 @@ answers the question that was open at the end of the port:
   `VIEW`/`CPY` rollback nodes (9-11, 27-29). Their matcher already handles both - the `SCALE` goes
   to `prerun` and the zero-element CPY is skipped - so neither is the reason it bails.
 
-Accepting the gather by cache name therefore *should* be enough to match the half, and when it was,
-the decode came out wrong. Given item 1, the honest reading is that the mismatch is the barrier
-race, not these bindings - which is also why refusing the kernel but keeping the match changed the
-output again (a dry-run match suppresses the residual-add fusion, and the run was not reproducible).
-
-Order of work: fix the barrier, re-run the determinism test, then widen the gather match and measure
-the GDN half for real. The prize is what their tree shows: 125.61 tg128 against our 100.05 at the
-same power, i.e. ~+25% decode on the MoE.
+Accepting the gather by cache name therefore *should* be enough to match the half, and when it was, the
+decode came out wrong - and that was item 1, not the binding. With the barrier fixed, the same half
+reproduces itself bit for bit under graph replay; what the widening had actually been hiding is a
+matcher that accepted a gather it had never validated (`t->src[0]->ne[0] == 128*128*32` is also true of
+an unrelated cache with that row width, and the conv-state side was matched on a name that no longer
+exists). 87 keeps the match but states the contract.
 
 ## 3. Shipped: the staged Q6_K matvec, re-authored for `VDR_Q6_K_Q8_1_MMVQ == 2`
 
