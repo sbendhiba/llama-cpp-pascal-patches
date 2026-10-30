@@ -1,0 +1,19 @@
+## q8t0 [GGML_CUDA_P60_Q8T=0]
+  NO RESPONSE
+/root/llama.cpp-p60/ggml/src/ggml-cuda/ggml-cuda.cu:113: CUDA error
+## fa0 [GGML_CUDA_P60_FA=0]
+  NO RESPONSE
+/root/llama.cpp-p60/ggml/src/ggml-cuda/ggml-cuda.cu:113: CUDA error
+## attn0 [GGML_CUDA_P60_ATTN=0]
+  NO RESPONSE
+/root/llama.cpp-p60/ggml/src/ggml-cuda/ggml-cuda.cu:113: CUDA error
+## conv0 [GGML_CUDA_P60_FUSE_CONV_STATE=0]
+  NO RESPONSE
+/root/llama.cpp-p60/ggml/src/ggml-cuda/ggml-cuda.cu:113: CUDA error
+## gdnst0 [GGML_CUDA_P60_GDN_STATE=0]
+  NO RESPONSE
+/root/llama.cpp-p60/ggml/src/ggml-cuda/ggml-cuda.cu:113: CUDA error
+## fuseglu0 [GGML_CUDA_P60_FUSE_GLU=0]
+  NO RESPONSE
+/root/llama.cpp-p60/ggml/src/ggml-cuda/ggml-cuda.cu:113: CUDA error
+SUB_DONE
