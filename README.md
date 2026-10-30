@@ -72,6 +72,59 @@ Every patch carries its measurement in the comments it adds to the source, and
 [docs/patches.md](docs/patches.md) is the index: per patch, the scope tag, the effect, the kill
 switch, what it changes about the output, and the alternatives that were tried and rejected.
 
+### Scripted - 2026-10-30, `v0.8.0`, three arms built from the published patch files
+
+The point of this run is provenance: each arm is a tree made by taking llama.cpp `v0.8.0`
+(`8642541b2`) and applying **this repo's own `patches/` with `patch -p1 -F0`**, exactly as the
+[Apply](#apply) section tells you to, then building it with the same flags.
+
+| arm | tree | apply result |
+|---|---|---|
+| `stock` | llama.cpp `v0.8.0`, no patches | - |
+| `patch1` | the 40 patches as they are **on origin** (`1cd431e`) | 0 rejects, 0 fuzzy hunks, 35 files touched |
+| `patch2` | those 40 + the P60 block 52-83 | 0 rejects, 0 fuzzy hunks, 52 files touched |
+
+2x P100 at **160 W**, `-fa on -t 28 -ub 2048 -n 128`, 3 interleaved rounds with the order reversed on
+even rounds, cooled to 45 C before each config. Standard deviation across rounds is under 1.4 t/s on
+every cell except `stock` tg on the 35B tensor split (1.04). Raw rows:
+`benchmarks/results/v0.8.0-clean-160w-p100x2-*.csv`.
+
+| model | split | arm | pp512 t/s | pp2048 t/s | tg128 t/s |
+|---|---|---|---:|---:|---:|
+| Qwen3.8-27B **UD-Q4_K_M** | `-sm tensor` | stock | 230.10 | 377.84 | 20.99 |
+| | | patch1 | 381.36 (+65.7%) | 424.88 (+12.5%) | 29.65 (+41.2%) |
+| | | patch2 | 381.77 (+65.9%) | 424.43 (+12.3%) | 29.63 (+41.2%) |
+| Qwen3.8-27B UD-Q4_K_M | `-sm layer` | stock | 143.80 | 224.68 | 13.21 |
+| | | patch1 | 205.54 (+42.9%) | 223.87 (-0.4%) | 18.22 (+38.0%) |
+| | | patch2 | 205.04 (+42.6%) | 223.72 (-0.4%) | 18.19 (+37.7%) |
+| Cyber-Tiel-35B-A3B MTP UD-Q4_K_XL | `-sm tensor` | stock | 767.96 | - | 59.78 |
+| | | patch1 | 841.37 (+9.6%) | - | 79.61 (+33.2%) |
+| | | patch2 | 1107.25 (+44.2%) | - | 86.34 (+44.4%) |
+| Cyber-Tiel-35B-A3B MTP UD-Q4_K_XL | `-sm layer` | stock | 488.75 | - | 58.34 |
+| | | patch1 | 502.45 (+2.8%) | - | 69.19 (+18.6%) |
+| | | patch2 | 721.73 (+47.7%) | - | 77.80 (+33.4%) |
+
+Three things come out of it:
+
+- **The P60 block is free on the dense model.** On the 27B, `patch2` against `patch1` is
+  +0.11 / -0.05 / -0.11% (pp512 / tg / pp2048) on tensor and -0.24 / -0.16 / -0.07% on layer - all
+  inside the round-to-round spread. That is the question the default-on raises, since the block's
+  gates are `sm_60`-wide but its kernels are written for a 2048-wide MoE: on a model it cannot use,
+  it now demonstrably costs nothing. (The earlier dense measurement that showed **-1.8% pp512** was
+  taken with `GGML_CUDA_P60_MEGA=1` armed, which is not the default.)
+- **On the MoE the block is worth a further +31.6% pp512 / +8.5% tg** on tensor and
+  **+43.6% / +12.4%** on layer, on top of the 40-patch set. The 35B here is UD-Q4_K_XL with an MTP
+  block; the Q4_K_M Ornith row in the section above is the same architecture one quant up.
+- This also adds the **UD-Q4_K_M quant of the 27B** to the record. Every earlier 27B row in this
+  README is Q4_0; the Q4_K_M gains are the same shape (+65.7% pp512, +41.2% tg on tensor) but the
+  absolute numbers are lower (381.36 against Q4_0's 391.37), which is what a K-quant costs on this
+  card.
+
+`patch2` with the persistent kernels armed (`GGML_CUDA_P60_MEGA=1`, same build, 3 rounds, 40-42 C):
+**1068.62 pp512 / 99.40 tg128** on the 35B layer split - +118.6% and +70.4% over stock. See
+the P60-block section above for why that
+switch is not on by default.
+
 ### Scripted - 2026-10-30, `v0.8.0`, 72 patches, 160 W - **the P60 block on top**
 
 The 32 patches 52-83 are a port of [Mrinohk/qwen36-p100-patches](https://github.com/Mrinohk/qwen36-p100-patches)

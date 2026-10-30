@@ -16,7 +16,7 @@ re-measured beside it (2 cards, 5 interleaved rounds, four configs, four arms - 
 **Patches 52-83 - the P60 block - are verified the same way** and built at `sm_60` on top of that set:
 the 32 files, applied in numeric order onto the 40-patch tree, reproduce the rebased tree byte for
 byte (`git write-tree` identical), and that tree is what the 160 W numbers in the README were taken
-on. They are documented as a group at the end, in [The P60 block](#the-p60-block-52-83--sm_60-qwen35-36-moe).
+on. They are documented as a group in the section **The P60 block (52-83)** at the end of this file.
 
 This port is the opposite of the last one: 16 of the 33 files the set edits changed upstream, and
 three of those changes landed on code a patch hooks.
