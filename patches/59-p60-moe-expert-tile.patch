@@ -1,0 +1,19 @@
+diff --git a/ggml/src/ggml-cuda/mmq.cu b/ggml/src/ggml-cuda/mmq.cu
+index 27558ec77..9936d918b 100644
+--- a/ggml/src/ggml-cuda/mmq.cu
++++ b/ggml/src/ggml-cuda/mmq.cu
+@@ -239,7 +239,13 @@ void ggml_cuda_mul_mat_q(
+ 
+             // Each expert only sees ne12*n_expert_used/ne02 tokens on average.
+             // On RDNA3 and RDNA4 it is faster to pick the tile size against this value instead of ne12.
+-            if (GGML_CUDA_CC_IS_RDNA3(cc) || GGML_CUDA_CC_IS_RDNA4(cc)) {
++            // Same on NVIDIA without dp4a (GP100): with few tokens a tile sized for ne12 is mostly empty columns of emulated
++            // int8 math, which made every small prompt batch cost ~0.45 s. The sums do not depend on the tile width.
++            // Only with GGML_CUDA_P60_MMVQ=1; GGML_CUDA_P60_MMQ_EXPERT_TILE=0 turns it off.
++            static const bool p60_expert_tile = getenv("GGML_CUDA_P60_MMVQ") != nullptr && atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0 &&
++                (getenv("GGML_CUDA_P60_MMQ_EXPERT_TILE") == nullptr || atoi(getenv("GGML_CUDA_P60_MMQ_EXPERT_TILE")) != 0);
++            if (GGML_CUDA_CC_IS_RDNA3(cc) || GGML_CUDA_CC_IS_RDNA4(cc) ||
++                    (p60_expert_tile && GGML_CUDA_CC_IS_NVIDIA(cc) && cc < GGML_CUDA_CC_DP4A)) {
+                 ncols_opt = (ne12*n_expert_used + ne02 - 1) / ne02;
+             }
+         }

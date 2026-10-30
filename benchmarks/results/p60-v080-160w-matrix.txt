@@ -1,0 +1,54 @@
+power: 0, 160.00 W, 50 1, 160.00 W, 44 2, 160.00 W, 38 
+## 35b-tensor-2card arm=off 02:15:56
+ggml_cuda_init: found 2 CUDA devices (Total VRAM: 32538 MiB):
+  Device 0: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+  Device 1: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+off         843.91 ± 3.31  
+off          80.38 ± 1.04  
+## 35b-tensor-2card arm=on 02:16:06
+ggml_cuda_init: found 2 CUDA devices (Total VRAM: 32538 MiB):
+  Device 0: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+  Device 1: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+on       1596.22 ± 19.47  
+on          86.93 ± 1.14  
+## 35b-layer-3card arm=off 02:16:16
+ggml_cuda_init: found 3 CUDA devices (Total VRAM: 48807 MiB):
+  Device 0: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+  Device 1: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+  Device 2: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+off         503.48 ± 1.94  
+off          68.38 ± 0.37  
+## 35b-layer-3card arm=on 02:16:28
+ggml_cuda_init: found 3 CUDA devices (Total VRAM: 48807 MiB):
+  Device 0: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+  Device 1: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+  Device 2: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+on       1076.96 ± 13.30  
+on          99.07 ± 0.69  
+## 35b-tensor-3card arm=off 02:16:36
+ggml_cuda_init: found 3 CUDA devices (Total VRAM: 48807 MiB):
+  Device 0: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+  Device 1: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+  Device 2: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+off         847.52 ± 6.16  
+off          82.15 ± 2.28  
+## 35b-tensor-3card arm=on 02:16:47
+ggml_cuda_init: found 3 CUDA devices (Total VRAM: 48807 MiB):
+  Device 0: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+  Device 1: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+  Device 2: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+on       1596.22 ± 23.30  
+on          85.60 ± 2.33  
+## 27b-tensor-2card arm=off 02:16:57
+ggml_cuda_init: found 2 CUDA devices (Total VRAM: 32538 MiB):
+  Device 0: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+  Device 1: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+off         398.46 ± 1.86  
+off          34.22 ± 0.03  
+## 27b-tensor-2card arm=on 02:17:12
+ggml_cuda_init: found 2 CUDA devices (Total VRAM: 32538 MiB):
+  Device 0: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+  Device 1: Tesla P100-PCIE-16GB, compute capability 6.0, VMM: yes, VRAM: 16269 MiB
+on         391.42 ± 1.57  
+on          34.21 ± 0.01  
+MATRIX_DONE

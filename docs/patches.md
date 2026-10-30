@@ -1,10 +1,10 @@
 # The patches
 
-40 patches, grouped by scope below; the application order is the file
+72 patches, grouped by scope below - 40 that we carry and the 32-patch P60 block at the end; the application order is the file
 numbering. Order matters: several touch the same files, and later ones build
 on earlier ones. The tag is recorded once, in the top-level README.
 
-**This branch targets llama.cpp `v0.8.0` (`8642541b2`), 291 commits past `v0.7.0`.** All 40 are
+**This branch targets llama.cpp `v0.8.0` (`8642541b2`), 291 commits past `v0.7.0`.** All 40 of ours are
 regenerated against it and verified in numeric order at zero fuzz and zero offset, the clean-room
 tree they rebuild is byte-identical to the reviewed one, and all 273 identifiers they reference
 resolve in the patched tree. Stock and patched trees at this ref have both been **built** at `sm_60`,
@@ -12,6 +12,11 @@ and the set has been through a **full scripted session** at 160 W with the `v0.7
 re-measured beside it (2 cards, 5 interleaved rounds, four configs, four arms - see the README). The
 `v0.8.0` set is 1.1-3.7% ahead of the `v0.7.0` set on every cell; upstream `v0.8.0` stock is within
 ±2% of `v0.7.0` stock at that power.
+
+**Patches 52-83 - the P60 block - are verified the same way** and built at `sm_60` on top of that set:
+the 32 files, applied in numeric order onto the 40-patch tree, reproduce the rebased tree byte for
+byte (`git write-tree` identical), and that tree is what the 160 W numbers in the README were taken
+on. They are documented as a group at the end, in [The P60 block](#the-p60-block-52-83--sm_60-qwen35-36-moe).
 
 This port is the opposite of the last one: 16 of the 33 files the set edits changed upstream, and
 three of those changes landed on code a patch hooks.
@@ -1605,3 +1610,67 @@ Fine-tuning through `llama_opt` builds graphs too, so with the fold on the
 for training. The `CONT` removal
 is on with no kill switch; its bit-identity rests on the whole-set comparison at
 the top of this section rather than on a check of its own.
+
+## The P60 block (52-83) — `sm_60`, Qwen3.5/3.6 MoE
+
+Source: [Mrinohk/qwen36-p100-patches](https://github.com/Mrinohk/qwen36-p100-patches), an
+independent P100 effort for the same cards and the same model family, written by their owner with
+Claude. Their series is 37 commits; **32 landed here**, in their order, and five were dropped as
+duplicates of this set: `0005` (24/25/27 do the GDN gather), `0006` (absorbed by upstream
+`1ab7e5ad2`), `0015`/`0016` (51's cuBLAS algorithm choice, which is broader), `0017` (15's draft
+vocabulary, plus 63's architecture guard). `0007` did not land: it is written against the
+pre-`623c16393` `rms_norm` kernel and needs re-authoring on the vec/scalar dispatch.
+
+Two switches, and only one is on:
+
+| variable | default | meaning |
+|---|---|---|
+| `GGML_CUDA_P60_MMVQ` | **on** | the fp16 matvec path and everything fused into it (`=0` turns the block off) |
+| `GGML_CUDA_P60_MEGA` | off | persistent layer-half kernels and the prompt-processing GEMM/GDN/FA kernels. **Off because it crashes with `--spec-type draft-mtp`** — see the README |
+| `GGML_CUDA_P60_MMQ_EXPERT_TILE`, `_FUSE_ADD`, `_FUSE_Q8`, `_FUSE_GLU`, `_FUSE_NORM`, `_FUSE_MM_BIAS`, `_FUSE_CONV_STATE`, `_GDN_STATE`, `_Q8_STAGED`, `_MC`, `_MOE_GEMM`, `_MOE_SMALL`, `_GDN_CHUNK`, `_FA`, `_FA_PF`, `_ATTN`, `_Q8T` | on | one sub-change each, for A/B inside a build; all of them need their parent |
+| `GGML_CUDA_P60_ALL` | off | take the fp16 matvec in every supported shape, including the ones that lose |
+| `GGML_CUDA_P60_EXACT`, `_MEGAX`, `_INVAR`, `_MEGA_DEBUG`, `_MEGAT_DUMP`, `_MEGAX_DUMP`, `_MEGAX_TIME` | off | their reference/accuracy modes and debug logs; `EXACT` is slow by design |
+
+| # | patch | what it does |
+|---|---|---|
+| 52 | `p60-fp16-decode-matvec` | `mmvq-p60.cu/.cuh`: HFMA2 matvecs for Q4_K/Q5_K/Q8_0 and the fused RMS norm that writes the fp16 activation layout the matvecs read, so the prep kernel disappears from the layer |
+| 53 | `p60-fused-swiglu-prep` | the same layout out of the swiglu, for `ffn_down`; with one token only the output layer and `ffn_down` take the fp16 path (the rest lose more than they gain), with 2+ tokens all of them do |
+| 54 | `p60-fuse-residual-adds` | `[add →] add → rms_norm → mul` in one launch, through a `try_fuse` matcher; aliasing allowed only at the same address |
+| 55 | `p60-q8-1-from-fused-norm` | the fused norm also fills the *stock* q8_1 activation cache, so the matvecs that stay on stock MMVQ skip `quantize_q8_1` |
+| 56 | `p60-gdn-alpha-dt-bias` | `MUL_MAT → RESHAPE → ADD` hands the dt bias to stock's fused mmvf — stock only matches an add directly after the matmul, so the reshape cost a launch (−28 launches/token, +0.2% MTP) |
+| 57 | `p60-gdn-conv-state-shuffle` | gather + concat + rollback copies + conv as one bit-exact kernel (−120 launches/token, +1.6% MTP, KLD 0 vs the parent) |
+| 58 | `p60-staged-q8-0-matvec` | bit-exact Q8_0 matvec: stock's mapping and summation order, but the 4 rows of each chunk staged through shared memory with 16-byte loads (46 → 36 µs on a 17.8 MB matrix, +7.3% tg256) |
+| 59 | `p60-moe-expert-tile` | size the MoE MMQ tile by tokens-per-expert on NVIDIA without DP4A, as upstream already does on RDNA3/4. Bit-identical; a 64-token prefill batch 454 → 180 ms |
+| 60 | `p60-gdn-reorder-dense-graph` | the node reorders that 57's matcher needs, applied to the dense qwen35 graph too |
+| 61 | `p60-fp16-multicol-matvec` | the fp16 matvec for 2-3 columns and long dense rows (the speculative verify batch on a 27B) |
+| 62 | `p60-staged-q6-k-matvec` | their staged Q6_K matvec — **deleted again by 83**, see the note below |
+| 63 | `mtp-draft-vocab-arch-guard` | ours, not theirs: `LLAMA_MTP_DRAFT_VOCAB` now warns and ignores instead of silently mis-slicing the draft head on an architecture it was never measured on |
+| 64-70 | `p60-persistent-*` | the persistent single-token and multi-token layer halves (expert selection, the expert union across tokens, shared expert, GDN recurrence with the rollback snapshots, attention with the KV writes), the MTP draft-head and verify variants, the q5_K/q6_K expert versions and the 16-byte activation loads |
+| 71-76 | `p60-moe-expert-gemm-prefill` … `p60-expert-gemm-128-row-tiles` | fp16 grouped GEMM for the MoE experts at prompt-processing sizes (q4_K/q5_K/q6_K dequantized to fp16 in shared memory, fp32 accumulation) — ~2.8× the emulated int8 MMQ on these shapes — with the tile-width follow-ups |
+| 72 | `p60-gdn-chunk-prefill` | chunked gated-delta-net kernel for long batches (2× on that stage) |
+| 73 | `p60-fattn-prefill-h256` | flash attention for head size 256 with GQA 8 (+26%) |
+| 77-80 | `p60-exact-*`, `p60-invar-mode` | their accuracy work: a mode where decode and MTP verify are bit-identical to stock llama.cpp (`EXACT`, slow by design), an exact persistent MoE half for it (`MEGAX`), and `INVAR`, which routes single-token decode through the verify kernels so MTP changes nothing |
+| 81 | `p60-small-batch-expert-kernel` | expert kernel for prompts where each expert sees a few tokens and the 16-pair tile is mostly padding: bit-identical, −11% on a 64-token chunk |
+| 82 | `p60-mega-attn-kv-stream` | the persistent attention kernel reads the sequence's own KV stream, so every slot of a per-slot cache matches a single-slot server (their patch 37) |
+| 83 | `p60-v080-adapt-default-on` | this port, in one patch: see below |
+
+**What `83` had to change.** Upstream moved four things under their series.
+`calc_rows_per_block()` gained a `ggml_type` argument (`2744e48d1`), so the staged Q8_0 and Q6_K
+gates now pass the type. `VDR_Q6_K_Q8_1_MMVQ` became 2, which breaks the mapping their staged Q6_K
+kernel asserts (`QI6_K == 32 && VDR == 1`), so 62 is removed again — the same reason our own hybrid
+port dropped it. `ggml_cuda_gdn_state_gather_target()` was lost in one of the conflict resolutions
+and is restored. Their prompt-processing GDN chunk kernel took an `(ids, row)` pair from the old
+launcher signature and now takes the `(base, rows, stride, gather_dst)` quad that patches 24/25
+introduced, and writes the elided gather node's destination like the stock kernel does.
+
+Two things are **not** fixed, only contained. Their persistent GDN half matches the conv-state gather
+by the name `blk.N.conv_states`; v0.8.0 builds it unnamed over a one-row reshape
+(`cache_r_l9 (reshaped)`), so the half does not match and those layers take the normal path. Matching
+by cache name instead made it match — and garbled greedy decode from the second token at both splits,
+with the conv-state and state-gather elisions disabled too, so the kernel is wrong about the new
+layout, not just about its name; that experiment is reverted here and the ~+25% tg it is worth stays
+on the table for whoever re-targets it. And `GGML_CUDA_P60_MEGA=1` with `--spec-type draft-mtp`
+crashes with an illegal memory access at the first verify step on the second device, which is why the
+switch is opt-in (both findings are measured in the README). `83` also puts `ggml_cuda_set_device()`
+in front of the `mega_bar` and q8_1-cache allocations, which is not the crash's cause but is the
+correct device for a buffer that outlives the call that made it.

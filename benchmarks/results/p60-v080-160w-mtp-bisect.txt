@@ -1,0 +1,18 @@
+## mtp-alloff [GGML_CUDA_P60_MMVQ=0 GGML_CUDA_P60_MEGA=0]
+  ok:      if len(a) == 0:         return b     if len(b) == 0:         return a     if a[0] < b
+0.09.375.806 I slot print_timing: id  0 | task 0 | draft acceptance = 0.62667 (   47 accepted /    75 generated), mean len =  4.13
+/tmp/mtpbisect.sh: line 27: 191600 Killed                     env $evars CUDA_VISIBLE_DEVICES=0,1 $B/llama-server -m "$M" -c 8192 -ub 2048 -fa on -t 28 -sm layer --spec-type draft-mtp --spec-draft-n-max 5 --port 8099 --no-webui > /tmp/bis-$label.log 2>&1
+## mtp-mmvq [GGML_CUDA_P60_MEGA=0]
+  ok:      result = []     i = j = 0     while i < len(a) and j < len(b):         if a[i] <= b[j
+0.07.190.652 I slot print_timing: id  0 | task 0 | draft acceptance = 0.70000 (   49 accepted /    70 generated), mean len =  4.50
+/tmp/mtpbisect.sh: line 28: 191721 Killed                     env $evars CUDA_VISIBLE_DEVICES=0,1 $B/llama-server -m "$M" -c 8192 -ub 2048 -fa on -t 28 -sm layer --spec-type draft-mtp --spec-draft-n-max 5 --port 8099 --no-webui > /tmp/bis-$label.log 2>&1
+## mtp-mega [GGML_CUDA_P60_MMVQ=0]
+  ok:      if len(a) == 0:         return b     if len(b) == 0:         return a     if a[0] < b
+0.07.352.298 I slot print_timing: id  0 | task 0 | draft acceptance = 0.57500 (   46 accepted /    80 generated), mean len =  3.88
+/tmp/mtpbisect.sh: line 29: 191834 Killed                     env $evars CUDA_VISIBLE_DEVICES=0,1 $B/llama-server -m "$M" -c 8192 -ub 2048 -fa on -t 28 -sm layer --spec-type draft-mtp --spec-draft-n-max 5 --port 8099 --no-webui > /tmp/bis-$label.log 2>&1
+## mtp-all []
+  no response
+/root/llama.cpp-p60/ggml/src/ggml-cuda/ggml-cuda.cu:113: CUDA error
+0.06.690.529 E CUDA error: an illegal memory access was encountered
+/tmp/mtpbisect.sh: line 30: 191949 Aborted                    (core dumped) env $evars CUDA_VISIBLE_DEVICES=0,1 $B/llama-server -m "$M" -c 8192 -ub 2048 -fa on -t 28 -sm layer --spec-type draft-mtp --spec-draft-n-max 5 --port 8099 --no-webui > /tmp/bis-$label.log 2>&1
+BISECT_DONE

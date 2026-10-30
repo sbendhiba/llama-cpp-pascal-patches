@@ -1,0 +1,33 @@
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+index 8066b13b3..3501e2ecb 100644
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -5090,6 +5090,28 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+         return fused_node_count - 1;
+     }
+ 
++    // MUL_MAT -> RESHAPE -> ADD (the gated delta net's alpha projection + dt bias): stock's fused-bias matvec, which
++    // the reshape node between the two otherwise hides from the match below
++    if (node->op == GGML_OP_MUL_MAT && i + 2 < cgraph->n_nodes &&
++            cgraph->nodes[i + 1]->op == GGML_OP_RESHAPE && cgraph->nodes[i + 2]->op == GGML_OP_ADD) {
++        static const bool enabled = getenv("GGML_CUDA_P60_MMVQ") != nullptr && atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0 &&
++            (getenv("GGML_CUDA_P60_FUSE_MM_BIAS") == nullptr || atoi(getenv("GGML_CUDA_P60_FUSE_MM_BIAS")) != 0);
++        ggml_tensor * rs  = cgraph->nodes[i + 1];
++        ggml_tensor * add = cgraph->nodes[i + 2];
++        const ggml_tensor * bias = add->src[0] == rs ? add->src[1] : add->src[1] == rs ? add->src[0] : nullptr;
++        const int out[] = { i + 2 };
++        if (enabled && bias != nullptr && rs->src[0] == node && ggml_are_same_shape(add->src[0], add->src[1]) &&
++                ggml_is_contiguous(node) && ggml_nelements(node) == ggml_nelements(add) &&
++                ggml_can_fuse_subgraph(cgraph, i, { GGML_OP_MUL_MAT, GGML_OP_RESHAPE, GGML_OP_ADD }, { i + 2 }) &&
++                ggml_cuda_check_fusion_memory_ranges(cgraph, i, 3, out, 1) &&
++                ggml_cuda_should_fuse_mul_mat_vec_f(node)) {
++            ggml_cuda_mm_fusion_args_host fusion_data{};
++            fusion_data.x_bias = bias;
++            ggml_cuda_mul_mat_vec_f(*cuda_ctx, node->src[0], node->src[1], nullptr, add, &fusion_data);
++            return 2;
++        }
++    }
++
+     // mul_mat + add
+     for (ggml_op op : { GGML_OP_MUL_MAT, GGML_OP_MUL_MAT_ID }) {
+         const ggml_op bias_op = op == GGML_OP_MUL_MAT ? GGML_OP_ADD : GGML_OP_ADD_ID;

@@ -1,9 +1,9 @@
 # llama-cpp-pascal-patches
 
 Performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
-measured on Tesla P100 (GP100, `sm_60`). This branch is the **`v0.8.0`** set (40 patches); the set is
-tagged per llama.cpp ref (`git tag -l` lists them - `v0.6.0`, `v0.7.0`, and the prerelease line
-`b11601`), and the branch is always the newest one.
+measured on Tesla P100 (GP100, `sm_60`). This branch is the **`v0.8.0`** set (72 patches: the 40 we
+carry, plus the 32-patch P60 block on top); the set is tagged per llama.cpp ref (`git tag -l` lists
+them - `v0.6.0`, `v0.7.0`, and the prerelease line `b11601`), and the branch is always the newest one.
 
 **Status of this `v0.8.0` set:** all 40 patches are regenerated against llama.cpp **`v0.8.0`**
 (`8642541b2`) and verified to apply in numeric order at zero fuzz and zero offset, with every
@@ -24,7 +24,8 @@ GP100 is the reason any of this exists: alone among Pascal chips it has no `DP4A
 full-rate `HFMA2`. So llama.cpp's quantized matmul paths fall back to emulation and cuBLAS, while
 the one instruction the card is genuinely good at goes unused. The patches named `sm60` exploit
 that asymmetry — but only 10 of the 40 are gated to Pascal-era hardware. 29 are not
-hardware-scoped at all, and one (07) changes an unconditional constant every GPU sees.
+hardware-scoped at all, and one (07) changes an unconditional constant every GPU sees. The P60 block
+(52-83) is gated to `sm_60` as a whole.
 
 ## Apply
 
@@ -71,7 +72,79 @@ Every patch carries its measurement in the comments it adds to the source, and
 [docs/patches.md](docs/patches.md) is the index: per patch, the scope tag, the effect, the kill
 switch, what it changes about the output, and the alternatives that were tried and rejected.
 
-### Scripted - 2026-10-28, `v0.8.0`, 40 patches, 160 W - **the shipping set at this ref**
+### Scripted - 2026-10-30, `v0.8.0`, 72 patches, 160 W - **the P60 block on top**
+
+The 32 patches 52-83 are a port of [Mrinohk/qwen36-p100-patches](https://github.com/Mrinohk/qwen36-p100-patches)
+- a second, independent P100 effort for the Qwen3.5/3.6 MoE family - rebased onto this set rather
+than merged beside it. Their series is 37 commits; 32 landed. Five were dropped as duplicates of what
+this repo already carries: `0005` (patches 24/25/27 do the same GDN gather work), `0006` (absorbed by
+upstream `1ab7e5ad2`), `0015`/`0016` (patch 51's cuBLAS algorithm choice, which is broader than theirs),
+`0017` (patch 15's draft vocabulary) and `0007` (written against the pre-`623c16393` `rms_norm` kernel;
+re-authoring it is open). `62` is theirs and is deleted again by `83`: `VDR_Q6_K_Q8_1_MMVQ` became 2 at
+this ref and its staged mapping asserts 1.
+
+What they add, in one line: fp16 (`HFMA2`) matrix-vector kernels for the types GP100 can only emulate,
+fused with the RMS norm and the residual adds that feed them; then persistent whole-layer-half kernels
+with software grid barriers, and fp16 grouped GEMMs for MoE prompt processing.
+
+Two cards (`CUDA_VISIBLE_DEVICES=0,1`), all cards at **160 W**, `-fa on -ub 2048 -p 512 -n 128 -r 2`,
+`-t 28` on two cards and `-t 42` on three, Cyber-Tiel-Coder-35B-A3B MTP UD-Q4_K_XL (`qwen35moe`, the
+architecture these kernels are written for), build `27b71f310 (11994)`:
+
+| split | cards | arm | pp512 t/s | tg128 t/s |
+|---|---:|---|---:|---:|
+| `-sm layer` | 2 | the 40-patch set (P60 off) | 504.25 ± 2.11 | 69.50 ± 0.39 |
+| | | **+ P60 as shipped (`GGML_CUDA_P60_MMVQ` on)** | **725.97 ± 5.29** | **78.14 ± 0.48** |
+| | | + `GGML_CUDA_P60_MEGA=1` | **1075.37 ± 6.43** | **100.05 ± 0.73** |
+| `-sm tensor` | 2 | P60 off | 843.91 ± 3.31 | 80.38 ± 1.04 |
+| | | P60 + `MEGA=1` | 1596.22 ± 19.47 | 86.93 ± 1.14 |
+| `-sm layer` | 3 | P60 off | 503.48 ± 1.94 | 68.38 ± 0.37 |
+| | | P60 + `MEGA=1` | 1076.96 ± 13.30 | 99.07 ± 0.69 |
+| `-sm tensor` | 3 | P60 off | 847.52 ± 6.16 | 82.15 ± 2.28 |
+| | | P60 + `MEGA=1` | 1596.22 ± 23.30 | 85.60 ± 2.33 |
+
+Ornith-1.0-35B-A3B UD-Q4_K_M, same two cards, `-sm tensor -p 4096 -n 128`: **1278.88 → 1934.91 pp4096
+(+51.3%)** and 80.09 → 85.44 tg128 (+6.7%). The `P60 off` arm reproduces the published `v0.8.0`
+patched row for that cell (1279.20), which is the control that says these arms are comparable.
+
+The third card changes the verdict on nothing: the 35B MoE is bound by the two cards it already had,
+and the third adds ~1% to decode (82.15 vs 80.38 tg with P60 off) and nothing to prefill (847.52 vs
+843.91). The P60 gain is the same size on two or three cards.
+
+**`GGML_CUDA_P60_MEGA=1` is not the default, and that is the one place this block is not full speed.**
+Two findings, both from the MTP path this repo also ships (patch 15):
+
+- with `--spec-type draft-mtp` and both switches on, the 2-6 token verify kernels **crash** -
+  `an illegal memory access was encountered` on the second device at the first verify step, under
+  `-sm layer` on two cards. Turning off any single sub-switch (`_Q8T`, `_FA`, `_ATTN`,
+  `_FUSE_CONV_STATE`, `_GDN_STATE`, `_FUSE_GLU`) does not help; the crash needs both parents.
+- with the multi-token kernels refused but the single-token persistent halves still armed, MTP runs
+  and is **wrong-slow**: 46.35 / 48.74 t/s against 73.22 / 74.58 with the block off, and draft
+  acceptance collapses from 135/278 to 63/310. The persistent halves take over the target model's
+  single-token steps and the drafts stop agreeing with them.
+- MTP with the shipped default (`MMVQ` on, `MEGA` off) is the best arm measured: 0.700 draft
+  acceptance and no error.
+
+So the persistent kernels stay behind `GGML_CUDA_P60_MEGA=1` until the MTP graphs are re-targeted,
+and the flag is documented as "plain decode and prefill only".
+
+The other half of their decode speed is unreachable at this ref for a different reason. Their
+persistent GDN half identifies the conv-state gather by the node name `blk.N.conv_states`. llama.cpp
+v0.8.0 builds that gather unnamed, over a one-row reshape of the cache (`cache_r_l9 (reshaped)`), so
+the match fails and every GDN layer falls back. Matching it by cache name instead took the half over,
+and greedy decode came out garbled from the second token (`The the ( bullet) —`, stray `β` and `§`) at
+both `-sm layer` and with the conv-state and state-gather elisions disabled - so the kernel is
+mishandling the new layout, not just the name. That experiment is reverted in `83`; the half matches
+only the named graph, exactly as upstream names it today. It is worth ~+25% tg (100.05 here against
+125.61 on their own base) and is the largest remaining item in this block.
+
+Accuracy, measured rather than assumed: perplexity over a 40 KB code-and-documents corpus, 5 chunks
+of 2048, `-sm layer`, is 2.0636 ± 0.0500 with the block off and 2.0593 ± 0.0499 with `MEGA=1` - the
+same direction and about the same size as the difference their own KL gate reports. Greedy output
+stays on-topic and coherent with `MEGA=1` (it is not bit-identical to the off arm: the fp16 matvec
+replaces an emulated int8 dot, so the first diverging token moves the rest).
+
+### Scripted - 2026-10-28, `v0.8.0`, 40 patches, 160 W - **the 40-patch set, before the P60 block**
 
 Two cards (`CUDA_VISIBLE_DEVICES=0,1`), all three cards at their **160 W** limit because the machine
 is on a UPS that trips above 600 W of system draw, 5 rounds per config, **four arms interleaved** -
@@ -539,7 +612,7 @@ are off by default behind an environment variable.
 ## Layout
 
 ```
-patches/            41 .patch files, applied in numeric order
+patches/            72 .patch files, applied in numeric order (52-83 are the P60 block)
 docs/patches.md     per-patch index: scope, effect, kill switch, output changes, dead ends
 docs/benchmarking.md  the measurement discipline this set needed - thermal control, noise floors,
                       why two microbenchmark-driven predictions were wrong
@@ -552,6 +625,12 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
 
 - Tuned for **decode**: single-stream decode with a speculative verify batch of 2-5. Large-batch
   serving was not a target.
+- The **P60 block** (52-83) is written for one model family - Qwen3.5/3.6 MoE at 2048 hidden,
+  Q4_K/Q5_K experts - and is `sm_60`-gated as a whole. On the dense 27B it measured **−1.8% pp512**
+  with both switches armed and flat decode; `GGML_CUDA_P60_MEGA=0` recovers the difference, which is
+  another reason that switch is not on by default. Its persistent kernels crash under
+  `--spec-type draft-mtp` and its persistent GDN half does not match llama.cpp v0.8.0's graph - both
+  are in [What to expect](#what-to-expect) with the numbers.
 - Prompt processing is where this set is weakest on **qwen4exp**: measured once, on a 116 B A3B
   MoE at `-p 512`, the whole set costs **−5.1% (tensor) / −6.1% (layer)** while buying +13.1% /
   +20.3% decode. Every other model in [What to expect](#what-to-expect) is flat to +4% on prefill.

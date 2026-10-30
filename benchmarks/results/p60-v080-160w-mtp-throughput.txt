@@ -1,0 +1,13 @@
+MTP throughput, 2 cards, layer split, 160 W
+  run1: 73.22 t/s  gen=192 draft=278 acc=135
+  run2: 74.58 t/s  gen=192 draft=278 acc=135
+## stock-mtp [GGML_CUDA_P60_MMVQ=0 GGML_CUDA_P60_MEGA=0] [--spec-type draft-mtp --spec-draft-n-max 5]
+/tmp/thr.sh: line 15: 202575 Killed                     env $evars CUDA_VISIBLE_DEVICES=0,1 $B/llama-server -m "$M" -c 8192 -ub 2048 -fa on -t 28 -sm layer $spec --port 8099 --no-webui > /tmp/thr-$label.log 2>&1
+  run1: 38.74 t/s  gen=192 draft=675 acc=53
+  run2: 39.04 t/s  gen=192 draft=675 acc=53
+## p60-mtp [] [--spec-type draft-mtp --spec-draft-n-max 5]
+/tmp/thr.sh: line 15: 202799 Killed                     env $evars CUDA_VISIBLE_DEVICES=0,1 $B/llama-server -m "$M" -c 8192 -ub 2048 -fa on -t 28 -sm layer $spec --port 8099 --no-webui > /tmp/thr-$label.log 2>&1
+  run1: 98.02 t/s  gen=192 draft=- acc=-
+  run2: 99.16 t/s  gen=192 draft=- acc=-
+## p60-nospec [] []
+THR_DONE

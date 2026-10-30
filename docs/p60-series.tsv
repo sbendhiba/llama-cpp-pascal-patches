@@ -1,0 +1,35 @@
+# 52-83: the P60 block, in file order. Columns: this repo's patch file, the upstream commit it is the diff of,
+# its subject, and the name it was exported under. Upstream: github.com/Mrinohk/qwen36-p100-patches (37 commits;
+# 0005/0006/0007/0015/0016/0017 are not here - see docs/patches.md, The P60 block).
+52-p60-fp16-decode-matvec	6f583b357	cuda : fp16 decode matvec and fused rms_norm prep for sm_60	52-p60-cuda-fp16-decode-matvec-and-fused-rms.patch
+53-p60-fused-swiglu-prep	f7ae35e15	cuda : fused swiglu prep and token-count policy for sm_60 fp16 matvec	53-p60-cuda-fused-swiglu-prep-and-token-count.patch
+54-p60-fuse-residual-adds	b7fea2e93	cuda : fold residual adds into the sm_60 fused rms_norm	54-p60-cuda-fold-residual-adds-into-the-sm.patch
+55-p60-q8-1-from-fused-norm	653819d57	cuda : write q8_1 from the sm_60 fused rms_norm for stock MMVQ	55-p60-cuda-write-q8-1-from-the-sm.patch
+56-p60-gdn-alpha-dt-bias	797e6195e	Fuse the GDN alpha projection with its dt bias across the reshape	56-p60-fuse-the-gdn-alpha-projection-with-its.patch
+57-p60-gdn-conv-state-shuffle	e6f9d65e6	Fold the GDN conv-state shuffle into the ssm_conv	57-p60-fold-the-gdn-conv-state-shuffle-into.patch
+58-p60-staged-q8-0-matvec	04a067b41	cuda : bit-exact staged-load Q8_0 matvec for one column on sm_60	58-p60-cuda-bit-exact-staged-load-q8-0.patch
+59-p60-moe-expert-tile	5dd80844d	cuda : size MoE MMQ tiles by tokens per expert on GP100	59-p60-cuda-size-moe-mmq-tiles-by-tokens.patch
+60-p60-gdn-reorder-dense-graph	25b14bd2e	Apply the GDN fusion node reorders to the dense qwen35 graph	60-p60-apply-the-gdn-fusion-node-reorders-to.patch
+61-p60-fp16-multicol-matvec	65eed1ebd	cuda : fp16 multi-column matvec for long dense rows on sm_60	61-p60-cuda-fp16-multi-column-matvec-for-long.patch
+62-p60-staged-q6-k-matvec	ca29cd0a4	cuda : bit-exact staged-load Q6_K matvec for 1-3 columns on sm_60	62-p60-cuda-bit-exact-staged-load-q6-k.patch
+63-p60-persistent-layer-halves	9ac39fdf9	cuda : persistent single-token layer-half kernels for Qwen3.5/3.6 MoE on sm_60	63-p60-cuda-persistent-single-token-layer-half-kernels.patch
+64-p60-persistent-mtp-verify-halves	95a107eee	cuda : persistent multi-token layer-half kernels for the Qwen3.5/3.6 MoE MTP verify on sm_60	64-p60-cuda-persistent-multi-token-layer-half-kernels.patch
+65-p60-mtp-verify-output-fattn	cffc6d10a	cuda : MTP verify output layer and flash attention kernels for sm_60	65-p60-cuda-mtp-verify-output-layer-and-flash.patch
+66-p60-mtp-draft-moe-halves	60c2bdf31	cuda : persistent MoE kernels for the Qwen3.5/3.6 MoE MTP draft head on sm_60	66-p60-cuda-persistent-moe-kernels-for-the-qwen3.patch
+67-p60-persistent-attn-halves	7a00cf666	cuda : persistent full-attention layer halves on sm_60, faster multi-token reductions	67-p60-cuda-persistent-full-attention-layer-halves-on.patch
+68-p60-multitoken-q8-16b-loads	c8236c320	cuda : 16-byte activation loads in the sm_60 multi-token q8_0 dots	68-p60-cuda-16-byte-activation-loads-in-the.patch
+69-p60-moe-q5k-q6k-halves	7c700a456	cuda : persistent MoE kernels for the q5_K / q6_K expert layers on sm_60	69-p60-cuda-persistent-moe-kernels-for-the-q5.patch
+70-p60-mtp-draft-attn-half	962fa7925	cuda : persistent attention half for the Qwen3.5/3.6 MoE MTP draft head on sm_60	70-p60-cuda-persistent-attention-half-for-the-qwen3.patch
+71-p60-moe-expert-gemm-prefill	27bd49b2b	cuda : fp16 expert GEMM for MoE prompt processing on sm_60	71-p60-cuda-fp16-expert-gemm-for-moe-prompt.patch
+72-p60-gdn-chunk-prefill	c4ffa4d34	cuda : prompt-processing gated delta net kernel for sm_60	72-p60-cuda-prompt-processing-gated-delta-net-kernel.patch
+73-p60-fattn-prefill-h256	3dfbd4266	cuda : prompt-processing flash attention for head size 256 / GQA 8 on sm_60	73-p60-cuda-prompt-processing-flash-attention-for-head.patch
+74-p60-q6k-expert-gemm	e6073fd21	cuda : q6_K experts in the sm_60 prompt-processing expert GEMM	74-p60-cuda-q6-k-experts-in-the-sm.patch
+75-p60-expert-gemm-narrow-tiles	a231e0775	cuda : narrower tiles in the sm_60 expert GEMM for short prompts	75-p60-cuda-narrower-tiles-in-the-sm-60.patch
+76-p60-expert-gemm-128-row-tiles	6785432f1	cuda : 128-row tiles in the sm_60 expert GEMM for wide token tiles	76-p60-cuda-128-row-tiles-in-the-sm.patch
+77-p60-exact-verify-mode	f07c74141	p60 exact: MTP verify bit-identical to single-token decode (stock kernels)	77-p60-p60-exact-mtp-verify-bit-identical-to.patch
+78-p60-exact-persistent-moe	82edc204a	p60 exact: persistent MoE half, bit-identical to stock decode (v1)	78-p60-p60-exact-persistent-moe-half-bit-identical.patch
+79-p60-exact-moe-v2	b1bc553f0	p60 exact: MoE half v2 - shared weight rows across tokens, lean exact dots	79-p60-p60-exact-moe-half-v2-shared-weight.patch
+80-p60-invar-mode	822f2dd53	p60: GGML_CUDA_P60_INVAR - MTP output identical to plain decode	80-p60-p60-ggml-cuda-p60-invar-mtp-output.patch
+81-p60-small-batch-expert-kernel	b1aadade4	p60: small-batch MoE prefill kernel, bit-identical to moe_gemm_f16	81-p60-p60-small-batch-moe-prefill-kernel-bit.patch
+82-p60-mega-attn-kv-stream	c23978d03	p60 mega attn: read the sequence's own KV stream	82-p60-p60-mega-attn-read-the-sequence-s.patch
+83-p60-v080-adapt-default-on	27b71f310	p60: adapt to llama.cpp v0.8.0; fp16 matvec on by default, persistent kernels opt-in	83-p60-v080-adapt-default-on.patch

@@ -1,0 +1,466 @@
+diff --git a/ggml/src/ggml-cuda/gated_delta_net.cu b/ggml/src/ggml-cuda/gated_delta_net.cu
+index 1a7f8ad00..e08793fab 100644
+--- a/ggml/src/ggml-cuda/gated_delta_net.cu
++++ b/ggml/src/ggml-cuda/gated_delta_net.cu
+@@ -228,7 +228,7 @@ gated_delta_net_chunk_cuda(const float * q, const float * k, const float * v, co
+         const float * curr_state, float * dst, float * state, int64_t H, int64_t n_tokens, int64_t n_seqs,
+         int64_t sq1, int64_t sq2, int64_t sq3, int64_t sv1, int64_t sv2, int64_t sv3, int64_t sb1, int64_t sb2, int64_t sb3,
+         const uint3 neqk1_magic, const uint3 rq3_magic, float scale, int64_t state_slot_stride, int K,
+-        const float * beta_pre, float * beta_sig, const int32_t * s_ids, int64_t s_row) {
++        const float * beta_pre, float * beta_sig, const float * s_base, const int32_t * s_rows, int64_t s_row_stride, float * s_gather_dst) {
+     constexpr int S_v = 128, CH = 8, NC = 16, R = 16; // NC columns per block, R rows per lane
+     __shared__ __align__(16) float sk[2][CH][S_v];
+     __shared__ __align__(16) float sq[2][CH][S_v];
+@@ -244,13 +244,24 @@ gated_delta_net_chunk_cuda(const float * q, const float * k, const float * v, co
+     const int64_t state_in_offset  = sequence * H * S_v * S_v + h_idx * S_v * S_v;
+     const int64_t state_out_offset = (sequence * H + h_idx) * S_v * S_v;
+     state += state_out_offset;
+-    curr_state += (s_ids ? (int64_t) s_ids[sequence] * s_row + h_idx * S_v * S_v : state_in_offset) + col * S_v;
++    // With the state gather folded in, read the state straight from the cache row and, node-preserving, write the
++    // same values to the elided gather node's dst.
++    const int64_t gather_in = state_in_offset + col * S_v;
++    const float * state_src = s_rows != nullptr
++        ? s_base + (int64_t) s_rows[sequence] * s_row_stride + h_idx * S_v * S_v + col * S_v
++        : curr_state + gather_in;
+     float * attn_data = dst + (sequence * n_tokens * H + h_idx) * S_v;
+ 
+     float s_shard[R];
+ #pragma unroll
+     for (int r = 0; r < R; r++) {
+-        s_shard[r] = curr_state[r0 + r];
++        s_shard[r] = state_src[r0 + r];
++    }
++    if (s_gather_dst != nullptr) {
++#pragma unroll
++        for (int r = 0; r < R; r++) {
++            s_gather_dst[gather_in + r0 + r] = s_shard[r];
++        }
+     }
+ 
+     float lk[8], lq[8], lv = 0.0f, lgb = 0.0f;
+@@ -402,7 +413,7 @@ static void launch_gated_delta_net(
+     const uint3 neqk1_magic = init_fastdiv_values(neqk1);
+     const uint3 rq3_magic   = init_fastdiv_values(rq3);
+ 
+-    // prompt processing on sm_60 (GGML_CUDA_P60_MEGA=1, GGML_CUDA_P60_GDN_CHUNK=0 disables): inputs staged per chunk
++    // prompt processing on sm_60 (GGML_CUDA_P60_MEGA, GGML_CUDA_P60_GDN_CHUNK=0 disables): inputs staged per chunk
+     static const bool p60_chunk = getenv("GGML_CUDA_P60_MEGA") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGA")) != 0 &&
+         (getenv("GGML_CUDA_P60_GDN_CHUNK") == nullptr || atoi(getenv("GGML_CUDA_P60_GDN_CHUNK")) != 0);
+     if constexpr (!KDA) {
+@@ -410,7 +421,7 @@ static void launch_gated_delta_net(
+                 ggml_cuda_info().devices[ggml_cuda_get_device()].cc == 600) {
+             gated_delta_net_chunk_cuda<keep_rs_t><<<dim3(H, n_seqs, S_v / 16), dim3(32, 4), 0, stream>>>(
+                 q_d, k_d, v_d, g_d, b_d, s_d, dst_d, state_d, H, n_tokens, n_seqs, sq1, sq2, sq3, sv1, sv2, sv3,
+-                sb1, sb2, sb3, neqk1_magic, rq3_magic, scale, state_slot_stride, K, beta_pre_d, beta_sig_d, s_ids, s_row);
++                sb1, sb2, sb3, neqk1_magic, rq3_magic, scale, state_slot_stride, K, beta_pre_d, beta_sig_d, s_base_d, s_rows_d, s_row_stride, s_gather_dst_d);
+             return;
+         }
+     }
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+index c52098191..16bd6c138 100644
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -4394,6 +4394,12 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+     }
+     // one sequence of T <= 6 tokens; the gdn output holds T rows of attention values + K state snapshots
+     const int64_t T = gdn->src[0]->ne[2];
++    // The multi-token (speculative verify) persistent kernels are opt-in at this ref: with a draft-mtp
++    // graph they hit an illegal access on the second device. GGML_CUDA_P60_MEGAT=1 re-enables them.
++    static const bool megat = getenv("GGML_CUDA_P60_MEGAT") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGAT")) != 0;
++    if (T > 1 && !megat) {
++        P60_MEGA_FAIL;
++    }
+     const int64_t K = (gdn->ne[1] - T) / 128;
+     constexpr int64_t SSN = 128*128*32;
+     if (T < 1 || T > 6 || K < 1 || K > 6 || gdn->ne[1] != T + 128*K || norm->src[0]->ne[1] != T) {
+@@ -4530,6 +4536,12 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+     int n_softmax = 0, n_div = 0;
+     float clamp_min = -INFINITY;
+     const int64_t T = norm->src[0]->ne[1];
++    // The multi-token (speculative verify) persistent kernels are opt-in at this ref: with a draft-mtp
++    // graph they hit an illegal access on the second device. GGML_CUDA_P60_MEGAT=1 re-enables them.
++    static const bool megat = getenv("GGML_CUDA_P60_MEGAT") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGAT")) != 0;
++    if (T > 1 && !megat) {
++        P60_MEGA_FAIL;
++    }
+     for (int k = i + 2; k < e; k++) {
+         const ggml_tensor * t = g->nodes[k];
+         cur_t = t;
+@@ -4699,6 +4711,12 @@ static int p60_try_mega_attn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, i
+     }
+     const ggml_tensor * add = g->nodes[e];
+     const int64_t T = norm->src[0]->ne[1];
++    // The multi-token (speculative verify) persistent kernels are opt-in at this ref: with a draft-mtp
++    // graph they hit an illegal access on the second device. GGML_CUDA_P60_MEGAT=1 re-enables them.
++    static const bool megat = getenv("GGML_CUDA_P60_MEGAT") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGAT")) != 0;
++    if (T > 1 && !megat) {
++        P60_MEGA_FAIL;
++    }
+     if (!qmm || !kmm || !vmm || !omm || !qn || !kn || !qrope || !krope || !ksr || !vsr || !fa || !gmul || eps_q < 0.0f || eps_k < 0.0f ||
+             T < 1 || T > 6 || add->src[1] != norm->src[0] || add->src[0] != omm || omm->src[1] != gmul) {
+         P60_MEGA_FAIL;
+@@ -4774,8 +4792,6 @@ static int p60_try_mega_attn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, i
+     return e - i;
+ }
+ 
+-static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph * cgraph, int i) {
+-
+ // The same conditions upstream's {RMS_NORM, MUL} fusion checks inside ggml_cuda_can_fuse,
+ // factored out so they also work when the node indices are not consecutive
+ static bool ggml_cuda_should_fuse_rms_norm_mul(const ggml_tensor * rms_norm, const ggml_tensor * mul) {
+@@ -4893,6 +4909,45 @@ static bool ggml_cuda_take_deferred_gather(ggml_backend_cuda_context * cuda_ctx,
+ }
+ 
+ // try and fuse nodes and return the number of nodes to skip
++// GET_ROWS that gathers a gated_delta_net's input state from the recurrent cache. With one sequence the gdn can
++// read the cache row itself (each block reads its slice of the state before it writes that slice), so the gather
++// is skipped. Returns the gdn, or nullptr.
++static const ggml_tensor * ggml_cuda_gdn_state_gather_target(const ggml_cgraph * cgraph, int i) {
++    const ggml_tensor * gr = cgraph->nodes[i];
++    if (gr->op != GGML_OP_GET_ROWS || gr->type != GGML_TYPE_F32 || (gr->flags & GGML_TENSOR_FLAG_OUTPUT) ||
++            gr->src[0]->type != GGML_TYPE_F32 || gr->src[1]->type != GGML_TYPE_I32 ||
++            gr->src[0]->nb[0] != sizeof(float) || gr->src[1]->nb[0] != sizeof(int32_t) ||
++            gr->ne[1] != 1 || gr->ne[2] != 1 || gr->ne[3] != 1 || !ggml_is_contiguous(gr) ||
++            ggml_node_get_use_count(cgraph, i) != 1) {
++        return nullptr;
++    }
++    // follow single-use reshapes to the consumer
++    const ggml_tensor * cur = gr;
++    for (int j = i + 1; j < cgraph->n_nodes; ++j) {
++        const ggml_tensor * n = cgraph->nodes[j];
++        bool uses = false;
++        for (int s = 0; s < GGML_MAX_SRC; ++s) {
++            uses = uses || n->src[s] == cur;
++        }
++        if (!uses) {
++            continue;
++        }
++        if (n->op == GGML_OP_RESHAPE || (n->op == GGML_OP_VIEW && n->view_offs == 0)) {
++            if (ggml_node_get_use_count(cgraph, j) != 1 || (n->flags & GGML_TENSOR_FLAG_OUTPUT) || !ggml_is_contiguous(n)) {
++                return nullptr;
++            }
++            cur = n;
++            continue;
++        }
++        if (n->op == GGML_OP_GATED_DELTA_NET && n->src[5] == cur && n->type == GGML_TYPE_F32 &&
++                n->src[2]->ne[3] == 1 && ggml_nelements(cur) == ggml_nelements(gr)) {
++            return n;
++        }
++        return nullptr;
++    }
++    return nullptr;
++}
++
+ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph * cgraph, int i,
+                               bool allow_defer) {
+ 
+@@ -4915,7 +4970,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+ 
+     // whole single-token layer halves as one persistent kernel each (p60-mega.cu)
+     if (node->op == GGML_OP_RMS_NORM) {
+-        static const bool enabled = getenv("GGML_CUDA_P60_MMVQ") != nullptr && atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0 &&
++        static const bool enabled = (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0) &&
+             getenv("GGML_CUDA_P60_MEGA") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGA")) != 0;
+         if (enabled && ggml_cuda_info().devices[cuda_ctx->device].cc == 600) {
+             static const bool attn = getenv("GGML_CUDA_P60_ATTN") == nullptr || atoi(getenv("GGML_CUDA_P60_ATTN")) != 0;
+@@ -4935,7 +4990,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+     // conv-state shuffle folded into the ssm_conv (see ggml_cuda_p60_conv_state_plan): skip the gather, the concat and the
+     // update copies, run the conv with all of it
+     {
+-        static const bool enabled = getenv("GGML_CUDA_P60_MMVQ") != nullptr && atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0 &&
++        static const bool enabled = (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0) &&
+             (getenv("GGML_CUDA_P60_FUSE_CONV_STATE") == nullptr || atoi(getenv("GGML_CUDA_P60_FUSE_CONV_STATE")) != 0);
+         auto & cs = cuda_ctx->p60_conv_state;
+         if (cs.ssm_conv != nullptr) {
+@@ -4954,7 +5009,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+ 
+     // gated_delta_net state gather: skip it, the gdn reads the cache row (returns -1: node elided, nothing to run)
+     if (node->op == GGML_OP_GET_ROWS && cuda_ctx->p60_gdn_state_count < cuda_ctx->p60_gdn_state_n) {
+-        static const bool enabled = getenv("GGML_CUDA_P60_MMVQ") != nullptr && atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0 &&
++        static const bool enabled = (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0) &&
+             (getenv("GGML_CUDA_P60_GDN_STATE") == nullptr || atoi(getenv("GGML_CUDA_P60_GDN_STATE")) != 0);
+         const ggml_tensor * gdn = enabled ? ggml_cuda_gdn_state_gather_target(cgraph, i) : nullptr;
+         if (gdn != nullptr) {
+@@ -4976,7 +5031,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+         }
+     }
+     if (node->op == GGML_OP_ADD && i + 1 < cgraph->n_nodes && cgraph->nodes[i + 1]->op == GGML_OP_RMS_NORM) {
+-        static const bool mega = getenv("GGML_CUDA_P60_MMVQ") != nullptr && atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0 &&
++        static const bool mega = (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0) &&
+             getenv("GGML_CUDA_P60_MEGA") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGA")) != 0;
+         if (mega && ggml_cuda_info().devices[cuda_ctx->device].cc == 600 &&
+                 (p60_try_mega_gdn(cuda_ctx, cgraph, i + 1, true) > 0 || p60_try_mega_moe(cuda_ctx, cgraph, i + 1, true) > 0 ||
+@@ -5876,7 +5931,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+     // the reshape node between the two otherwise hides from the match below
+     if (node->op == GGML_OP_MUL_MAT && i + 2 < cgraph->n_nodes &&
+             cgraph->nodes[i + 1]->op == GGML_OP_RESHAPE && cgraph->nodes[i + 2]->op == GGML_OP_ADD) {
+-        static const bool enabled = getenv("GGML_CUDA_P60_MMVQ") != nullptr && atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0 &&
++        static const bool enabled = (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0) &&
+             (getenv("GGML_CUDA_P60_FUSE_MM_BIAS") == nullptr || atoi(getenv("GGML_CUDA_P60_FUSE_MM_BIAS")) != 0);
+         ggml_tensor * rs  = cgraph->nodes[i + 1];
+         ggml_tensor * add = cgraph->nodes[i + 2];
+diff --git a/ggml/src/ggml-cuda/mmq.cu b/ggml/src/ggml-cuda/mmq.cu
+index 9936d918b..f331d729c 100644
+--- a/ggml/src/ggml-cuda/mmq.cu
++++ b/ggml/src/ggml-cuda/mmq.cu
+@@ -241,8 +241,8 @@ void ggml_cuda_mul_mat_q(
+             // On RDNA3 and RDNA4 it is faster to pick the tile size against this value instead of ne12.
+             // Same on NVIDIA without dp4a (GP100): with few tokens a tile sized for ne12 is mostly empty columns of emulated
+             // int8 math, which made every small prompt batch cost ~0.45 s. The sums do not depend on the tile width.
+-            // Only with GGML_CUDA_P60_MMVQ=1; GGML_CUDA_P60_MMQ_EXPERT_TILE=0 turns it off.
+-            static const bool p60_expert_tile = getenv("GGML_CUDA_P60_MMVQ") != nullptr && atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0 &&
++            // On by default (GGML_CUDA_P60_MMVQ=0 turns it off); GGML_CUDA_P60_MMQ_EXPERT_TILE=0 turns it off.
++            static const bool p60_expert_tile = (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0) &&
+                 (getenv("GGML_CUDA_P60_MMQ_EXPERT_TILE") == nullptr || atoi(getenv("GGML_CUDA_P60_MMQ_EXPERT_TILE")) != 0);
+             if (GGML_CUDA_CC_IS_RDNA3(cc) || GGML_CUDA_CC_IS_RDNA4(cc) ||
+                     (p60_expert_tile && GGML_CUDA_CC_IS_NVIDIA(cc) && cc < GGML_CUDA_CC_DP4A)) {
+diff --git a/ggml/src/ggml-cuda/mmvq-p60.cu b/ggml/src/ggml-cuda/mmvq-p60.cu
+index 71f218ced..70b1d64ab 100644
+--- a/ggml/src/ggml-cuda/mmvq-p60.cu
++++ b/ggml/src/ggml-cuda/mmvq-p60.cu
+@@ -663,7 +663,7 @@ bool ggml_cuda_mmvq_p60(ggml_backend_cuda_context & ctx,
+         const ggml_cuda_mm_fusion_args_host * fusion) {
+     static const bool enabled = [] {
+         const char * e = getenv("GGML_CUDA_P60_MMVQ");
+-        return e != nullptr && atoi(e) != 0;
++        return e == nullptr || atoi(e) != 0;
+     }();
+     if (!enabled) {
+         return false;
+@@ -892,7 +892,7 @@ static bool p60_env_on(const char * name) {
+ // (the token-count policy: with one token the matvecs that read a norm output stay on stock MMVQ).
+ static bool p60_fused_norm(ggml_backend_cuda_context & ctx, const ggml_tensor * const * x, const int nadd, ggml_tensor * sum_dst,
+         const ggml_tensor * rms_norm, ggml_tensor * mul_tensor, const bool need_extra) {
+-    static const bool enabled = getenv("GGML_CUDA_P60_MMVQ") != nullptr && atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0;
++    static const bool enabled = (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0);
+     static const bool all     = getenv("GGML_CUDA_P60_ALL")  != nullptr && atoi(getenv("GGML_CUDA_P60_ALL"))  != 0;
+     static const bool prep_on = p60_env_on("GGML_CUDA_P60_FUSE_NORM");
+     static const bool q8_on   = p60_env_on("GGML_CUDA_P60_FUSE_Q8");
+@@ -1077,7 +1077,7 @@ bool ggml_cuda_p60_swiglu(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
+     static const bool enabled = [] {
+         const char * e = getenv("GGML_CUDA_P60_MMVQ");
+         const char * f = getenv("GGML_CUDA_P60_FUSE_GLU");
+-        return e != nullptr && atoi(e) != 0 && (f == nullptr || atoi(f) != 0);
++        return (e == nullptr || atoi(e) != 0) && (f == nullptr || atoi(f) != 0);
+     }();
+     if (!enabled) {
+         return false;
+diff --git a/ggml/src/ggml-cuda/mmvq-p60.cuh b/ggml/src/ggml-cuda/mmvq-p60.cuh
+index e43263061..983151acc 100644
+--- a/ggml/src/ggml-cuda/mmvq-p60.cuh
++++ b/ggml/src/ggml-cuda/mmvq-p60.cuh
+@@ -3,7 +3,7 @@
+ #include "common.cuh"
+ 
+ // Single-token matvec for NVIDIA GPUs without dp4a (sm_60), with fp16x2 math.
+-// Returns false if the case is not supported; the caller then uses stock MMVQ. Off by default, GGML_CUDA_P60_MMVQ=1 enables it.
++// Returns false if the case is not supported; the caller then uses stock MMVQ. On by default; GGML_CUDA_P60_MMVQ=0 disables it.
+ bool ggml_cuda_mmvq_p60(ggml_backend_cuda_context & ctx,
+     const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst,
+     const ggml_cuda_mm_fusion_args_host * fusion);
+diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
+index b11cb08c9..5393e0e30 100644
+--- a/ggml/src/ggml-cuda/mmvq.cu
++++ b/ggml/src/ggml-cuda/mmvq.cu
+@@ -1689,10 +1689,10 @@ static __global__ void __launch_bounds__(4*WARP_SIZE, 1) mul_mat_vec_q8_0_staged
+ }
+ 
+ // Takes the single-column dense Q8_0 case when the staged kernel above reproduces stock exactly; returns false otherwise.
+-// Only with GGML_CUDA_P60_MMVQ=1; GGML_CUDA_P60_Q8_STAGED=0 turns it off.
++// On by default (GGML_CUDA_P60_MMVQ=0 turns it off); GGML_CUDA_P60_Q8_STAGED=0 turns it off.
+ static bool mul_mat_vec_q8_0_staged_try(const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * ids, const ggml_tensor * dst,
+         const ggml_cuda_mm_fusion_args_host * fusion, const char * src1_q8_1, cudaStream_t stream) {
+-    static const bool enabled = getenv("GGML_CUDA_P60_MMVQ") != nullptr && atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0 &&
++    static const bool enabled = (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0) &&
+         (getenv("GGML_CUDA_P60_Q8_STAGED") == nullptr || atoi(getenv("GGML_CUDA_P60_Q8_STAGED")) != 0);
+     if (!enabled || src0->type != GGML_TYPE_Q8_0 || ids != nullptr) {
+         return false;
+@@ -1702,7 +1702,7 @@ static bool mul_mat_vec_q8_0_staged_try(const ggml_tensor * src0, const ggml_ten
+     }
+     const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
+     if (!GGML_CUDA_CC_IS_NVIDIA(cc) || cc >= GGML_CUDA_CC_DP4A || get_device_table_id(cc) != MMVQ_PARAMETERS_GENERIC ||
+-            calc_nwarps(GGML_TYPE_Q8_0, 1, MMVQ_PARAMETERS_GENERIC) != 4 || calc_rows_per_block(1, MMVQ_PARAMETERS_GENERIC) != 4) {
++            calc_nwarps(GGML_TYPE_Q8_0, 1, MMVQ_PARAMETERS_GENERIC) != 4 || calc_rows_per_block(GGML_TYPE_Q8_0, 1, MMVQ_PARAMETERS_GENERIC) != 4) {
+         return false;
+     }
+     const int64_t ne00 = src0->ne[0], ne01 = src0->ne[1];
+@@ -1722,133 +1722,6 @@ static bool mul_mat_vec_q8_0_staged_try(const ggml_tensor * src0, const ggml_ten
+     return true;
+ }
+ 
+-// Q6_K x q8_1, 1-3 columns, on the GENERIC table: same mapping, accumulation order and reduction as
+-// mul_mat_vec_q<Q6_K, ncols_dst, false> (4 warps, 4 rows per block, warp w takes superblock w + 4n, lane = iqs), so the
+-// output is bit-identical. The 4 rows of each 4-superblock chunk are staged through shared memory with coalesced
+-// 8-byte loads (rows are 8-byte aligned) instead of 16-bit loads per weight int; the next chunk loads during the math.
+-template <int ncols_dst>
+-static __global__ void __launch_bounds__(4*WARP_SIZE, 1) mul_mat_vec_q6_K_staged(
+-        const char * __restrict__ vx, const block_q8_1 * __restrict__ y, float * __restrict__ dst, const int64_t row_bytes,
+-        const int nchunks, const int stride_col_y, const int stride_col_dst) {
+-    constexpr int nwarps = 4, rows = 4, warp_size = WARP_SIZE, sbs = 4; // superblocks per row and chunk
+-    constexpr int ch  = sbs*sizeof(block_q6_K)/8; // 105 uint2 per row and chunk
+-    constexpr int tot = rows*ch;
+-    constexpr int per = (tot + nwarps*warp_size - 1)/(nwarps*warp_size);
+-    static_assert(QI6_K == 32 && VDR_Q6_K_Q8_1_MMVQ == 1 && sbs*sizeof(block_q6_K) % 8 == 0, "mapping assumes one superblock per warp");
+-
+-    __shared__ uint2 sm[tot];
+-    const int tid  = warp_size*threadIdx.y + threadIdx.x;
+-    const int row0 = rows*blockIdx.x;
+-
+-    uint2 g[per];
+-    auto load = [&](const int c) {
+-#pragma unroll
+-        for (int j = 0; j < per; ++j) {
+-            const int idx = tid + nwarps*warp_size*j;
+-            if (idx < tot) {
+-                g[j] = __ldg((const uint2 *) (vx + (int64_t) (row0 + idx/ch)*row_bytes) + c*ch + idx % ch);
+-            }
+-        }
+-    };
+-    load(0);
+-
+-    float tmp[ncols_dst][rows] = {{ 0.0f }};
+-    for (int c = 0; c < nchunks; ++c) {
+-        if (c > 0) {
+-            __syncthreads();
+-        }
+-#pragma unroll
+-        for (int j = 0; j < per; ++j) {
+-            const int idx = tid + nwarps*warp_size*j;
+-            if (idx < tot) {
+-                sm[idx] = g[j];
+-            }
+-        }
+-        __syncthreads();
+-        if (c + 1 < nchunks) {
+-            load(c + 1);
+-        }
+-        const int kby = (c*sbs + threadIdx.y) * (QK_K/QK8_1);
+-#pragma unroll
+-        for (int j = 0; j < ncols_dst; ++j) {
+-#pragma unroll
+-            for (int i = 0; i < rows; ++i) {
+-                tmp[j][i] += vec_dot_q6_K_q8_1((const char *) (sm + i*ch), &y[j*stride_col_y + kby], threadIdx.y, threadIdx.x);
+-            }
+-        }
+-    }
+-
+-    __shared__ float tmp_shared[nwarps-1][ncols_dst][rows][warp_size];
+-    if (threadIdx.y > 0) {
+-#pragma unroll
+-        for (int j = 0; j < ncols_dst; ++j) {
+-#pragma unroll
+-            for (int i = 0; i < rows; ++i) {
+-                tmp_shared[threadIdx.y-1][j][i][threadIdx.x] = tmp[j][i];
+-            }
+-        }
+-    }
+-    __syncthreads();
+-    if (threadIdx.y > 0) {
+-        return;
+-    }
+-#pragma unroll
+-    for (int j = 0; j < ncols_dst; ++j) {
+-#pragma unroll
+-        for (int i = 0; i < rows; ++i) {
+-#pragma unroll
+-            for (int l = 0; l < nwarps-1; ++l) {
+-                tmp[j][i] += tmp_shared[l][j][i][threadIdx.x];
+-            }
+-            tmp[j][i] = warp_reduce_sum<warp_size>(tmp[j][i]);
+-            if (threadIdx.x == i) {
+-                dst[j*stride_col_dst + row0 + i] = tmp[j][i];
+-            }
+-        }
+-    }
+-}
+-
+-// Takes dense Q6_K with 1-3 columns when the staged kernel above reproduces stock exactly; returns false otherwise.
+-// Only with GGML_CUDA_P60_MMVQ=1; GGML_CUDA_P60_Q6_STAGED=0 turns it off.
+-static bool mul_mat_vec_q6_K_staged_try(const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * ids, const ggml_tensor * dst,
+-        const ggml_cuda_mm_fusion_args_host * fusion, const char * src1_q8_1, const int64_t stride_col_y, const int64_t stride_col_dst,
+-        cudaStream_t stream) {
+-    static const bool enabled = getenv("GGML_CUDA_P60_MMVQ") != nullptr && atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0 &&
+-        (getenv("GGML_CUDA_P60_Q6_STAGED") == nullptr || atoi(getenv("GGML_CUDA_P60_Q6_STAGED")) != 0);
+-    if (!enabled || src0->type != GGML_TYPE_Q6_K || ids != nullptr) {
+-        return false;
+-    }
+-    if (fusion && (fusion->gate || fusion->x_bias || fusion->gate_bias || fusion->x_scale || fusion->gate_scale)) {
+-        return false;
+-    }
+-    const int64_t ncols = src1->ne[1];
+-    const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
+-    if (!GGML_CUDA_CC_IS_NVIDIA(cc) || cc >= GGML_CUDA_CC_DP4A || get_device_table_id(cc) != MMVQ_PARAMETERS_GENERIC ||
+-            ncols < 1 || ncols > 3 || calc_nwarps(GGML_TYPE_Q6_K, ncols, MMVQ_PARAMETERS_GENERIC) != 4 ||
+-            calc_rows_per_block(ncols, MMVQ_PARAMETERS_GENERIC) != 4) {
+-        return false;
+-    }
+-    const int64_t ne00 = src0->ne[0], ne01 = src0->ne[1];
+-    if (ne00 % (4*QK_K) != 0 || ne01 % 4 != 0 || src0->ne[2] != 1 || src0->ne[3] != 1 ||
+-            src1->ne[2] != 1 || src1->ne[3] != 1 || dst->ne[1] != ncols || dst->ne[2] != 1 || dst->ne[3] != 1 ||
+-            src0->nb[1] != (size_t) ne00/QK_K*sizeof(block_q6_K) || ((uintptr_t) src0->data) % 8 != 0 ||
+-            dst->nb[0] != sizeof(float)) {
+-        return false;
+-    }
+-    const dim3 grid(ne01/4), block(WARP_SIZE, 4);
+-    const int nchunks = ne00/(4*QK_K);
+-    const char * vx = (const char *) src0->data;
+-    const block_q8_1 * y = (const block_q8_1 *) src1_q8_1;
+-    float * d = (float *) dst->data;
+-    switch (ncols) {
+-        case 1: mul_mat_vec_q6_K_staged<1><<<grid, block, 0, stream>>>(vx, y, d, src0->nb[1], nchunks, stride_col_y, stride_col_dst); break;
+-        case 2: mul_mat_vec_q6_K_staged<2><<<grid, block, 0, stream>>>(vx, y, d, src0->nb[1], nchunks, stride_col_y, stride_col_dst); break;
+-        default: mul_mat_vec_q6_K_staged<3><<<grid, block, 0, stream>>>(vx, y, d, src0->nb[1], nchunks, stride_col_y, stride_col_dst); break;
+-    }
+-    CUDA_CHECK(cudaGetLastError());
+-    return true;
+-}
+-
+ void ggml_cuda_mul_mat_vec_q(
+         ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst,
+         const ggml_cuda_mm_fusion_args_host * fusion) {
+@@ -2076,9 +1949,6 @@ void ggml_cuda_mul_mat_vec_q(
+     if (mul_mat_vec_q8_0_staged_try(src0, src1, ids, dst, fusion, src1_q8_1_d, stream)) {
+         return;
+     }
+-    if (mul_mat_vec_q6_K_staged_try(src0, src1, ids, dst, fusion, src1_q8_1_d, stride_col_y, stride_col_dst, stream)) {
+-        return;
+-    }
+ 
+     mul_mat_vec_q_switch_type(
+         src0->data, src0->type, src1_q8_1_d, ids_d, fusion_local, dst_d, ne00,
+diff --git a/ggml/src/ggml-cuda/p60-fa.cu b/ggml/src/ggml-cuda/p60-fa.cu
+index 6608f2d80..509ee3a7e 100644
+--- a/ggml/src/ggml-cuda/p60-fa.cu
++++ b/ggml/src/ggml-cuda/p60-fa.cu
+@@ -699,6 +699,7 @@ __global__ void __launch_bounds__(NT, 1) attn_post_kernel(const PostParams P) {
+ 
+ unsigned * attn_bar(ggml_backend_cuda_context & ctx) {
+     if (ctx.p60_mega_bar == nullptr) {
++        ggml_cuda_set_device(ctx.device);  // the buffer is bound to whatever device is current here
+         CUDA_CHECK(cudaMalloc(&ctx.p60_mega_bar, sizeof(unsigned)));
+         CUDA_CHECK(cudaMemset(ctx.p60_mega_bar, 0, sizeof(unsigned)));
+         ctx.p60_mega_epoch = 0;
+diff --git a/ggml/src/ggml-cuda/p60-mega-t.cu b/ggml/src/ggml-cuda/p60-mega-t.cu
+index cc8304eed..bc202f602 100644
+--- a/ggml/src/ggml-cuda/p60-mega-t.cu
++++ b/ggml/src/ggml-cuda/p60-mega-t.cu
+@@ -820,6 +820,7 @@ __global__ void __launch_bounds__(NT, 1) q8_0_t_kernel(const uint8_t * __restric
+ 
+ unsigned * mega_bar(ggml_backend_cuda_context & ctx) {
+     if (ctx.p60_mega_bar == nullptr) {
++        ggml_cuda_set_device(ctx.device);  // the buffer is bound to whatever device is current here
+         CUDA_CHECK(cudaMalloc(&ctx.p60_mega_bar, sizeof(unsigned)));
+         CUDA_CHECK(cudaMemset(ctx.p60_mega_bar, 0, sizeof(unsigned)));
+         ctx.p60_mega_epoch = 0;
+diff --git a/ggml/src/ggml-cuda/p60-mega.cu b/ggml/src/ggml-cuda/p60-mega.cu
+index e38fbe2ee..5a611a639 100644
+--- a/ggml/src/ggml-cuda/p60-mega.cu
++++ b/ggml/src/ggml-cuda/p60-mega.cu
+@@ -542,6 +542,7 @@ __global__ void __launch_bounds__(NT, 1) p60_mega_moe_kernel(const moe_params P)
+ 
+ unsigned * mega_bar(ggml_backend_cuda_context & ctx) {
+     if (ctx.p60_mega_bar == nullptr) {
++        ggml_cuda_set_device(ctx.device);  // the buffer is bound to whatever device is current here
+         CUDA_CHECK(cudaMalloc(&ctx.p60_mega_bar, sizeof(unsigned)));
+         CUDA_CHECK(cudaMemset(ctx.p60_mega_bar, 0, sizeof(unsigned)));
+         ctx.p60_mega_epoch = 0;
