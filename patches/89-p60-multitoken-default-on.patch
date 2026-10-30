@@ -1,0 +1,42 @@
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -4465,9 +4465,9 @@
+     }
+     // one sequence of T <= 6 tokens; the gdn output holds T rows of attention values + K state snapshots
+     const int64_t T = gdn->src[0]->ne[2];
+-    // The multi-token (speculative verify) persistent kernels are opt-in at this ref: with a draft-mtp
+-    // graph they hit an illegal access on the second device. GGML_CUDA_P60_MEGAT=1 re-enables them.
+-    static const bool megat = getenv("GGML_CUDA_P60_MEGAT") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGAT")) != 0;
++    // The multi-token (speculative verify) persistent kernels are on: the illegal access they used to hit
++    // was the host-epoch barrier under graph replay, which 86 removed. GGML_CUDA_P60_MEGAT=0 turns them off.
++    static const bool megat = getenv("GGML_CUDA_P60_MEGAT") == nullptr || atoi(getenv("GGML_CUDA_P60_MEGAT")) != 0;
+     if (T > 1 && !megat) {
+         P60_MEGA_FAIL;
+     }
+@@ -4622,9 +4622,9 @@
+     int n_softmax = 0, n_div = 0;
+     float clamp_min = -INFINITY;
+     const int64_t T = norm->src[0]->ne[1];
+-    // The multi-token (speculative verify) persistent kernels are opt-in at this ref: with a draft-mtp
+-    // graph they hit an illegal access on the second device. GGML_CUDA_P60_MEGAT=1 re-enables them.
+-    static const bool megat = getenv("GGML_CUDA_P60_MEGAT") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGAT")) != 0;
++    // The multi-token (speculative verify) persistent kernels are on: the illegal access they used to hit
++    // was the host-epoch barrier under graph replay, which 86 removed. GGML_CUDA_P60_MEGAT=0 turns them off.
++    static const bool megat = getenv("GGML_CUDA_P60_MEGAT") == nullptr || atoi(getenv("GGML_CUDA_P60_MEGAT")) != 0;
+     if (T > 1 && !megat) {
+         P60_MEGA_FAIL;
+     }
+@@ -4800,9 +4800,9 @@
+     }
+     const ggml_tensor * add = g->nodes[e];
+     const int64_t T = norm->src[0]->ne[1];
+-    // The multi-token (speculative verify) persistent kernels are opt-in at this ref: with a draft-mtp
+-    // graph they hit an illegal access on the second device. GGML_CUDA_P60_MEGAT=1 re-enables them.
+-    static const bool megat = getenv("GGML_CUDA_P60_MEGAT") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGAT")) != 0;
++    // The multi-token (speculative verify) persistent kernels are on: the illegal access they used to hit
++    // was the host-epoch barrier under graph replay, which 86 removed. GGML_CUDA_P60_MEGAT=0 turns them off.
++    static const bool megat = getenv("GGML_CUDA_P60_MEGAT") == nullptr || atoi(getenv("GGML_CUDA_P60_MEGAT")) != 0;
+     if (T > 1 && !megat) {
+         P60_MEGA_FAIL;
+     }

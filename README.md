@@ -1,8 +1,8 @@
 # llama-cpp-pascal-patches
 
 Performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
-measured on Tesla P100 (GP100, `sm_60`). This branch is the **`v0.8.0`** set (74 patches: the 40 we
-carry, plus the 34-patch P60 block on top); the set is tagged per llama.cpp ref (`git tag -l` lists
+measured on Tesla P100 (GP100, `sm_60`). This branch is the **`v0.8.0`** set (78 patches: the 40 we
+carry, plus the 38-patch P60 block on top); the set is tagged per llama.cpp ref (`git tag -l` lists
 them - `v0.6.0`, `v0.7.0`, and the prerelease line `b11601`), and the branch is always the newest one.
 
 **Status of this `v0.8.0` set:** all 40 patches are regenerated against llama.cpp **`v0.8.0`**
@@ -25,7 +25,7 @@ full-rate `HFMA2`. So llama.cpp's quantized matmul paths fall back to emulation 
 the one instruction the card is genuinely good at goes unused. The patches named `sm60` exploit
 that asymmetry — but only 10 of the 40 are gated to Pascal-era hardware. 29 are not
 hardware-scoped at all, and one (07) changes an unconditional constant every GPU sees. The P60 block
-(52-83) is gated to `sm_60` as a whole.
+(52-89) is gated to `sm_60` as a whole.
 
 ## Apply
 
@@ -83,6 +83,9 @@ switch, what it changes about the output, and the alternatives that were tried a
 
 ### Shipped default - 2026-10-30 (late), `v0.8.0`, 74 patches - **P60 on, no environment variables**
 
+_Superseded the same day by the 78-patch section above; kept because it is what tag `v0.8.0` describes
+and because the graph-refusal it measures is what 86 removed._
+
 Patch 85 makes `GGML_CUDA_P60_MEGA` on by default, so both P60 switches are now on unless you turn
 them off, which is what you asked this set to do. That needed one more change than flipping a gate:
 armed, the persistent kernels were **not reproducible run to run** - three identical greedy
@@ -132,6 +135,55 @@ this is kernel speed and not the drafts drifting, and neither arm logged a CUDA 
 MTP requests. **What 85 does not do is fix the barrier** - it withholds the condition that exposes
 it. Graph capture is simply not offered to those kernels; the underlying bug is
 [open item 1](docs/p60-open-items.md) and is what a real fix has to address.
+
+### Shipped default - 2026-10-30 (later), `v0.8.0`, 78 patches - **graphs back, nothing behind a variable**
+
+Three more patches on the same question. **86** replaces the persistent kernels' grid barrier with
+`cooperative_groups::this_grid().sync()`, so the synchronisation state belongs to the launch and a
+captured graph replays a barrier that still means something; the host epoch, the counter buffer, 85's
+capture refusal and `GGML_CUDA_P60_MEGA_GRAPHS` are all deleted with it. **87** re-targets their
+persistent GDN half, which had not matched since the port because v0.8.0 moved the layer name onto a
+zero-offset `VIEW` above the state gather: the matcher now walks only storage-preserving edges down to
+the `GET_ROWS` and proves the row contract the kernel reads, instead of trusting a name. **88 and 89**
+flip the last two opt-in switches, so the whole block runs with no environment variables at all.
+
+35B MoE, no variables, two and three cards at 160 W, `-fa on -t 28 -ub 2048 -p 512 -n 128 -r 3`, both
+arms built from this repo's patch files (74 patches against 78):
+
+| split | cards | 74 patches pp512 / tg128 | **78 patches pp512 / tg128** |
+|---|---|---:|---:|
+| `-sm layer` | 2 | 1076.98 ± 6.36 / 99.36 ± 0.51 | 1075.38 ± 7.43 / **119.89 ± 1.28** (+20.7% tg) |
+| `-sm layer` | 3 | 1076.97 ± 4.93 / 97.58 ± 0.61 | 1077.12 ± 8.38 / **118.83 ± 0.67** (+21.8% tg) |
+| `-sm tensor` | 2 | 1598.14 ± 14.80 / 87.10 ± 1.02 | 1600.59 ± 16.01 / 87.13 ± 0.99 |
+| `-sm tensor` | 3 | 1604.27 ± 19.70 / 86.18 ± 1.94 | 1604.45 ± 18.77 / 86.10 ± 1.98 |
+
+MTP (`--spec-type draft-mtp`, 4 slots, 12 greedy requests, no variables): **99.43 t/s against 79.04
+(+25.8%)** at the same draft acceptance, 0.463 against 0.465. Raw rows and both trees' build flags:
+`benchmarks/results/p60-v080-160w-shipped-default-78.txt`.
+
+What it costs, and what it changes about the answer:
+
+- 86 alone is −1.8% on single-token decode at `-sm layer` / 2 cards (99.57 → 97.80 tg128, sd 0.49/0.66)
+  for the barrier change, and neutral everywhere else. 88 more than pays for it in that same cell.
+- the persistent halves are a different arithmetic path, so two of the three reference prompts now
+  differ from the 74-patch build (`8d7b803c1151` and `391a93c8aaed`; the third is unchanged). Mean KLD
+  against the per-kernel path is **0.0284 ± 0.0086** per token, median 0.011. `MEGA` has had this
+  property all along − `GGML_CUDA_P60_MEGA=0` changes the text too − but it is the default now, so it is
+  said out loud. `GGML_CUDA_P60_GDN_HALF=0`, `GGML_CUDA_P60_MEGAT=0` or `GGML_CUDA_P60_EXACT` are the
+  ways back.
+- it is reproducible, which is the actual claim: same three prompts, two fresh processes, graphs on and
+  graphs off, one md5 per prompt in all four arms; the per-token logit export has the same sha256 with
+  and without replay; and 4 slots × 12 requests with and without MTP produce one output per prompt with
+  no CUDA error in any log. The `illegal memory access` that made `MEGAT` opt-in has not come back.
+- the bindings in 87 have a contract test
+  ([`benchmarks/gdn-gather-contracts.py`](benchmarks/gdn-gather-contracts.py): valid conv/state chains,
+  and each refusal - shifted view, wrong stride, two ids, f16 cache, i64 ids), and
+  [`benchmarks/persistent-graph-determinism.sh`](benchmarks/persistent-graph-determinism.sh) is the
+  graphs-vs-no-graphs md5 check itself.
+- on the dense Qwen3.8-27B UD-Q4_K_M the two builds are the same machine: 382.82/30.01 against
+  382.30/30.02 at `-sm tensor` and 208.82/18.52 against 208.68/18.56 at `-sm layer`, 3 interleaved
+  rounds, so nothing here is a dense-model regression. The block's known dense cost is measured against
+  the 40-patch set in the caveat at the bottom of this file, not introduced by 86-89.
 
 ### Scripted - 2026-10-30, `v0.8.0`, three arms built from the published patch files
 
@@ -733,7 +785,7 @@ are off by default behind an environment variable.
 ## Layout
 
 ```
-patches/            74 .patch files, applied in numeric order (52-85 are the P60 block)
+patches/            78 .patch files, applied in numeric order (52-89 are the P60 block)
 docs/p60-open-items.md  what the P60 block still needs, with the measurements behind it
 docs/patches.md     per-patch index: scope, effect, kill switch, output changes, dead ends
 docs/benchmarking.md  the measurement discipline this set needed - thermal control, noise floors,
@@ -747,7 +799,7 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
 
 - Tuned for **decode**: single-stream decode with a speculative verify batch of 2-5. Large-batch
   serving was not a target.
-- The **P60 block** (52-83) is written for one model family - Qwen3.5/3.6 MoE at 2048 hidden,
+- The **P60 block** (52-89) is written for one model family - Qwen3.5/3.6 MoE at 2048 hidden,
   Q4_K/Q5_K experts - and is `sm_60`-gated as a whole. On the dense 27B it measured **−1.8% pp512**
   with both switches armed and flat decode; `GGML_CUDA_P60_MEGA=0` recovers the difference, which is
   another reason that switch is not on by default. Its persistent kernels crash under

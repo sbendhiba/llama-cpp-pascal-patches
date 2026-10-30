@@ -1,6 +1,6 @@
 # The patches
 
-74 patches, grouped by scope below - 40 that we carry and the 34-patch P60 block at the end; the application order is the file
+78 patches, grouped by scope below - 40 that we carry and the 38-patch P60 block at the end; the application order is the file
 numbering. Order matters: several touch the same files, and later ones build
 on earlier ones. The tag is recorded once, in the top-level README.
 
@@ -13,10 +13,12 @@ re-measured beside it (2 cards, 5 interleaved rounds, four configs, four arms - 
 `v0.8.0` set is 1.1-3.7% ahead of the `v0.7.0` set on every cell; upstream `v0.8.0` stock is within
 ±2% of `v0.7.0` stock at that power.
 
-**Patches 52-83 - the P60 block - are verified the same way** and built at `sm_60` on top of that set:
+**Patches 52-89 - the P60 block - are verified the same way** and built at `sm_60` on top of that set:
 the 32 files, applied in numeric order onto the 40-patch tree, reproduce the rebased tree byte for
-byte; patch 84 (a re-authored staged Q6_K matvec) was verified the same way as a 33rd file (`git write-tree` identical), and that tree is what the 160 W numbers in the README were taken
-on. They are documented as a group in the section **The P60 block (52-83)** at the end of this file.
+byte; patch 84 (a re-authored staged Q6_K matvec) was verified the same way as a 33rd file (`git write-tree`
+identical), and that tree is what the 160 W numbers in the README were taken on. **86-89 are verified the
+same way again as 37 files**: stock `v0.8.0` + 78 patch files at `-F0`, 0 rejects, 52 files changed, and
+the resulting tree byte-identical (`diff -rq`) to the scratch tree the measurements were iterated on. They are documented as a group in the section **The P60 block (52-89)** at the end of this file.
 
 This port is the opposite of the last one: 16 of the 33 files the set edits changed upstream, and
 three of those changes landed on code a patch hooks.
@@ -1611,7 +1613,7 @@ for training. The `CONT` removal
 is on with no kill switch; its bit-identity rests on the whole-set comparison at
 the top of this section rather than on a check of its own.
 
-## The P60 block (52-87) — `sm_60`, Qwen3.5/3.6 MoE
+## The P60 block (52-89) — `sm_60`, Qwen3.5/3.6 MoE
 
 Source: [Mrinohk/qwen36-p100-patches](https://github.com/Mrinohk/qwen36-p100-patches), an
 independent P100 effort for the same cards and the same model family, written by their owner with
@@ -1621,14 +1623,14 @@ duplicates of this set: `0005` (24/25/27 do the GDN gather), `0006` (absorbed by
 vocabulary, plus 63's architecture guard). `0007` did not land: it is written against the
 pre-`623c16393` `rms_norm` kernel and needs re-authoring on the vec/scalar dispatch.
 
-Two switches are on, two are not:
+Four switches, all of them on as of 88 and 89:
 
 | variable | default | meaning |
 |---|---|---|
 | `GGML_CUDA_P60_MMVQ` | **on** | the fp16 matvec path and everything fused into it (`=0` turns the block off) |
 | `GGML_CUDA_P60_MEGA` | **on** | persistent layer-half kernels and the prompt-processing GEMM/GDN/FA kernels. 86 replaced their grid barrier with cooperative-grid synchronisation, so they are reproducible under CUDA graph replay and keep their graphs |
-| `GGML_CUDA_P60_MEGAT` | off | let the persistent kernels take a 2..6-token batch (the `--spec-type draft-mtp` verify step). Measured clean and deterministic with 86, but it changes the greedy text against the non-persistent path, so it stays a switch until that is written up |
-| `GGML_CUDA_P60_GDN_HALF` | off | 87's re-targeted persistent GDN half matcher, which takes the gate on the conv-state gather of a one-row cache reshape. Deterministic with 86, mean KLD 0.0284 against the normal path |
+| `GGML_CUDA_P60_MEGAT` | **on** (was off until 89) | the persistent kernels take 2..6-token batches too, i.e. the `--spec-type draft-mtp` verify step. 86 removed the illegal access that made this opt-in; `=0` puts verify back on the per-kernel path |
+| `GGML_CUDA_P60_GDN_HALF` | **on** (was off until 88) | 87's re-targeted persistent GDN half matcher. +22.9% decode on the MoE, mean KLD 0.0284 against the per-kernel path; `=0` turns the half off |
 | `GGML_CUDA_P60_MMQ_EXPERT_TILE`, `_FUSE_ADD`, `_FUSE_Q8`, `_FUSE_GLU`, `_FUSE_NORM`, `_FUSE_MM_BIAS`, `_FUSE_CONV_STATE`, `_GDN_STATE`, `_Q8_STAGED`, `_MC`, `_MOE_GEMM`, `_MOE_SMALL`, `_GDN_CHUNK`, `_FA`, `_FA_PF`, `_ATTN`, `_Q8T` | on | one sub-change each, for A/B inside a build; all of them need their parent |
 | `GGML_CUDA_P60_ALL` | off | take the fp16 matvec in every supported shape, including the ones that lose |
 | `GGML_CUDA_P60_EXACT`, `_MEGAX`, `_INVAR`, `_MEGA_DEBUG`, `_MEGAT_DUMP`, `_MEGAX_DUMP`, `_MEGAX_TIME` | off | their reference/accuracy modes and debug logs; `EXACT` is slow by design |
@@ -1660,7 +1662,9 @@ Two switches are on, two are not:
 per warp, 8 per chunk); bit-identical, +0.6/+1.1% decode on a dense Q6_K model, not taken on the
 MoE. Replaces the `62` that `83` had to drop. `GGML_CUDA_P60_Q6_STAGED=0` turns it off |
 | 86 | `p60-cooperative-grid-sync` | the persistent kernels' grid barrier becomes `cooperative_groups::this_grid().sync()` instead of a spin on a counter whose target the host bakes into the kernel arguments. Per-launch state, so a captured graph replays a barrier that still synchronises: the kernels keep their graphs, `GGML_CUDA_P60_MEGA_GRAPHS` and 85's refusal are deleted, and every cooperative launch now sets the device and checks `supports_cooperative_launch` before matching a layer. Measured: same three prompts, three identical greedy md5s across graphs on, graphs off and the published build (`dcc6cd744a80`, `b9954225f754`, `79f9d7c084cc`), an exported-logits file with the same sha256 under both (`a90404b914d5`), 3064 graph launches with 60 cooperative nodes captured in the replay trace, and 35B decode inside 2% of the published no-graph numbers (see `benchmarks/results/p60-v080-160w-coop-barrier-graphs.txt`) |
-| 87 | `p60-gdn-half-v080-gather` | re-targets the persistent GDN half at v0.8.0's state layout: the conv-state and recurrent-state gathers are found by walking the storage-preserving `VIEW`/`RESHAPE` edges off their named consumer and checking the row contract the kernel actually reads (`ne[0] == 3*8192` / `128*128*32`, one contiguous i32 id, row-strided f32 cache), the `conv_input` CONCAT and the GDN operand geometry are checked against the derived token count and the op's own `K`, the state-clear `SCALE` preruns are restricted to zero-scale views of those two caches, and the write-back CPYs must be rooted at the cache the gather read. Opt-in behind `GGML_CUDA_P60_GDN_HALF=1` until the accuracy writeup lands |
+| 87 | `p60-gdn-half-v080-gather` | re-targets the persistent GDN half at v0.8.0's state layout: the conv-state and recurrent-state gathers are found by walking the storage-preserving `VIEW`/`RESHAPE` edges off their named consumer and checking the row contract the kernel actually reads (`ne[0] == 3*8192` / `128*128*32`, one contiguous i32 id, row-strided f32 cache), the `conv_input` CONCAT and the GDN operand geometry are checked against the derived token count and the op's own `K`, the state-clear `SCALE` preruns are restricted to zero-scale views of those two caches, and the write-back CPYs must be rooted at the cache the gather read. Opt-in here; `88` makes it the default |
+| 88 | `p60-gdn-half-default-on` | that gate inverted: on unless `GGML_CUDA_P60_GDN_HALF=0`. Measured in the tree it ships in - 35B MoE, `-sm layer`, 2 cards, interleaved rounds, one variable different: 96.90 +- 0.10 -> **119.09 +- 0.36 tg128 (+22.9%)**, pp512 unchanged, tensor split neutral |
+| 89 | `p60-multitoken-default-on` | `GGML_CUDA_P60_MEGAT` on by default in the three multi-token matchers. The reason it was opt-in - an illegal memory access on device 1 in the first `--spec-type draft-mtp` verify step - was the same host-epoch barrier `86` removed. MTP throughput, 4 slots, 12 requests, no variables: **99.43 against 79.04 t/s on the 74-patch build (+25.8%)** at the same draft acceptance (0.463 vs 0.465) |
 
 **What `83` had to change.** Upstream moved four things under their series.
 `calc_rows_per_block()` gained a `ggml_type` argument (`2744e48d1`), so the staged Q8_0 and Q6_K

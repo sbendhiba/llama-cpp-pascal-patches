@@ -1,0 +1,55 @@
+p60 persistent GDN half at v0.8.0 - re-targeted matcher (patch 87) and the multi-token switch (86)
+===================================================================================================
+Box x99dual, 3x Tesla P100-PCIE-16GB at 160 W, CUDA 12.4, 2026-10-30 16:00-17:05 UTC.
+Tree /root/v0.8.0-patch3: stock v0.8.0 + this repo's 76 patch files, patch -p1 -F0, 0 rejects,
+52 files changed vs stock, -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=60 -DGGML_NATIVE=ON
+-DGGML_NCCL=OFF -DGGML_CUDA_NCCL=OFF. Model Cyber-Tiel-Coder-35B-A3B-MTP UD-Q4_K_XL (35B MoE,
+22.7 GB); for reference also run against /root/v0.8.0-patch2 (74 patches) where noted.
+
+Interleaved paired runs, llama-bench -fa on -t 28 -ub 2048 -p 512 -n 128 -r 1 per round, order reversed
+on even rounds, cards cooled to <= 45 C before each run. The only difference between arms is the env.
+
+-sm layer, 2 cards, the switches as they ship today (MEGAT off):
+  arm                                        pp512              tg128
+  GDN_HALF=0            1070.31 +-  2.55      96.90 +-  0.10
+  GDN_HALF=1            1067.57 +-  3.04     119.09 +-  0.36      (+22.9% decode, pp unchanged)
+
+-sm layer, 2 cards, with the multi-token persistent kernels also on (MEGAT=1, 3 rounds):
+  GDN_HALF=0            1067.36 +-  1.81      96.86 +-  0.25
+  GDN_HALF=1            1067.33 +-  1.33     119.26 +-  0.09      (+23.1%)
+
+-sm tensor, 2 cards, 2 rounds (the matchers take no layer on this split, as expected):
+  GDN_HALF=0            1579.84 +-  1.06      85.77 +-  0.47
+  GDN_HALF=1            1582.02 +-  1.20      86.09 +-  0.03      (neutral)
+
+The half takes 30 GDN layers per step: with MEGA_DEBUG on, one 12-request graphs run logs 1260 matches
+and the same run with graphs off logs 69300, because a captured graph replays one launch for many steps.
+
+Accuracy of the half against the same build with it off, per-token logits, llama-perplexity -c 256
+--chunks 1 -b 1 -ub 1 --kl-divergence:
+  mean KLD 0.028402 +- 0.008595, median 0.011082, 95% 0.067399, 99% 0.354102, 99.9% 0.915616, max 0.992130
+so it moves the distribution in the same way the rest of MEGA does, and greedy text differs from the
+per-kernel path (f06056e070b7 against c31d841d59d2 for the same prompt). Nothing here is bit-identical
+to llama.cpp without the block; the exactness mode is GGML_CUDA_P60_EXACT / MEGAX.
+
+Determinism with the half on, same build, 4 slots x 12 requests, 192 tokens, greedy:
+  - one output per prompt per arm, in all four arms (MTP on/off x graphs on/off);
+  - the graphs arm equals the no-graphs arm;
+  - all 48 arm/request output hashes equal those of the scratch tree that the patches were authored on.
+benchmarks/gdn-gather-contracts.py passes against both trees (valid conv/state chains and every refusal:
+a shifted view, a wrong row stride, two gather ids, an f16 cache, i64 ids, a mismatched cache width).
+
+MTP throughput (--spec-type draft-mtp --spec-draft-n-max 5, 4 slots, 12 requests, -sm layer, 2 cards,
+graphs on, mean / median of the reported decode rate, draft acceptance ~0.46 in every arm):
+  MEGAT=0 GDN_HALF=0     78.60 / 73.92
+  MEGAT=0 GDN_HALF=1     76.88 / 72.30
+  MEGAT=1 GDN_HALF=1     99.88 / 92.02     (+27% over the row above the shipped default)
+  MEGAT=1 GDN_HALF=0     see below
+Reading: the multi-token persistent kernels are what MTP wants; the GDN half is a single-token win and
+costs about 2% in a four-slot MTP server, where most steps are multi-token and a cooperative grid takes
+the whole device for its launch.
+
+Build-configuration note found the hard way in this session: a candidate tree configured without
+-DGGML_CUDA_NCCL=OFF dies on -sm tensor in graph_compute with "unhandled cuda error", and it still dies
+with the whole P60 block off and graphs off. Identical source, one cache entry different. See
+docs/benchmarking.md.

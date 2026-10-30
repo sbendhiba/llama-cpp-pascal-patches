@@ -80,7 +80,7 @@ block off) is what MTP *could* have once the barrier is graph-safe: roughly +30%
 
 ## 2. Fixed by 87: the persistent GDN half, re-targeted at v0.8.0's state layout
 
-**Status: it matches, it is deterministic, and it is worth +23.1% decode.** Patch 87 binds the two
+**Status: fixed, shipped on by default (88), and worth +22.9% decode.** Patch 87 binds the two
 gathers by walking the *storage-preserving* edges off their named consumer instead of looking for a name
 on the gather itself: from `conv_input-<il>`'s CONCAT row-0 operand and from the GDN node's state
 operand, through `VIEW`/`RESHAPE` links only (`view_offs == 0`, contiguous, exactly one row wide), down
@@ -93,12 +93,15 @@ stopped guessing a 400-node horizon: a consumer anywhere in the graph now blocks
 bindings are unit-tested against a live ggml context (valid chains, a shifted view, a wrong stride, two
 ids, an f16 cache, i64 ids, a bad cache stride) on both the scratch and the patch-built tree.
 
-Measured on the clean-room tree, 35B MoE, `-sm layer`, 2 cards, 160 W, interleaved rounds:
+Measured on the clean-room tree, 35B MoE, `-sm layer`, 2 cards, 160 W, interleaved rounds, 3 rounds per
+arm, one variable different in each pair:
 
 | switches | pp512 | tg128 |
 |---|---|---|
-| as shipped today (`GDN_HALF` off) | 1067.36 +- 1.81 | 96.86 +- 0.25 |
-| `GGML_CUDA_P60_GDN_HALF=1` | 1067.33 +- 1.33 | **119.26 +- 0.09** (+23.1%) |
+| `MEGAT=0` (the 74-patch default), `GDN_HALF=0` | 1070.31 +- 2.55 | 96.90 +- 0.10 |
+| `MEGAT=0`, `GGML_CUDA_P60_GDN_HALF=1` | 1067.57 +- 3.04 | **119.09 +- 0.36** (+22.9%) |
+| `MEGAT=1`, `GDN_HALF=0` | 1067.36 +- 1.81 | 96.86 +- 0.25 |
+| `MEGAT=1`, `GGML_CUDA_P60_GDN_HALF=1` | 1067.33 +- 1.33 | **119.26 +- 0.09** (+23.1%) |
 
 Prompt processing is untouched (the half only takes batches of 1..6 tokens), the gain needs no other
 switch, and the tensor split is unaffected (its matchers still take no layer). Accuracy, same build,

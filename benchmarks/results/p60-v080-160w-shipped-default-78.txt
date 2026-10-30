@@ -1,0 +1,66 @@
+p60 at v0.8.0 - the shipped default with no environment variables (patches 86-89)
+==================================================================================
+Box x99dual, 3x Tesla P100-PCIE-16GB at 160 W, CUDA 12.4, 2026-10-30 17:05-17:55 UTC.
+
+Trees, both made by applying this repo's own patch files onto stock llama.cpp v0.8.0 (8642541b2) with
+`patch -p1 -F0` and building with -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=60 -DGGML_NATIVE=ON
+-DGGML_NCCL=OFF -DGGML_CUDA_NCCL=OFF:
+  published  /root/v0.8.0-patch2   74 patches (what tag v0.8.0 describes)
+  candidate  /root/v0.8.0-patch4   78 patches: +86 cooperative-grid sync, +87 GDN-half matcher,
+                                   +88 GDN half on, +89 multi-token persistent kernels on
+  apply result: 0 rejects, 0 fuzzy hunks, 52 files changed vs stock, build exit 0.
+No GGML_* or LLAMA_* variable is set in any row below: BASE_ENV strips them from the child process.
+
+35B MoE, Cyber-Tiel-Coder-35B-A3B-MTP UD-Q4_K_XL, llama-bench -fa on -t 28 -ub 2048 -p 512 -n 128 -r 3
+              (3 repetitions per arm per config; sd across repetitions shown)
+
+config              published pp512       candidate pp512        published tg128      candidate tg128
+-sm layer  2 cards   1076.98 +-  6.36    1075.38 +-  7.43      99.36 +-  0.51     119.89 +-  1.28  +20.7%
+-sm layer  3 cards   1076.97 +-  4.93    1077.12 +-  8.38      97.58 +-  0.61     118.83 +-  0.67  +21.8%
+-sm tensor 2 cards   1598.14 +- 14.80    1600.59 +- 16.01      87.10 +-  1.02      87.13 +-  0.99   +0.0%
+-sm tensor 3 cards   1604.27 +- 19.70    1604.45 +- 18.77      86.18 +-  1.94      86.10 +-  1.98   -0.1%
+
+Against the 40-patch set without the P60 block, the same model and flags measured 502.45 pp512 /
+69.19 tg128 (-sm layer) in this repo's earlier session, so the layer row is now +114% pp and +74% tg
+over that.
+
+MTP throughput, llama-server --spec-type draft-mtp --spec-draft-n-max 5, -sm layer, 4 slots, 12 greedy
+requests of 192 tokens, one server process per arm, no variables:
+  published (74 patches)   mean 79.04 t/s   median 74.72   max 100.60   draft acceptance 0.465
+  candidate (78 patches)   mean 99.43 t/s   median 91.39   max 124.78   draft acceptance 0.463
+                                                                           +25.8% mean, +22.3% median
+Acceptance is the same in both arms, so this is kernel speed rather than the drafts drifting.
+
+Determinism at the new default, three greedy prompts, two fresh server processes per arm, 128 tokens:
+  PASS barrier - graphs on and GGML_CUDA_DISABLE_GRAPHS=1 give identical md5s in both processes
+  PASS logit-export identity - per-token logits, graphs vs no graphs, same sha256 (llama-perplexity
+         -c 256 --chunks 1 -b 1 -ub 1 --save-all-logits)
+  no CUDA error, no assertion in any server log; 4 slots x 12 requests with and without MTP, graphs on
+  and off, give one output per prompt per arm
+
+What the new default changes about the *answer*, not just the speed. The persistent halves are a
+different arithmetic path, so two of the three reference prompts now differ from the 74-patch build:
+  prompt                              74 patches        78 patches
+  "The Moon has three notable..."     dcc6cd744a80      8d7b803c1151   (changed)
+  "def merge_sorted(a, b):"           b9954225f754      b9954225f754   (same)
+  "Explain why water expands..."      79f9d7c084cc      391a93c8aaed   (changed)
+The size of the shift is in benchmarks/results/p60-v080-160w-gdn-half.txt: mean KLD 0.0284 +- 0.0086,
+median 0.0111, 99th percentile 0.354 per token, against the per-kernel path. This is the same property
+`MEGA` has always had (turning it on also changed the text); it is now the default, so it is stated
+here plainly. `GGML_CUDA_P60_MEGA=0` or `GGML_CUDA_P60_GDN_HALF=0` returns to the per-kernel path, and
+`GGML_CUDA_P60_EXACT` is the bit-exact mode.
+
+Isolated measurements behind the two flips, same tree, interleaved rounds, in
+benchmarks/results/p60-v080-160w-gdn-half.txt: 87/88 give +22.9% tg128 with pp unchanged; 86 alone costs
+1.8% single-token decode on 2 cards (99.57 -> 97.80 tg128) and is what buys graphs plus reproducibility;
+the tensor split is neutral to all of it because its matchers take no layer.
+
+Dense model, same session, same two trees, no variables, 3 interleaved rounds, Qwen3.8-27B UD-Q4_K_M
+(16.6 GB, no MoE experts and no state the halves could take):
+  -sm tensor 2 cards   published 382.30 +- 0.22 pp512 / 30.02 +- 0.01 tg128
+                       patch4    382.82 +- 0.07 pp512 / 30.01 +- 0.00 tg128   (+0.1% / -0.0%)
+  -sm layer  2 cards   published 208.68 +- 0.54 pp512 / 18.56 +- 0.03 tg128
+                       patch4    208.82 +- 0.16 pp512 / 18.52 +- 0.04 tg128   (+0.1% / -0.2%)
+Against each other the two builds are the same on a dense model: the P60 block's known dense cost is a
+comparison against the 40-patch set (-1.8% pp512 there, recorded in the README's caveat), not something
+86-89 add.
