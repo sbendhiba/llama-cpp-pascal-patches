@@ -1,6 +1,6 @@
 # The patches
 
-72 patches, grouped by scope below - 40 that we carry and the 32-patch P60 block at the end; the application order is the file
+73 patches, grouped by scope below - 40 that we carry and the 33-patch P60 block at the end; the application order is the file
 numbering. Order matters: several touch the same files, and later ones build
 on earlier ones. The tag is recorded once, in the top-level README.
 
@@ -15,7 +15,7 @@ re-measured beside it (2 cards, 5 interleaved rounds, four configs, four arms - 
 
 **Patches 52-83 - the P60 block - are verified the same way** and built at `sm_60` on top of that set:
 the 32 files, applied in numeric order onto the 40-patch tree, reproduce the rebased tree byte for
-byte (`git write-tree` identical), and that tree is what the 160 W numbers in the README were taken
+byte; patch 84 (a re-authored staged Q6_K matvec) was verified the same way as a 33rd file (`git write-tree` identical), and that tree is what the 160 W numbers in the README were taken
 on. They are documented as a group in the section **The P60 block (52-83)** at the end of this file.
 
 This port is the opposite of the last one: 16 of the 33 files the set edits changed upstream, and
@@ -1611,7 +1611,7 @@ for training. The `CONT` removal
 is on with no kill switch; its bit-identity rests on the whole-set comparison at
 the top of this section rather than on a check of its own.
 
-## The P60 block (52-83) — `sm_60`, Qwen3.5/3.6 MoE
+## The P60 block (52-84) — `sm_60`, Qwen3.5/3.6 MoE
 
 Source: [Mrinohk/qwen36-p100-patches](https://github.com/Mrinohk/qwen36-p100-patches), an
 independent P100 effort for the same cards and the same model family, written by their owner with
@@ -1653,6 +1653,9 @@ Two switches, and only one is on:
 | 81 | `p60-small-batch-expert-kernel` | expert kernel for prompts where each expert sees a few tokens and the 16-pair tile is mostly padding: bit-identical, −11% on a 64-token chunk |
 | 82 | `p60-mega-attn-kv-stream` | the persistent attention kernel reads the sequence's own KV stream, so every slot of a per-slot cache matches a single-slot server (their patch 37) |
 | 83 | `p60-v080-adapt-default-on` | this port, in one patch: see below |
+| 84 | `p60-staged-q6-k-vdr2` | their staged Q6_K matvec re-derived for `VDR == 2` (two superblocks
+per warp, 8 per chunk); bit-identical, +0.6/+1.1% decode on a dense Q6_K model, not taken on the
+MoE. Replaces the `62` that `83` had to drop. `GGML_CUDA_P60_Q6_STAGED=0` turns it off |
 
 **What `83` had to change.** Upstream moved four things under their series.
 `calc_rows_per_block()` gained a `ggml_type` argument (`2744e48d1`), so the staged Q8_0 and Q6_K

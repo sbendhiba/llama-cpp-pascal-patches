@@ -1,8 +1,8 @@
 # llama-cpp-pascal-patches
 
 Performance patches for [llama.cpp](https://github.com/ggml-org/llama.cpp), developed and
-measured on Tesla P100 (GP100, `sm_60`). This branch is the **`v0.8.0`** set (72 patches: the 40 we
-carry, plus the 32-patch P60 block on top); the set is tagged per llama.cpp ref (`git tag -l` lists
+measured on Tesla P100 (GP100, `sm_60`). This branch is the **`v0.8.0`** set (73 patches: the 40 we
+carry, plus the 33-patch P60 block on top); the set is tagged per llama.cpp ref (`git tag -l` lists
 them - `v0.6.0`, `v0.7.0`, and the prerelease line `b11601`), and the branch is always the newest one.
 
 **Status of this `v0.8.0` set:** all 40 patches are regenerated against llama.cpp **`v0.8.0`**
@@ -125,7 +125,7 @@ Three things come out of it:
 the P60-block section above for why that
 switch is not on by default.
 
-### Scripted - 2026-10-30, `v0.8.0`, 72 patches, 160 W - **the P60 block on top**
+### Scripted - 2026-10-30, `v0.8.0`, 73 patches, 160 W - **the P60 block on top**
 
 The 32 patches 52-83 are a port of [Mrinohk/qwen36-p100-patches](https://github.com/Mrinohk/qwen36-p100-patches)
 - a second, independent P100 effort for the Qwen3.5/3.6 MoE family - rebased onto this set rather
@@ -177,6 +177,13 @@ Two findings, both from the MTP path this repo also ships (patch 15):
   single-token steps and the drafts stop agreeing with them.
 - MTP with the shipped default (`MMVQ` on, `MEGA` off) is the best arm measured: 0.700 draft
   acceptance and no error.
+- and, more basic than either: **the persistent path is not reproducible run to run at this ref.**
+  Same binary, same seed, greedy, 48 tokens, no speculation involved - three runs, three different
+  outputs (`b7687ea05c2a`, `99a9fef918fb`, `96b73b87b1bd`); the shipped default is bit-stable across
+  runs. The grid barrier's wait target is a host-side epoch baked into the launch arguments, and
+  v0.8.0 captures graphs in chunks and replays two of them per MTP step, so a replayed barrier can
+  pass without synchronising. That single mechanism would explain both the crash and the garbled
+  decode, and it is the first thing to fix in [docs/p60-open-items.md](docs/p60-open-items.md).
 
 So the persistent kernels stay behind `GGML_CUDA_P60_MEGA=1` until the MTP graphs are re-targeted,
 and the flag is documented as "plain decode and prefill only".
@@ -665,7 +672,8 @@ are off by default behind an environment variable.
 ## Layout
 
 ```
-patches/            72 .patch files, applied in numeric order (52-83 are the P60 block)
+patches/            73 .patch files, applied in numeric order (52-84 are the P60 block)
+docs/p60-open-items.md  what the P60 block still needs, with the measurements behind it
 docs/patches.md     per-patch index: scope, effect, kill switch, output changes, dead ends
 docs/benchmarking.md  the measurement discipline this set needed - thermal control, noise floors,
                       why two microbenchmark-driven predictions were wrong
