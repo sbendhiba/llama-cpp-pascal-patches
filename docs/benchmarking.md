@@ -184,6 +184,42 @@ the rest unrun; removing it exposed a silent incorrect-result bug that had been
 sitting behind it the whole time. Reaching "no crash" is not reaching
 "correct" — the run has to complete, repeatedly, before a pass means anything.
 
+## An arm can silently become another arm
+
+Two ways this happens on a machine that has several builds of the same tree, both found the hard way
+on 2026-10-30 while setting up a stock / patched / patched-plus-block session.
+
+**Renaming a build tree breaks it, and `patch2` will not tell you.** llama.cpp links its tools as thin
+executables against `libllama-bench-impl.so`, `libllama.so`, `libggml-cuda.so`, and the build tree's
+rpath is the **absolute path of the build directory**. Move `/root/llama.cpp-v0.8.0-stock` to
+`/root/v0.8.0-stock` and `llama-bench` dies with `error while loading shared libraries`. The fix is to
+reconfigure and relink in the new place, not to keep the old name as a symlink - a symlink works until
+someone deletes it and the tree is no longer self-contained.
+
+**`LD_LIBRARY_PATH` spanning several arms makes every arm run the first one's code.** The obvious
+workaround for the problem above - export a `LD_LIBRARY_PATH` listing all three `build/bin` directories -
+is actively dangerous: the loader takes the first match, so `patch1` and `patch2` both execute
+`stock`'s `libggml-cuda.so`. The run looked fine, produced numbers within 0.1% of each other for all
+three arms on a model where the set is worth +65%, and only failed to look suspicious because one of
+those cells was genuinely supposed to be neutral.
+
+So: leave each arm's libraries to their own rpath, and **assert the arms are different binaries before
+believing the session**. Cheap version, and it costs one line per arm:
+
+```sh
+for d in "$S0" "$S1" "$S2"; do
+  printf "%s runs=%s p60_syms=%s md5=%s\n" "$(basename "$d")" \
+    "$(env -u LD_LIBRARY_PATH "$d/llama-bench" --version >/dev/null 2>&1 && echo yes || echo NO)" \
+    "$(nm -D --defined-only "$d/libggml-cuda.so" | grep -ci p60)" \
+    "$(md5sum "$d/libggml-cuda.so" | cut -c1-8)"
+done
+```
+
+The `md5sum` of the CUDA library is the real check: three arms that should differ must differ. The
+symbol count is the check that a *specific* patch landed in the right arm - `patch1` has no `p60_`
+symbols, `patch2` has 119 - and it catches the subtler version of this failure, where the binary is
+right and the library next to it is not.
+
 ## Do not extrapolate hit counts linearly
 
 Graph reuse looked like a large win by extrapolation: 341 hits per 1000 were
