@@ -135,9 +135,26 @@ the arm definitions and an explicit list of what was not recorded, so a hand-run
 with its weaknesses attached. `v0.6.0-p100x2-manual.md` is that file, and the scripted csv next to it
 now covers the 27B tensor-split case it used to describe alone.
 
+## Reproducibility: `det-logits.sh`
+
+Throughput and `test-backend-ops` can both be green while a patch is not repeatable, because neither
+one asks the same question twice on purpose. `det-logits.sh` does: it runs `llama-perplexity
+--save-all-logits` over `det-corpus.txt` in two batch shapes - one 512-token chunk (the prefill
+halves) and a run of 4-token chunks (the 2..6-token verify path) - and `det-summarize.py` digests
+each dump in three parts. `--save-all-logits` writes a raw `_logits_` image despite the `.gguf`
+extension, so the first 64 bytes are hashed apart from the body: if two arms with different answers
+share a header digest, the header carries nothing run-varying and the body digest is a fair test.
+
+Do not use greedy text for this. An argmax hides everything below the margin between the top two
+tokens, and `llama-cli` prints its timing block on stdout - the first version of this probe hashed
+that and reported three different digests for three runs of the *reference* arm, which is how a
+broken instrument looks. Run it on the shipped default, then again with the suspect switch forced
+on: the stable arm repeating itself proves nothing unless the unstable one diverges as well.
+
 ## Before a number goes in the README
 
 - both arms on the same tag, same tree, differing only by the patches
+- `det-logits.sh` runs the shipped default twice, identically, in both batch shapes
 - **the power limit, recorded with the run.** The cards take `nvidia-smi -pl 125|160|185` and it
   changes absolute throughput (27B patched pp512: 468 t/s at 125 W, 511 at 185 W). Every published
   row up to `v0.7.0` was taken at 185 W; full sessions from 2026-10-28 on run at **160 W**, because

@@ -1,0 +1,35 @@
+The mechanical clock is a story about escapements, not about gears. An early verge escapement
+let a crown wheel advance one tooth at a time, controlled by a foliot that swung with a period
+set by its own inertia - and inertia is a poor regulator, sensitive to temperature, to the
+angle of the case, and to how the weight is wound. The minute hand of a fourteenth-century
+clock was a promise no one could keep.
+
+The anchor escapement, usually credited to William Clement around 1670, changed the geometry:
+the pendulum now swung through a small arc, roughly two degrees, and the escape wheel was
+cut with teeth whose shape let it lock and release cleanly. A seconds pendulum - a rod about
+a metre long - became accurate to a few seconds a day. Harrison took the same idea and removed
+ its remaining dependencies: temperature compensation, a maintenance-free lubrication scheme,
+and a remnant escapement so that the pendulum was never struck hard again.
+
+def advance(wheel, teeth, pallet):
+    # one tooth per half swing; the pallet geometry decides the lock
+    if pallet.locked and wheel.tooth_index != pallet.next_tooth:
+        raise ValueError("escape wheel slipped out of lock")
+    pallet.next_tooth = (wheel.tooth_index + 1) % teeth
+    pallet.locked = False
+    return pallet
+
+What matters for a historian of technology is not the date of the first clock but the date the
+error budget stopped being dominated by the escapement: once friction and air drag were the
+largest terms, the problem became one of materials and lubrication, and the answer stopped
+being a design and started being a maintenance schedule. The long case clock, the railway
+watch, and the telegraphic time signal are all consequences of that shift, and each of them
+moved the cost of keeping time from the maker to the institution that had to certify it.
+
+A short note on terminology, because it misleads: "precision" in these conversations usually
+means repeatability, and "accuracy" means agreement with some external standard. A clock that
+loses exactly four seconds a day is highly repeatable and badly accurate; the fix is a
+regulator, not a better escapement. The pendulum's period is set by its length and by local
+gravity, so a clock moved from London to the equator gains measurably - which is exactly the
+kind of error that a table of corrections, and eventually a national standard of time, was
+invented to absorb.
