@@ -17,7 +17,7 @@ index 0ae5b17..f954ddf 100644
  #define GGML_CUDA_P60_EXACT_TAG 0x50363045
  
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 47d5c53..adfaddd 100644
+index 4c01ada..a0ca96e 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -4656,7 +4656,7 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in

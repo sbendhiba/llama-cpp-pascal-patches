@@ -34,7 +34,7 @@ index 2ad084b..e24c4e5 100644
      p60_x_cache_entry p60_x_cache[p60_x_cache_n];
      int               p60_x_cache_next = 0;
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index b350d87..82795a3 100644
+index 2d69440..2266787 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -751,11 +751,6 @@ ggml_backend_cuda_context::~ggml_backend_cuda_context() {
@@ -87,7 +87,7 @@ index b350d87..82795a3 100644
                  return n;
              }
          }
-@@ -6547,17 +6550,15 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
+@@ -6555,17 +6558,15 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
  }
  
  #ifdef USE_CUDA_GRAPH
@@ -111,7 +111,7 @@ index b350d87..82795a3 100644
      if (graph->instances.empty()) {
          // Upstream gates graphs at Volta on a 2024 regression measured on a P40, which is sm_61 - sm_60
          // was never in that measurement.  Measured on 2x P100, one build, 5 interleaved rounds at
-@@ -6573,16 +6574,6 @@ static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, co
+@@ -6581,16 +6582,6 @@ static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, co
          }
      }
  

@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 82795a3..8f11b25 100644
+index 2266787..249b0a0 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -4410,7 +4410,8 @@ static bool p60_range_private(const ggml_cgraph * g, int beg, int end, const ggm

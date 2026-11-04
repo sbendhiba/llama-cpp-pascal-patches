@@ -20,24 +20,23 @@ line `b11601`.
 ## What you get
 
 3x Tesla P100-PCIE-16GB at **160 W**, CUDA 12.4, `-fa on -t 28 -ub 2048`, llama-bench, two cards unless
-stated. These are the `v0.9.0` rows, measured 2026-11-04 with four arms in one session
-([docs/results.md](docs/results.md)): stock and this set at `v0.9.0`, and stock and this set at `v0.8.0`
-beside them, so a release delta and a port delta cannot be confused for each other.
+stated. These are `main` as it stands: the `v0.9.0` port with patch 24 opt-in. Measured 2026-11-04
+against stock `v0.9.0` in one session with the arms interleaved ([docs/results.md](docs/results.md));
+the four-arm session that put `v0.8.0` stock and patched beside them, so a release delta and a port
+delta cannot be confused for each other, is the section above that flip.
 
-| model | split | stock v0.9.0 pp512 / tg128 | this set v0.9.0 pp512 / tg128 |
+| model | split | stock v0.9.0 pp512 / tg128 | this set pp512 / tg128 |
 |---|---|---:|---:|
-| Cyber-Tiel-Coder-35B-A3B MTP UD-Q4_K_XL (MoE) | `-sm layer` | 488.68 / 58.21 | **1068.89 / 119.07** (+120% / +105%) |
-| | `-sm tensor` | 766.44 / 59.65 | **1579.41 / 85.79** (+106% / +44%) |
-| Qwen3.8-27B UD-Q4_K_M (dense) | `-sm tensor` | 230.35 / 20.94 | 377.18 / 29.78 (+64% / +42%) |
-| | `-sm layer` | 144.12 / 13.20 | 206.67 / 18.44 (+43% / +40%) |
+| Cyber-Tiel-Coder-35B-A3B MTP UD-Q4_K_XL (MoE) | `-sm layer` | 488.86 / 58.19 | **1068.87 / 118.97** (+119% / +104%) |
+| | `-sm tensor` | 765.75 / 57.37 | **1580.89 / 84.36** (+106% / +47%) |
+| Qwen3.8-27B UD-Q4_K_M (dense) | `-sm tensor` | 229.68 / 20.97 | 378.90 / 29.67 (+65% / +42%) |
+| | `-sm layer` | 144.13 / 13.23 | 207.53 / 18.34 (+44% / +39%) |
 
 The move from `v0.8.0` to `v0.9.0` is neutral on both sides: stock `v0.9.0` is within 0.4% of stock
-`v0.8.0` on every cell, and this set within 0.3% of its own `v0.8.0` build - which is what a rebase is
-supposed to look like. Three-card rows and the `v0.8.0` session are in
-[docs/results.md](docs/results.md); speculative decode with the model's own MTP head
-(`--spec-type draft-mtp`, 4 slots) measured **99.43 t/s** against 79.04 with the two switches turned off,
-on the `v0.8.0` build of this set. Every number above is a mean over interleaved rounds with the cards
-cooled between runs.
+`v0.8.0` on every cell, and this set within 0.5% of its own `v0.8.0` build - which is what a rebase is
+supposed to look like. Switching patch 24 off after the tag costs up to 1.7% of decode (MoE tensor) and
+0.5% or less everywhere else, and nothing on prefill. Three-card rows are in
+[docs/results.md](docs/results.md).
 
 ## Use it
 
@@ -81,6 +80,7 @@ Each one has a way back, and [docs/patches.md](docs/patches.md) lists the sub-sw
 | `GGML_CUDA_AR_PASCAL=0` | on | patch 49's Pascal AllReduce gate, back to upstream's reduction |
 | `GGML_CUDA_AR_H2D_STREAM=0` | on | the copy-engine return leg on a second stream |
 | `GGML_CUDA_CUBLAS_ALGO_PASCAL=-1` | on | patch 51's cuBLAS algorithm choice at prefill sizes |
+| `GGML_CUDA_FUSE_GDN_GATHER=1` | off | patch 24's deferred GDN state gather, back on for measurement only - see the reproducibility note below |
 | `GGML_CUDA_P60_EXACT=1` | off | their bit-exact mode: decode and verify identical to stock llama.cpp, slow by design |
 | `GGML_CUDA_DISABLE_GRAPHS=1` | off | all CUDA graph capture (the way to A/B anything that touches a graph) |
 
@@ -96,6 +96,16 @@ Each one has a way back, and [docs/patches.md](docs/patches.md) lists the sub-sw
   block on changes greedy output (mean KLD 0.0284 per token for the GDN half against the per-kernel
   path); it is reproducible run to run and identical with and without graph replay, but it is not
   llama.cpp's numbers. `GGML_CUDA_P60_EXACT=1` is the bit-exact mode.
+- **Patch 24 ships switched off.** `fuse-gdn-state-gather` defers a node to its consumer, ten places
+  down the graph, and with it on the *same* binary, flags and corpus gave three different logits
+  digests in 2-6 token batches - PPL 8.70 to 8.87 between runs of the same thing. Switching it off
+  costs nothing measurable: identical perplexity on WikiText-2 (6.5905 on, 6.5905 off at `-sm layer`;
+  6.5894 both at `-sm tensor`), and at most 1% of decode (MoE layer -0.2%, MoE tensor -1.9%, dense
+  -1.0%), prefill inside the noise. So the default is off and `GGML_CUDA_FUSE_GDN_GATHER=1` puts it
+  back for measurement. Re-checked after the flip with `benchmarks/det-logits.sh`: three identical
+  runs of the shipped build hash the same, at `v0.9.0` and at `v0.8.0`, and the fold switched back on
+  diverges again - which is the part that makes this a patch problem and not a card problem.
+
 - **qwen4exp prefill loses.** Measured once, on a 116 B A3B MoE at `-p 512`: the set costs -5.1% (tensor)
   / -6.1% (layer) there while buying +13.1% / +20.3% decode. The responsible patch is not identified, so
   if prefill on that architecture matters, measure before you deploy.
@@ -126,8 +136,9 @@ docs/benchmarking.md  the measurement discipline this set needed: thermal contro
                       how an arm silently becomes another arm, why two predictions were wrong
 docs/p60-open-items.md  what the P60 block still needs, with the measurements behind it
 docs/p60-series.tsv 52-83 mapped to the upstream commits they came from
-benchmarks/         how to re-measure (run.sh, ppl.sh, logit-identity.sh, the determinism and
-                    gather-contract tests) and results/ for each release
+benchmarks/         how to re-measure (run.sh, ppl.sh, logit-identity.sh, det-logits.sh - the logits
+                    determinism probe - and the determinism and gather-contract tests) and results/ for
+                    each release
 RELEASING.md        what to do when llama.cpp ships a new version
 CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR looks like
 ```
@@ -147,3 +158,8 @@ path), **59** and **83** (the MoE expert-tile rule, under the new `RDNA4_M` clau
 were cascade rejects that applied unchanged once their prerequisites landed. 31 is also the one that
 taught the build gate its job: it applied at zero fuzz and zero offset and then failed to compile,
 because the kernel it launches had grown a parameter.
+
+After the `v0.9.0` tag went out, `24` was changed from default-on to opt-in for the reproducibility
+reason above, and every patch above it was re-cut at exact context (`land.sh` at 24, then the sweep,
+then the four hand-ports again in numeric order). Tag `v0.9.0` is the set as ported; `main` is that set
+with patch 24 off by default, gated and measured again.

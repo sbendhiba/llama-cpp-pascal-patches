@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index ca2f96b..1c34b1c 100644
+index d7f96f6..b6cf42d 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -4445,7 +4445,7 @@ static bool p60_mat(const ggml_tensor * t, ggml_type type, int64_t ne0, int64_t

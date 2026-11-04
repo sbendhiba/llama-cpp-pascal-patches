@@ -57,7 +57,7 @@ index 1a7f8ad..e08793f 100644
          }
      }
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 4eef6e7..46f82a2 100644
+index 1ca7da9..b9752db 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -4594,6 +4594,12 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
@@ -190,7 +190,7 @@ index 4eef6e7..46f82a2 100644
              getenv("GGML_CUDA_P60_MEGA") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGA")) != 0;
          if (mega && ggml_cuda_info().devices[cuda_ctx->device].cc == 600 &&
                  (p60_try_mega_gdn(cuda_ctx, cgraph, i + 1, true) > 0 || p60_try_mega_moe(cuda_ctx, cgraph, i + 1, true) > 0 ||
-@@ -6076,7 +6131,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -6084,7 +6139,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
      // the reshape node between the two otherwise hides from the match below
      if (node->op == GGML_OP_MUL_MAT && i + 2 < cgraph->n_nodes &&
              cgraph->nodes[i + 1]->op == GGML_OP_RESHAPE && cgraph->nodes[i + 2]->op == GGML_OP_ADD) {

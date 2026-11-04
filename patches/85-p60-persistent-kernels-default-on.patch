@@ -26,7 +26,7 @@ index e08793f..92e6e89 100644
      if constexpr (!KDA) {
          if (p60_chunk && S_v == 128 && n_tokens >= 32 && warp_size == 32 &&
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 46f82a2..b350d87 100644
+index b9752db..2d69440 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -5171,7 +5171,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
@@ -55,7 +55,7 @@ index 46f82a2..b350d87 100644
          if (mega && ggml_cuda_info().devices[cuda_ctx->device].cc == 600 &&
                  (p60_try_mega_gdn(cuda_ctx, cgraph, i + 1, true) > 0 || p60_try_mega_moe(cuda_ctx, cgraph, i + 1, true) > 0 ||
                   ((getenv("GGML_CUDA_P60_ATTN") == nullptr || atoi(getenv("GGML_CUDA_P60_ATTN")) != 0) && p60_try_mega_attn(cuda_ctx, cgraph, i + 1, true) > 0))) {
-@@ -6546,6 +6547,14 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
+@@ -6554,6 +6555,14 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
  }
  
  #ifdef USE_CUDA_GRAPH
@@ -70,7 +70,7 @@ index 46f82a2..b350d87 100644
  static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, const void * graph_key) {
      ggml_cuda_graph * graph = cuda_ctx->cuda_graph(graph_key);
  
-@@ -6564,6 +6573,16 @@ static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, co
+@@ -6572,6 +6581,16 @@ static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, co
          }
      }
  

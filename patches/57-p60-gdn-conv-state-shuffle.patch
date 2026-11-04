@@ -52,7 +52,7 @@ index 9affcba..e33f305 100644
  
      void q8_1_cache_free() {
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index ea82c1f..cfbe3dd 100644
+index 4bac2ee..e563c34 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -4275,6 +4275,106 @@ static bool ggml_cuda_should_fuse_pre_add_rms_norm(const ggml_tensor * add, cons

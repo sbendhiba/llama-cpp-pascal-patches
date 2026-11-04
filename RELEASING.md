@@ -159,6 +159,8 @@ run *before* the cards.
 Then, on the hardware: `test-backend-ops` and `llama-bench` with both arms per
 [benchmarks/README.md](benchmarks/README.md).
 
+**Reproducibility is decided on the logits, not on the text.** Run `benchmarks/det-logits.sh` against the new build before publishing. Greedy text is a bad instrument: a run that is not repeating itself can still print the same sentence, and the probe originally written here hashed `llama-cli` stdout, which contains the timing block - so it reported three different digests for three runs of the *reference* arm and told you nothing. Two batch shapes matter and they exercise different patches: a 512-token chunk (prefill halves) and a run of 4-token chunks (the 2-6-token verify path). This is how patch 24 was found and retired to opt-in on the `v0.9.0` set: every throughput and correctness gate it had passed for two releases, and its logits were not stable.
+
 **`test-backend-ops` has to be driven one op at a time.** At `v0.9.0` stock aborts on a Pascal card
 partway through `MUL_MAT` (`type_a=q4_K, m=8192, n=9, k=512, per=[0,1,2,3]` reaches
 `GGML_ASSERT(convert_func != nullptr)` in `ggml-cuda.cu`) - the same case, at its own line 1516, in

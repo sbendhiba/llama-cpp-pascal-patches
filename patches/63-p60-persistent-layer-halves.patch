@@ -31,7 +31,7 @@ index e33f305..6b0db97 100644
          p60_gdn_state_count = 0;
          p60_conv_state      = {};
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index cfbe3dd..ca2f96b 100644
+index e563c34..d7f96f6 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -35,6 +35,7 @@

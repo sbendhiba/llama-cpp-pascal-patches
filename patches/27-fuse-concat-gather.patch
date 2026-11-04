@@ -330,7 +330,7 @@ index aa506a0..4369856 100644
 +
  void ggml_cuda_op_concat(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 6be652f..3bb78f7 100644
+index 2ec811c..93fad00 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -4257,6 +4257,55 @@ static bool ggml_cuda_node_reads(const ggml_tensor * n, const ggml_tensor * t) {
@@ -389,7 +389,7 @@ index 6be652f..3bb78f7 100644
  // If the deferred GET_ROWS belongs to this gdn, build the fold description for it
  static bool ggml_cuda_take_deferred_gather(ggml_backend_cuda_context * cuda_ctx, const ggml_tensor * gdn,
                                             ggml_cuda_gated_delta_net_fused_gather & out) {
-@@ -4353,38 +4402,52 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -4361,38 +4410,52 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
                      break;      // something reads it before gdn does, so it cannot be deferred
                  }
              }

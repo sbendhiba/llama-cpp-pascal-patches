@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 25ebb6f..1aa85ed 100644
+index 74e1f73..961aecd 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -4818,7 +4818,7 @@ static int p60_try_mega_attn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, i
