@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/fattn.cu b/ggml/src/ggml-cuda/fattn.cu
-index bcf1ae7da..90f69342f 100644
+index 8e5aa17..21604f5 100644
 --- a/ggml/src/ggml-cuda/fattn.cu
 +++ b/ggml/src/ggml-cuda/fattn.cu
 @@ -1,3 +1,4 @@
@@ -7,7 +7,7 @@ index bcf1ae7da..90f69342f 100644
  #include "common.cuh"
  #include "fattn-common.cuh"
  #include "fattn-mma-f16.cuh"
-@@ -758,6 +759,9 @@ size_t ggml_cuda_flash_attn_ext_get_alloc_size(int device, const ggml_tensor * d
+@@ -795,6 +796,9 @@ size_t ggml_cuda_flash_attn_ext_get_alloc_size(int device, const ggml_tensor * d
  
  void ggml_cuda_flash_attn_ext(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
      ggml_cuda_set_device(ctx.device);
@@ -18,7 +18,7 @@ index bcf1ae7da..90f69342f 100644
          case BEST_FATTN_KERNEL_NONE:
              GGML_ABORT("fatal error");
 diff --git a/ggml/src/ggml-cuda/mmvq-p60.cu b/ggml/src/ggml-cuda/mmvq-p60.cu
-index 42c50733e..71f218ced 100644
+index 42c5073..71f218c 100644
 --- a/ggml/src/ggml-cuda/mmvq-p60.cu
 +++ b/ggml/src/ggml-cuda/mmvq-p60.cu
 @@ -1,4 +1,5 @@
@@ -39,7 +39,7 @@ index 42c50733e..71f218ced 100644
          return false;
 diff --git a/ggml/src/ggml-cuda/p60-fa.cu b/ggml/src/ggml-cuda/p60-fa.cu
 new file mode 100644
-index 000000000..a68cef4fd
+index 0000000..a68cef4
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/p60-fa.cu
 @@ -0,0 +1,248 @@
@@ -292,7 +292,7 @@ index 000000000..a68cef4fd
 +    return true;
 +}
 diff --git a/ggml/src/ggml-cuda/p60-mega-t.cu b/ggml/src/ggml-cuda/p60-mega-t.cu
-index 3c86b9a11..a5f252a6d 100644
+index 3c86b9a..a5f252a 100644
 --- a/ggml/src/ggml-cuda/p60-mega-t.cu
 +++ b/ggml/src/ggml-cuda/p60-mega-t.cu
 @@ -786,6 +786,78 @@ __global__ void __launch_bounds__(NT, 1) gdn_t_kernel(const Params P) {
@@ -400,7 +400,7 @@ index 3c86b9a11..a5f252a6d 100644
 +    return true;
 +}
 diff --git a/ggml/src/ggml-cuda/p60-mega.cuh b/ggml/src/ggml-cuda/p60-mega.cuh
-index 2e2c6c16c..508805f40 100644
+index 2e2c6c1..508805f 100644
 --- a/ggml/src/ggml-cuda/p60-mega.cuh
 +++ b/ggml/src/ggml-cuda/p60-mega.cuh
 @@ -61,3 +61,11 @@ void ggml_cuda_p60_mega_moe(ggml_backend_cuda_context & ctx, const ggml_cuda_p60

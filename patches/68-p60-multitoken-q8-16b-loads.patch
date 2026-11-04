@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/p60-fa.cu b/ggml/src/ggml-cuda/p60-fa.cu
-index 53fb66703..2ed32b31b 100644
+index 53fb667..2ed32b3 100644
 --- a/ggml/src/ggml-cuda/p60-fa.cu
 +++ b/ggml/src/ggml-cuda/p60-fa.cu
 @@ -263,7 +263,7 @@ namespace at {
@@ -21,7 +21,7 @@ index 53fb66703..2ed32b31b 100644
          }
          __syncthreads();
 diff --git a/ggml/src/ggml-cuda/p60-mega-t.cu b/ggml/src/ggml-cuda/p60-mega-t.cu
-index bcdb8fee4..38a19c3bd 100644
+index bcdb8fe..38a19c3 100644
 --- a/ggml/src/ggml-cuda/p60-mega-t.cu
 +++ b/ggml/src/ggml-cuda/p60-mega-t.cu
 @@ -417,7 +417,7 @@ using namespace mt;
@@ -70,7 +70,7 @@ index bcdb8fee4..38a19c3bd 100644
          if (lane == 0) inv[t] = 1.f / sc;
      }
 diff --git a/ggml/src/ggml-cuda/p60-mt.cuh b/ggml/src/ggml-cuda/p60-mt.cuh
-index 20c03bc24..f00059b59 100644
+index 20c03bc..f00059b 100644
 --- a/ggml/src/ggml-cuda/p60-mt.cuh
 +++ b/ggml/src/ggml-cuda/p60-mt.cuh
 @@ -31,6 +31,11 @@ __device__ __forceinline__ void stage_row(uint8_t * dst, const uint8_t * src, in

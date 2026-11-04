@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 038ac6a1f..ccbe10561 100644
+index 25ebb6f..1aa85ed 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -4618,7 +4618,7 @@ static int p60_try_mega_attn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, i
+@@ -4818,7 +4818,7 @@ static int p60_try_mega_attn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, i
      }
      int e = -1;
      for (int k = i + 2; k < g->n_nodes && k < i + 60; k++) {

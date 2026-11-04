@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/p60-moe-gemm.cu b/ggml/src/ggml-cuda/p60-moe-gemm.cu
-index 3327e8f39..e38386aa9 100644
+index 3327e8f..e38386a 100644
 --- a/ggml/src/ggml-cuda/p60-moe-gemm.cu
 +++ b/ggml/src/ggml-cuda/p60-moe-gemm.cu
 @@ -17,6 +17,11 @@ constexpr int BM = 64, BK = 64, KP = BK / 2, NTH = 256;

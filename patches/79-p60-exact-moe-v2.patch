@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/p60-mega-x.cu b/ggml/src/ggml-cuda/p60-mega-x.cu
-index 7919dad6b..026423aba 100644
+index 7919dad..026423a 100644
 --- a/ggml/src/ggml-cuda/p60-mega-x.cu
 +++ b/ggml/src/ggml-cuda/p60-mega-x.cu
 @@ -3,6 +3,7 @@

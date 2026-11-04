@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index b7746baa1..0b1badfa6 100644
+index ca2f96b..1c34b1c 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -4245,7 +4245,7 @@ static bool p60_mat(const ggml_tensor * t, ggml_type type, int64_t ne0, int64_t
+@@ -4445,7 +4445,7 @@ static bool p60_mat(const ggml_tensor * t, ggml_type type, int64_t ne0, int64_t
  static int p60_mega_fail(int line, const ggml_tensor * t, const ggml_tensor * at = nullptr) {
      static const bool dbg = getenv("GGML_CUDA_P60_MEGA_DEBUG") != nullptr;
      static std::map<int, int> n;
@@ -11,7 +11,7 @@ index b7746baa1..0b1badfa6 100644
          fprintf(stderr, "p60-mega: no match at line %d (%s %s) at %s %s src0 %s src1 %s\n", line, ggml_op_desc(t), t->name,
              at ? ggml_op_desc(at) : "-", at ? at->name : "-", at && at->src[0] ? at->src[0]->name : "-", at && at->src[1] ? at->src[1]->name : "-");
      }
-@@ -4281,6 +4281,8 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4481,6 +4481,8 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      const ggml_tensor * qkv = nullptr, * z = nullptr, * out = nullptr, * alpha = nullptr, * beta = nullptr;
      const ggml_tensor * dt = nullptr, * ssa = nullptr, * conv = nullptr, * snorm = nullptr, * cs_get = nullptr, * ss_get = nullptr;
      const ggml_tensor * cs_cpy = nullptr, * ss_cpy = nullptr, * gdn = nullptr;
@@ -20,7 +20,7 @@ index b7746baa1..0b1badfa6 100644
      float eps_l2 = -1.0f, scale_l2 = -1.0f, eps_gn = -1.0f;
      ggml_tensor * prerun[8];
      int n_prerun = 0;
-@@ -4319,6 +4321,11 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4519,6 +4521,11 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
                      cs_cpy = t;
                  } else if (p60_is_node(t->src[0], "new_state", il)) {
                      ss_cpy = t;
@@ -32,7 +32,7 @@ index b7746baa1..0b1badfa6 100644
                  } else {
                      P60_MEGA_FAIL;
                  }
-@@ -4377,19 +4384,67 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4577,19 +4584,67 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
          }
      }
      const ggml_tensor * add = g->nodes[e];
@@ -107,7 +107,7 @@ index b7746baa1..0b1badfa6 100644
              !p60_range_private(g, i, e, add)) {
          P60_MEGA_FAIL;
      }
-@@ -4404,13 +4459,18 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4604,13 +4659,18 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      a.dt = (const float *) dt->data; a.a = (const float *) ssa->data; a.conv = (const float *) conv->data; a.snorm = (const float *) snorm->data;
      a.eps_l2 = eps_l2; a.scale_l2 = scale_l2; a.eps_gn = eps_gn;
      a.cs_base = (const float *) cs_get->src[0]->data; a.cs_ids = (const int32_t *) cs_get->src[1]->data; a.cs_row = cs_get->src[0]->nb[1] / sizeof(float);
@@ -128,7 +128,7 @@ index b7746baa1..0b1badfa6 100644
      return e - i;
  }
  
-@@ -4442,6 +4502,7 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4642,6 +4702,7 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      const ggml_tensor * router = nullptr, * sgate = nullptr, * gate = nullptr, * up = nullptr, * down = nullptr;
      const ggml_tensor * sg = nullptr, * su = nullptr, * sd = nullptr, * ids = nullptr;
      int n_softmax = 0, n_div = 0;
@@ -136,7 +136,7 @@ index b7746baa1..0b1badfa6 100644
      for (int k = i + 2; k < e; k++) {
          const ggml_tensor * t = g->nodes[k];
          cur_t = t;
-@@ -4478,7 +4539,7 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4678,7 +4739,7 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
                  else if (p60_is_weight(t->src[0], il, "ffn_down_exps.weight")) down = t->src[0];
                  else P60_MEGA_FAIL;
                  ids = t->src[2];
@@ -145,7 +145,7 @@ index b7746baa1..0b1badfa6 100644
                  break;
              default:
                  P60_MEGA_FAIL;
-@@ -4486,12 +4547,12 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4686,12 +4747,12 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      }
      const ggml_tensor * add = g->nodes[e];
      if (!router || !sgate || !gate || !up || !down || !sg || !su || !sd || !ids || n_softmax != 1 || n_div != 1 ||
@@ -160,7 +160,7 @@ index b7746baa1..0b1badfa6 100644
              !p60_range_private(g, i, e, add)) {
          P60_MEGA_FAIL;
      }
-@@ -4505,7 +4566,11 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4705,7 +4766,11 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      a.router = (const float *) router->data; a.sgate = (const float *) sgate->data;
      a.gate = (const char *) gate->data; a.up = (const char *) up->data; a.down = (const char *) down->data;
      a.sg = (const char *) sg->data; a.su = (const char *) su->data; a.sd = (const char *) sd->data;
@@ -175,7 +175,7 @@ index b7746baa1..0b1badfa6 100644
  
 diff --git a/ggml/src/ggml-cuda/p60-mega-t.cu b/ggml/src/ggml-cuda/p60-mega-t.cu
 new file mode 100644
-index 000000000..3c86b9a11
+index 0000000..3c86b9a
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/p60-mega-t.cu
 @@ -0,0 +1,861 @@
@@ -1041,7 +1041,7 @@ index 000000000..3c86b9a11
 +    mega_launch(ctx, kern[n_tokens - 1], kp, 3);
 +}
 diff --git a/ggml/src/ggml-cuda/p60-mega.cuh b/ggml/src/ggml-cuda/p60-mega.cuh
-index 1225e445f..2e2c6c16c 100644
+index 1225e44..2e2c6c1 100644
 --- a/ggml/src/ggml-cuda/p60-mega.cuh
 +++ b/ggml/src/ggml-cuda/p60-mega.cuh
 @@ -54,3 +54,10 @@ struct ggml_cuda_p60_mega_moe_args {

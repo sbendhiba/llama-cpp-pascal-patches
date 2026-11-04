@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/mmvq-p60.cu b/ggml/src/ggml-cuda/mmvq-p60.cu
-index e673e4955..42c50733e 100644
+index e673e49..42c5073 100644
 --- a/ggml/src/ggml-cuda/mmvq-p60.cu
 +++ b/ggml/src/ggml-cuda/mmvq-p60.cu
 @@ -360,6 +360,212 @@ static void mmvq_p60_launch(const char * vx, const char * prep, const size_t xp_

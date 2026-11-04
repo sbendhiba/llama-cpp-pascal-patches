@@ -1,5 +1,5 @@
 diff --git a/src/llama-sampler.cpp b/src/llama-sampler.cpp
-index 9004efa20..3541027b5 100644
+index 9004efa..3541027 100644
 --- a/src/llama-sampler.cpp
 +++ b/src/llama-sampler.cpp
 @@ -2961,7 +2961,48 @@ static void llama_sampler_penalties_apply(struct llama_sampler * smpl, llama_tok

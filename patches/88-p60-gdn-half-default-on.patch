@@ -1,7 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+index 8f11b25..ce2167d 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -4277,8 +4277,11 @@
+@@ -4477,8 +4477,11 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      if (!ggml_cuda_info().devices[ctx->device].supports_cooperative_launch) {
          return 0;
      }

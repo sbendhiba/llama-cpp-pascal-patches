@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/p60-moe-gemm.cu b/ggml/src/ggml-cuda/p60-moe-gemm.cu
-index 7918cef55..3327e8f39 100644
+index 7918cef..3327e8f 100644
 --- a/ggml/src/ggml-cuda/p60-moe-gemm.cu
 +++ b/ggml/src/ggml-cuda/p60-moe-gemm.cu
 @@ -60,26 +60,28 @@ __global__ void moe_jobs(const int32_t * __restrict__ bounds, int n_experts, int

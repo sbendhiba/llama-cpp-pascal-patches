@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/gated_delta_net.cu b/ggml/src/ggml-cuda/gated_delta_net.cu
-index 2488b475e..1a7f8ad00 100644
+index 2488b47..1a7f8ad 100644
 --- a/ggml/src/ggml-cuda/gated_delta_net.cu
 +++ b/ggml/src/ggml-cuda/gated_delta_net.cu
 @@ -215,6 +215,162 @@ gated_delta_net_cuda(const float * q,

@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/top-k.cu b/ggml/src/ggml-cuda/top-k.cu
-index b32163c20..aff1fad64 100644
+index b32163c..aff1fad 100644
 --- a/ggml/src/ggml-cuda/top-k.cu
 +++ b/ggml/src/ggml-cuda/top-k.cu
 @@ -446,6 +446,256 @@ static __global__ void __launch_bounds__(CUDA_TOP_K_BLOCK)

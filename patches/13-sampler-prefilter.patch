@@ -1,5 +1,5 @@
 diff --git a/common/sampling.cpp b/common/sampling.cpp
-index 564fa9c4d..6ea1b1450 100644
+index 564fa9c..6ea1b14 100644
 --- a/common/sampling.cpp
 +++ b/common/sampling.cpp
 @@ -9,6 +9,7 @@

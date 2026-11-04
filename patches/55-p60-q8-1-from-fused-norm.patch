@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/mmvq-p60.cu b/ggml/src/ggml-cuda/mmvq-p60.cu
-index c63ae5178..e673e4955 100644
+index c63ae51..e673e49 100644
 --- a/ggml/src/ggml-cuda/mmvq-p60.cu
 +++ b/ggml/src/ggml-cuda/mmvq-p60.cu
 @@ -539,11 +539,12 @@ bool ggml_cuda_mmvq_p60(ggml_backend_cuda_context & ctx,
@@ -144,7 +144,7 @@ index c63ae5178..e673e4955 100644
  
  bool ggml_cuda_p60_add_rms_norm_mul(ggml_backend_cuda_context & ctx, ggml_tensor * add0, ggml_tensor * add1,
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index e4d927e75..30e2eb832 100644
+index 10e917f..7ac6057 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
 @@ -1744,7 +1744,19 @@ void ggml_cuda_mul_mat_vec_q(

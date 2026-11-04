@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index 4e6bb19a9..008942336 100644
+index 7459a77..1f94337 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
-@@ -1459,6 +1459,42 @@ struct ggml_backend_cuda_context {
+@@ -1469,6 +1469,42 @@ struct ggml_backend_cuda_context {
      std::string name;
      cudaEvent_t copy_event = nullptr;
  
@@ -46,10 +46,10 @@ index 4e6bb19a9..008942336 100644
      cublasHandle_t cublas_handles[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = {};
      void * cublas_workspaces[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = {};
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index aba21524f..4d1c744c6 100644
+index ee28955..9408e9e 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -745,6 +745,8 @@ ggml_backend_cuda_context::~ggml_backend_cuda_context() {
+@@ -746,6 +746,8 @@ ggml_backend_cuda_context::~ggml_backend_cuda_context() {
      std::unique_lock<std::mutex> lock(ggml_cuda_lock);
      ggml_cuda_lock_cv.wait(lock, []{ return ggml_cuda_lock_counter.load(std::memory_order_relaxed) == 0; });
  
@@ -58,7 +58,7 @@ index aba21524f..4d1c744c6 100644
      if (copy_event != nullptr) {
          CUDA_CHECK(cudaEventDestroy(copy_event));
      }
-@@ -4904,6 +4906,10 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
+@@ -5104,6 +5106,10 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
  
      ggml_cuda_set_device(cuda_ctx->device);
  
@@ -70,7 +70,7 @@ index aba21524f..4d1c744c6 100644
      bool cuda_graph_update_required = false;
      const void * graph_key = nullptr;
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index df290e498..132ddbad1 100644
+index 5963fa7..8fef6e9 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
 @@ -1626,12 +1626,65 @@ void ggml_cuda_mul_mat_vec_q(

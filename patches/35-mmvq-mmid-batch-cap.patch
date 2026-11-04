@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 768b2abab..4a62a0efd 100644
+index 3bb78f7..00d4b4b 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -2081,12 +2081,12 @@ static bool ggml_cuda_mul_mat_id_needs_sync(const ggml_tensor * dst, const int c
+@@ -2281,12 +2281,12 @@ static bool ggml_cuda_mul_mat_id_needs_sync(const ggml_tensor * dst, const int c
          return true;
      }
  
@@ -17,7 +17,7 @@ index 768b2abab..4a62a0efd 100644
              return false;
          }
      }
-@@ -2118,7 +2118,7 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
+@@ -2318,7 +2318,7 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
      // [TAG_MUL_MAT_ID_CUDA_GRAPHS]
      if (src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
          static_assert(MMVQ_MAX_BATCH_SIZE == MMVF_MAX_BATCH_SIZE);
@@ -26,7 +26,7 @@ index 768b2abab..4a62a0efd 100644
              if (ggml_is_quantized(src0->type)) {
                  const int mmvq_mmid_max = get_mmvq_mmid_max_batch(src0->type, cc);
                  if (ne2 <= mmvq_mmid_max) {
-@@ -2126,7 +2126,7 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
+@@ -2326,7 +2326,7 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
                      return;
                  }
              } else {
@@ -36,7 +36,7 @@ index 768b2abab..4a62a0efd 100644
                      return;
                  }
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index 5a8d875f5..6b25d7428 100644
+index a8c7b13..0d34629 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
 @@ -282,8 +282,24 @@ static constexpr __host__ __device__ int get_mmvq_mmid_max_batch_rdna4(ggml_type
@@ -169,7 +169,7 @@ index 5a8d875f5..6b25d7428 100644
      const float   * src1_d =       (const float   *) src1->data;
      const int32_t *  ids_d = ids ? (const int32_t *)  ids->data : nullptr;
 diff --git a/ggml/src/ggml-cuda/mmvq.cuh b/ggml/src/ggml-cuda/mmvq.cuh
-index 5605bf7a4..5612897dc 100644
+index 5605bf7..5612897 100644
 --- a/ggml/src/ggml-cuda/mmvq.cuh
 +++ b/ggml/src/ggml-cuda/mmvq.cuh
 @@ -8,6 +8,14 @@ bool ggml_cuda_should_use_mmvq(enum ggml_type type, int cc, int64_t ne11);

@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index ccbe10561..dd03faae5 100644
+index 1aa85ed..f6cb60d 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -2210,6 +2210,9 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
+@@ -2410,6 +2410,9 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
          }
  
          if (ggml_cuda_should_use_mmq(src0->type, cc, ne12, /*n_experts=*/ne02)) {
@@ -13,7 +13,7 @@ index ccbe10561..dd03faae5 100644
              return;
          }
 diff --git a/ggml/src/ggml-cuda/p60-mega.cuh b/ggml/src/ggml-cuda/p60-mega.cuh
-index 31ec69ffd..cc508445e 100644
+index 31ec69f..cc50844 100644
 --- a/ggml/src/ggml-cuda/p60-mega.cuh
 +++ b/ggml/src/ggml-cuda/p60-mega.cuh
 @@ -105,3 +105,8 @@ struct ggml_cuda_p60_mega_attn_args {
@@ -27,7 +27,7 @@ index 31ec69ffd..cc508445e 100644
 +    const ggml_tensor * ids, ggml_tensor * dst);
 diff --git a/ggml/src/ggml-cuda/p60-moe-gemm.cu b/ggml/src/ggml-cuda/p60-moe-gemm.cu
 new file mode 100644
-index 000000000..c096e4bbc
+index 0000000..c096e4b
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/p60-moe-gemm.cu
 @@ -0,0 +1,219 @@

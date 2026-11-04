@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 6279101ff..038ac6a1f 100644
+index 0819226..25ebb6f 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -4571,8 +4571,11 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4771,8 +4771,11 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      if (!router || !sgate || !gate || !up || !down || !sg || !su || !sd || !ids || n_softmax != 1 || n_div != 1 ||
              T < 1 || T > 6 || ids->ne[0] != 8 || ids->ne[1] != T ||
              !p60_mat_f32ish(router, 2048, 256) || !p60_mat_f32ish(sgate, 2048, 1) ||
@@ -16,7 +16,7 @@ index 6279101ff..038ac6a1f 100644
              !p60_mat(sg, GGML_TYPE_Q8_0, 2048, 512) || !p60_mat(su, GGML_TYPE_Q8_0, 2048, 512) || !p60_mat(sd, GGML_TYPE_Q8_0, 512, 2048) ||
              !p60_f32_vec(nmul->src[1], 2048) || !p60_f32_vec(norm->src[0], 2048*T) || !p60_f32_vec(add, 2048*T) ||
              !p60_range_private(g, i, e, add)) {
-@@ -4588,7 +4591,8 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4788,7 +4791,8 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      a.router = p60_f32_weight(ctx, router); a.sgate = p60_f32_weight(ctx, sgate);
      a.gate = (const char *) gate->data; a.up = (const char *) up->data; a.down = (const char *) down->data;
      a.sg = (const char *) sg->data; a.su = (const char *) su->data; a.sd = (const char *) sd->data;
@@ -27,7 +27,7 @@ index 6279101ff..038ac6a1f 100644
      } else {
          ggml_cuda_p60_mega_moe_t(*ctx, a, (int) T);
 diff --git a/ggml/src/ggml-cuda/p60-mega-t.cu b/ggml/src/ggml-cuda/p60-mega-t.cu
-index 38a19c3bd..5e67adc7d 100644
+index 38a19c3..5e67adc 100644
 --- a/ggml/src/ggml-cuda/p60-mega-t.cu
 +++ b/ggml/src/ggml-cuda/p60-mega-t.cu
 @@ -19,6 +19,7 @@ using namespace mt;
@@ -242,7 +242,7 @@ index 38a19c3bd..5e67adc7d 100644
  
  void ggml_cuda_p60_mega_gdn_t(ggml_backend_cuda_context & ctx, const ggml_cuda_p60_mega_gdn_args & args, int n_tokens, int n_snap,
 diff --git a/ggml/src/ggml-cuda/p60-mega.cuh b/ggml/src/ggml-cuda/p60-mega.cuh
-index ab4b3b609..31ec69ffd 100644
+index ab4b3b6..31ec69f 100644
 --- a/ggml/src/ggml-cuda/p60-mega.cuh
 +++ b/ggml/src/ggml-cuda/p60-mega.cuh
 @@ -50,6 +50,8 @@ struct ggml_cuda_p60_mega_moe_args {

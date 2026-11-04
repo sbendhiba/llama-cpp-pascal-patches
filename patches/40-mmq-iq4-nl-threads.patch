@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/mmq-config-pascal-older.cuh b/ggml/src/ggml-cuda/mmq-config-pascal-older.cuh
-index 2a8dc9e1a..7d62c507e 100644
+index 2a8dc9e..7d62c50 100644
 --- a/ggml/src/ggml-cuda/mmq-config-pascal-older.cuh
 +++ b/ggml/src/ggml-cuda/mmq-config-pascal-older.cuh
 @@ -231,17 +231,17 @@ static constexpr __host__ __device__ ggml_cuda_mmq_config ggml_cuda_mmq_get_conf

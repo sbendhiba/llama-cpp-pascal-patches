@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index 8be4313de..7ee232a84 100644
+index da38f30..0ab5012 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
 @@ -679,6 +679,11 @@ static __global__ void mul_mat_vec_q(
@@ -29,7 +29,7 @@ index 8be4313de..7ee232a84 100644
      const int      blocks_per_row_x = ncols_x / qk;
      constexpr int  blocks_per_iter  = vdr * warp_size / qi;
 diff --git a/ggml/src/ggml-cuda/vecdotq.cuh b/ggml/src/ggml-cuda/vecdotq.cuh
-index d5ff93b91..deb96c72e 100644
+index d5ff93b..deb96c7 100644
 --- a/ggml/src/ggml-cuda/vecdotq.cuh
 +++ b/ggml/src/ggml-cuda/vecdotq.cuh
 @@ -1232,6 +1232,29 @@ static __device__ __forceinline__ float vec_dot_iq2_s_q8_1(

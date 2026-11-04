@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 69624f830..8066b13b3 100644
+index bed9525..1e6fb05 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -33,6 +33,7 @@
+@@ -34,6 +34,7 @@
  #include "ggml-cuda/mmq.cuh"
  #include "ggml-cuda/mmvf.cuh"
  #include "ggml-cuda/mmvq.cuh"
@@ -10,7 +10,7 @@ index 69624f830..8066b13b3 100644
  #include "ggml-cuda/moe-weighted-reduction.cuh"
  #include "ggml-cuda/norm.cuh"
  #include "ggml-cuda/opt-step-adamw.cuh"
-@@ -4200,6 +4201,19 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -4400,6 +4401,19 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
  
      ggml_tensor * node = cgraph->nodes[i];
  
@@ -31,7 +31,7 @@ index 69624f830..8066b13b3 100644
              ggml_cuda_match_shared_expert(cgraph, i, i + 3) &&
              ggml_cuda_should_fuse_mul_mat_vec_q(cgraph->nodes[i + 2]->src[1])) {
 diff --git a/ggml/src/ggml-cuda/mmvq-p60.cu b/ggml/src/ggml-cuda/mmvq-p60.cu
-index 46961cf4b..c63ae5178 100644
+index 46961cf..c63ae51 100644
 --- a/ggml/src/ggml-cuda/mmvq-p60.cu
 +++ b/ggml/src/ggml-cuda/mmvq-p60.cu
 @@ -535,11 +535,14 @@ bool ggml_cuda_mmvq_p60(ggml_backend_cuda_context & ctx,
@@ -238,7 +238,7 @@ index 46961cf4b..c63ae5178 100644
  // mmvq_p60_prep_x. Same thread mapping as p60_rms_norm_mul. One block per row, blockDim = (32, lpr).
  static __global__ void __launch_bounds__(1024) p60_swiglu(
 diff --git a/ggml/src/ggml-cuda/mmvq-p60.cuh b/ggml/src/ggml-cuda/mmvq-p60.cuh
-index cf1018e21..e43263061 100644
+index cf1018e..e432630 100644
 --- a/ggml/src/ggml-cuda/mmvq-p60.cuh
 +++ b/ggml/src/ggml-cuda/mmvq-p60.cuh
 @@ -15,3 +15,8 @@ bool ggml_cuda_p60_rms_norm_mul(ggml_backend_cuda_context & ctx, const ggml_tens
@@ -251,10 +251,10 @@ index cf1018e21..e43263061 100644
 +bool ggml_cuda_p60_add_rms_norm_mul(ggml_backend_cuda_context & ctx, ggml_tensor * add0, ggml_tensor * add1,
 +    const ggml_tensor * rms_norm, ggml_tensor * mul_tensor);
 diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
-index 7e168f70d..fdc326800 100644
+index d9a0cdd..d25c0d5 100644
 --- a/tests/test-backend-ops.cpp
 +++ b/tests/test-backend-ops.cpp
-@@ -5780,6 +5780,67 @@ struct test_mul_mat_id_w4a4 : public test_mul_mat_id {
+@@ -5786,6 +5786,67 @@ struct test_mul_mat_id_w4a4 : public test_mul_mat_id {
      }
  };
  
@@ -322,7 +322,7 @@ index 7e168f70d..fdc326800 100644
  // SWIGLU feeding a matmul (ffn_down): on sm_60 with GGML_CUDA_P60_MMVQ=1 the fused swiglu fills the mmvq-p60
  // activation cache with one row per expert slot, and the matmul reads it from there
  struct test_p60_glu_matmul : public test_case {
-@@ -11256,6 +11317,14 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+@@ -11444,6 +11505,14 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
      test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_F32, GGML_TYPE_F32, 16, 8, false, 8256, 32832, 64));
  #endif
  

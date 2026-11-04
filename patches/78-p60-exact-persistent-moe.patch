@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 834171e46..bf7a15c6a 100644
+index c8f3896..47d5c53 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -35,6 +35,7 @@
+@@ -36,6 +36,7 @@
  #include "ggml-cuda/mmvq.cuh"
  #include "ggml-cuda/mmvq-p60.cuh"
  #include "ggml-cuda/p60-mega.cuh"
@@ -10,7 +10,7 @@ index 834171e46..bf7a15c6a 100644
  #include "ggml-cuda/moe-weighted-reduction.cuh"
  #include "ggml-cuda/norm.cuh"
  #include "ggml-cuda/opt-step-adamw.cuh"
-@@ -4499,7 +4500,7 @@ static bool p60_mat_f32ish(const ggml_tensor * t, int64_t ne0, int64_t ne1) {
+@@ -4699,7 +4700,7 @@ static bool p60_mat_f32ish(const ggml_tensor * t, int64_t ne0, int64_t ne1) {
      return t != nullptr && (p60_mat(t, GGML_TYPE_F32, ne0, ne1) || p60_mat(t, GGML_TYPE_BF16, ne0, ne1));
  }
  
@@ -19,7 +19,7 @@ index 834171e46..bf7a15c6a 100644
      const ggml_tensor * norm = g->nodes[i];
      const ggml_tensor * cur_t = nullptr;
      if (i + 2 >= g->n_nodes) {
-@@ -4527,15 +4528,19 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4727,15 +4728,19 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      const ggml_tensor * router = nullptr, * sgate = nullptr, * gate = nullptr, * up = nullptr, * down = nullptr;
      const ggml_tensor * sg = nullptr, * su = nullptr, * sd = nullptr, * ids = nullptr;
      int n_softmax = 0, n_div = 0;
@@ -40,7 +40,7 @@ index 834171e46..bf7a15c6a 100644
              case GGML_OP_DIV:
                  n_div++;
                  break;
-@@ -4584,6 +4589,10 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4784,6 +4789,10 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
              !p60_range_private(g, i, e, add)) {
          P60_MEGA_FAIL;
      }
@@ -51,7 +51,7 @@ index 834171e46..bf7a15c6a 100644
      if (dry) {
          return e - i;
      }
-@@ -4595,7 +4604,12 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4795,7 +4804,12 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      a.gate = (const char *) gate->data; a.up = (const char *) up->data; a.down = (const char *) down->data;
      a.sg = (const char *) sg->data; a.su = (const char *) su->data; a.sd = (const char *) sd->data;
      a.gate_type = gate->type; a.down_type = down->type;
@@ -65,7 +65,7 @@ index 834171e46..bf7a15c6a 100644
          ggml_cuda_p60_mega_moe(*ctx, a);
      } else {
          ggml_cuda_p60_mega_moe_t(*ctx, a, (int) T);
-@@ -4887,6 +4901,17 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -5087,6 +5101,17 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
  
      ggml_tensor * node = cgraph->nodes[i];
  
@@ -83,7 +83,7 @@ index 834171e46..bf7a15c6a 100644
      // whole single-token layer halves as one persistent kernel each (p60-mega.cu)
      if (node->op == GGML_OP_RMS_NORM) {
          static const bool enabled = getenv("GGML_CUDA_P60_MMVQ") != nullptr && atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0 &&
-@@ -4943,6 +4968,12 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -5143,6 +5168,12 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
  
      // residual add(s) folded into the RMS norm that follows (mmvq-p60, sm_60); not when that norm starts a layer half
      // that the persistent kernels take (the add then runs on its own)
@@ -98,7 +98,7 @@ index 834171e46..bf7a15c6a 100644
              getenv("GGML_CUDA_P60_MEGA") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGA")) != 0;
 diff --git a/ggml/src/ggml-cuda/p60-mega-x.cu b/ggml/src/ggml-cuda/p60-mega-x.cu
 new file mode 100644
-index 000000000..7919dad6b
+index 0000000..7919dad
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/p60-mega-x.cu
 @@ -0,0 +1,446 @@
@@ -550,7 +550,7 @@ index 000000000..7919dad6b
 +}
 diff --git a/ggml/src/ggml-cuda/p60-mega-x.cuh b/ggml/src/ggml-cuda/p60-mega-x.cuh
 new file mode 100644
-index 000000000..51e401b28
+index 0000000..51e401b
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/p60-mega-x.cuh
 @@ -0,0 +1,8 @@
@@ -563,7 +563,7 @@ index 000000000..51e401b28
 +// 1..6 tokens, every token bit-identical to the stock single-token kernels.
 +void ggml_cuda_p60_mega_moe_x(ggml_backend_cuda_context & ctx, const ggml_cuda_p60_mega_moe_args & args, int n_tokens);
 diff --git a/ggml/src/ggml-cuda/p60-mega.cuh b/ggml/src/ggml-cuda/p60-mega.cuh
-index cc508445e..cac11ea12 100644
+index cc50844..cac11ea 100644
 --- a/ggml/src/ggml-cuda/p60-mega.cuh
 +++ b/ggml/src/ggml-cuda/p60-mega.cuh
 @@ -52,6 +52,8 @@ struct ggml_cuda_p60_mega_moe_args {

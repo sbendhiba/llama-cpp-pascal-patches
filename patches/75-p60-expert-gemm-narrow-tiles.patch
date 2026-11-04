@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/p60-moe-gemm.cu b/ggml/src/ggml-cuda/p60-moe-gemm.cu
-index bb6955fc2..7918cef55 100644
+index bb6955f..7918cef 100644
 --- a/ggml/src/ggml-cuda/p60-moe-gemm.cu
 +++ b/ggml/src/ggml-cuda/p60-moe-gemm.cu
 @@ -13,7 +13,7 @@

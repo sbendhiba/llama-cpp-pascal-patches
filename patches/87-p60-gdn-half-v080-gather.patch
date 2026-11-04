@@ -1,7 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+index 82795a3..8f11b25 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -4210,7 +4210,8 @@
+@@ -4410,7 +4410,8 @@ static bool p60_range_private(const ggml_cgraph * g, int beg, int end, const ggm
              return false;
          }
      }
@@ -11,7 +12,7 @@ diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
      for (int k = end + 1; k < lim; k++) {
          for (int j = 0; j < GGML_MAX_SRC; j++) {
              const ggml_tensor * src = g->nodes[k]->src[j];
-@@ -4252,10 +4253,35 @@
+@@ -4452,10 +4453,35 @@ static int p60_mega_fail(int line, const ggml_tensor * t, const ggml_tensor * at
  }
  #define P60_MEGA_FAIL return p60_mega_fail(__LINE__, g->nodes[i], cur_t)
  
@@ -47,7 +48,7 @@ diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
      const ggml_tensor * norm = g->nodes[i];
      const ggml_tensor * cur_t = nullptr;
      if (i + 2 >= g->n_nodes) {
-@@ -4279,6 +4305,48 @@
+@@ -4479,6 +4505,48 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      if (e < 0) {
          P60_MEGA_FAIL;
      }
@@ -96,7 +97,7 @@ diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
      ggml_cuda_p60_mega_gdn_args a = {};
      const ggml_tensor * qkv = nullptr, * z = nullptr, * out = nullptr, * alpha = nullptr, * beta = nullptr;
      const ggml_tensor * dt = nullptr, * ssa = nullptr, * conv = nullptr, * snorm = nullptr, * cs_get = nullptr, * ss_get = nullptr;
-@@ -4307,9 +4375,9 @@
+@@ -4507,9 +4575,9 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
                  if (ggml_nelements(t) == 0) {
                      break;
                  }
@@ -108,7 +109,7 @@ diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
                      ss_get = t;
                  } else {
                      P60_MEGA_FAIL;
-@@ -4339,7 +4407,9 @@
+@@ -4539,7 +4607,9 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
                  if (t->src[0]->op == GGML_OP_RMS_NORM) {
                      if (bias != 0.0f || (scale_l2 >= 0.0f && scale_l2 != sc)) P60_MEGA_FAIL;
                      scale_l2 = sc;
@@ -119,7 +120,7 @@ diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
                      if (ggml_nelements(t) > 0) {
                          prerun[n_prerun++] = t; // in-place clear of a cache row: run it as is, before the kernel
                      }
-@@ -4399,6 +4469,9 @@
+@@ -4599,6 +4669,9 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
          P60_MEGA_FAIL;
      }
      const int64_t K = (gdn->ne[1] - T) / 128;
@@ -129,7 +130,7 @@ diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
      constexpr int64_t SSN = 128*128*32;
      if (T < 1 || T > 6 || K < 1 || K > 6 || gdn->ne[1] != T + 128*K || norm->src[0]->ne[1] != T) {
          P60_MEGA_FAIL;
-@@ -4442,7 +4515,8 @@
+@@ -4642,7 +4715,8 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
          ss_slot = sd->nb[2] / sizeof(float);
      } else if (K != 1 || ggml_nelements(cs_cpy) != 3*8192 || ggml_nelements(ss_cpy) != SSN || !ggml_is_contiguous(cs_cpy) ||
              !ggml_is_contiguous(ss_cpy) || cs_cpy->src[0]->view_offs != (size_t) T*sizeof(float) ||
@@ -139,7 +140,7 @@ diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
          // no snapshots: the conv state after the T tokens, the recurrent state after the last one
          P60_MEGA_FAIL;
      }
-@@ -4456,9 +4530,17 @@
+@@ -4656,9 +4730,17 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
              !p60_range_private(g, i, e, add)) {
          P60_MEGA_FAIL;
      }

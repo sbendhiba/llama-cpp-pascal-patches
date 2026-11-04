@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index 30e2eb832..fc964aed2 100644
+index 7ac6057..4cca890 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
 @@ -1603,6 +1603,125 @@ static void mul_mat_vec_q_switch_type(

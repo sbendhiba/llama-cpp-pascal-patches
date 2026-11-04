@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index 337d72214..93b068617 100644
+index 6b0db97..0ae5b17 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
-@@ -306,6 +306,9 @@ static const char * cu_get_error_str(CUresult err) {
+@@ -316,6 +316,9 @@ static const char * cu_get_error_str(CUresult err) {
  #define FLASH_ATTN_AVAILABLE
  #endif // !defined(GGML_CUDA_NO_FA) && !(defined(GGML_USE_MUSA) && __MUSA_ARCH__ < 220)
  
@@ -12,7 +12,7 @@ index 337d72214..93b068617 100644
  static bool fp16_available(const int cc) {
      return ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_PASCAL ||
          (GGML_CUDA_CC_IS_MTHREADS(cc) && cc >= GGML_CUDA_CC_PH1);
-@@ -1455,6 +1458,8 @@ struct ggml_cuda_stream_context {
+@@ -1465,6 +1468,8 @@ struct ggml_cuda_stream_context {
  };
  
  struct ggml_backend_cuda_context {
@@ -22,10 +22,10 @@ index 337d72214..93b068617 100644
      std::string name;
      cudaEvent_t copy_event = nullptr;
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index dd03faae5..834171e46 100644
+index f6cb60d..c8f3896 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -6286,6 +6286,15 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
+@@ -6486,6 +6486,15 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
  
      ggml_cuda_set_device(cuda_ctx->device);
  
@@ -42,7 +42,7 @@ index dd03faae5..834171e46 100644
      // reuse for a different tensor, so it must not outlive the graph that filled it
      cuda_ctx->q8_1_cache_clear();
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index 274dd4b81..b11cb08c9 100644
+index 4b6e676..7e0c57c 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
 @@ -1856,6 +1856,27 @@ void ggml_cuda_mul_mat_vec_q(
@@ -74,10 +74,10 @@ index 274dd4b81..b11cb08c9 100644
          return;
      }
 diff --git a/src/llama-context.cpp b/src/llama-context.cpp
-index 01e3fdd45..dae7748c5 100644
+index fc7c5d6..29851c0 100644
 --- a/src/llama-context.cpp
 +++ b/src/llama-context.cpp
-@@ -1685,8 +1685,13 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+@@ -1837,8 +1837,13 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
      // in order to correctly reuse a graph, it's full topology has to be uniquely determined by these parameters
      const auto gparams = graph_params(res, ubatch, mctx, gtype);
  
@@ -92,7 +92,7 @@ index 01e3fdd45..dae7748c5 100644
      }
  
      if (hit) {
-@@ -1724,6 +1729,16 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+@@ -1876,6 +1881,16 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
              return nullptr;
          }
  
@@ -109,7 +109,7 @@ index 01e3fdd45..dae7748c5 100644
          if (!ggml_backend_sched_alloc_graph(sch, gf)) {
              // ggml_backend_sched_alloc_splits already re-reserves and retries once on its own, so
              // reaching here means this slot's compute buffer cannot be grown to fit; reserving
-@@ -1779,8 +1794,7 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+@@ -1931,8 +1946,7 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
                  LLAMA_LOG_ERROR("%s: failed to allocate graph\n", __func__);
                  ret = GGML_STATUS_ALLOC_FAILED;
                  return nullptr;
@@ -120,26 +120,21 @@ index 01e3fdd45..dae7748c5 100644
          if (use_slot && dec_cur >= 0) {
              dec_slots[slot].valid = true;
 diff --git a/src/llama-graph.cpp b/src/llama-graph.cpp
-index cffd083d3..86e08d57d 100644
+index edf1ca7..19c8900 100644
 --- a/src/llama-graph.cpp
 +++ b/src/llama-graph.cpp
-@@ -3008,14 +3008,37 @@ ggml_tensor * llm_graph_context::build_attn_mha(
+@@ -3033,19 +3033,42 @@ ggml_tensor * llm_graph_context::build_attn_mha(
              v = ggml_cast(ctx0, v, GGML_TYPE_F16);
          }
  
--        cur = ggml_flash_attn_ext(ctx0, q, k, v, kq_mask, kq_scale, hparams.f_max_alibi_bias,
--                                  hparams.attn_soft_cap ? hparams.f_attn_logit_softcapping : 0.0f);
--        res->add_fused_node({LLM_FUSED_OP_FLASH_ATTN, cur, il});
--
--        ggml_flash_attn_ext_add_sinks(cur, sinks);
--        GGML_ASSERT(n_kv_max >= 0 && n_kv_max <= INT32_MAX);
--        ggml_flash_attn_ext_set_n_kv_max(cur, static_cast<int32_t>(n_kv_max));
--        ggml_prec_set_acc(cur, GGML_PREC_F32);
+-        if (kv_rows) {
+-            cur = ggml_flash_attn_ext_rows(ctx0, q, k, v, kq_mask, kv_rows, kq_scale, hparams.f_max_alibi_bias,
+-                                           hparams.attn_soft_cap ? hparams.f_attn_logit_softcapping : 0.0f);
 +        // GGML_CUDA_P60_EXACT: generation steps (decode, MTP verify) run attention one token at a time, each over the KV length that
 +        // single-token decode uses at that position (pad(pos + 1, 256)), so the kernel sees the same shapes as decode.
 +        static const bool exact = getenv("GGML_CUDA_P60_EXACT") != nullptr && atoi(getenv("GGML_CUDA_P60_EXACT")) != 0;
 +        const int64_t n_tok = q->ne[1];
-+        if (exact && n_tok <= 8 && (int64_t) n_outputs == n_tok && n_stream == 1 && !v_trans && !v_mla && sinks == nullptr && kq_mask != nullptr &&
++        if (exact && !kv_rows && n_tok <= 8 && (int64_t) n_outputs == n_tok && n_stream == 1 && !v_trans && !v_mla && sinks == nullptr && kq_mask != nullptr &&
 +                ubatch.pos != nullptr && ubatch.n_tokens == (uint32_t) n_tok && k->ne[1] % 256 == 0) {
 +            cur = nullptr;
 +            for (int64_t t = 0; t < n_tok; t++) {
@@ -156,11 +151,24 @@ index cffd083d3..86e08d57d 100644
 +                ggml_prec_set_acc(o_t, GGML_PREC_F32);
 +                cur = cur ? ggml_concat(ctx0, cur, o_t, 2) : o_t;
 +            }
-+        } else {
-+            cur = ggml_flash_attn_ext(ctx0, q, k, v, kq_mask, kq_scale, hparams.f_max_alibi_bias,
-+                                      hparams.attn_soft_cap ? hparams.f_attn_logit_softcapping : 0.0f);
-+            res->add_fused_node({LLM_FUSED_OP_FLASH_ATTN, cur, il});
-+
+         } else {
+-            cur = ggml_flash_attn_ext(ctx0, q, k, v, kq_mask, kq_scale, hparams.f_max_alibi_bias,
+-                                      hparams.attn_soft_cap ? hparams.f_attn_logit_softcapping : 0.0f);
+-        }
+-        res->add_fused_node({kv_rows ? LLM_FUSED_OP_FLASH_ATTN_KV_ROWS : LLM_FUSED_OP_FLASH_ATTN, cur, il});
++            if (kv_rows) {
++                cur = ggml_flash_attn_ext_rows(ctx0, q, k, v, kq_mask, kv_rows, kq_scale, hparams.f_max_alibi_bias,
++                                               hparams.attn_soft_cap ? hparams.f_attn_logit_softcapping : 0.0f);
++            } else {
++                cur = ggml_flash_attn_ext(ctx0, q, k, v, kq_mask, kq_scale, hparams.f_max_alibi_bias,
++                                          hparams.attn_soft_cap ? hparams.f_attn_logit_softcapping : 0.0f);
++            }
++            res->add_fused_node({kv_rows ? LLM_FUSED_OP_FLASH_ATTN_KV_ROWS : LLM_FUSED_OP_FLASH_ATTN, cur, il});
+ 
+-        ggml_flash_attn_ext_add_sinks(cur, sinks);
+-        GGML_ASSERT(n_kv_max >= 0 && n_kv_max <= INT32_MAX);
+-        ggml_flash_attn_ext_set_n_kv_max(cur, static_cast<int32_t>(n_kv_max));
+-        ggml_prec_set_acc(cur, GGML_PREC_F32);
 +            ggml_flash_attn_ext_add_sinks(cur, sinks);
 +            GGML_ASSERT(n_kv_max >= 0 && n_kv_max <= INT32_MAX);
 +            ggml_flash_attn_ext_set_n_kv_max(cur, static_cast<int32_t>(n_kv_max));
