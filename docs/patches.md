@@ -4,24 +4,36 @@
 numbering. Order matters: several touch the same files, and later ones build
 on earlier ones. The tag is recorded once, in the top-level README.
 
-**This branch targets llama.cpp `v0.8.0` (`8642541b2`), 291 commits past `v0.7.0`.** All 40 of ours are
+**This branch targets llama.cpp `v0.9.0` (`cd959bae9`, b12110), 150 commits past `v0.8.0`.** All 78 are
 regenerated against it and verified in numeric order at zero fuzz and zero offset, the clean-room
-tree they rebuild is byte-identical to the reviewed one, and all 273 identifiers they reference
-resolve in the patched tree. Stock and patched trees at this ref have both been **built** at `sm_60`,
-and the set has been through a **full scripted session** at 160 W with the `v0.7.0` arms
-re-measured beside it (2 cards, 5 interleaved rounds, four configs, four arms - see the README). The
-`v0.8.0` set is 1.1-3.7% ahead of the `v0.7.0` set on every cell; upstream `v0.8.0` stock is within
-±2% of `v0.7.0` stock at that power.
+tree they rebuild is byte-identical to the reviewed one (52 files changed), and 393 of the 394
+identifiers they reference resolve in the patched tree - the exception is
+`GGML_CUDA_P60_MEGA_GRAPHS`, introduced by 85 and deleted by 86 in the same set. Stock and patched
+trees at this ref have both been **built** at `sm_60`, and the set has been through a **full scripted
+session** at 160 W with the `v0.8.0` arms re-measured beside it (2 cards, 3 interleaved rounds, four
+configs, four arms - see the README and [results.md](results.md)). Upstream `v0.9.0` stock is within
+0.4% of `v0.8.0` stock on every cell, and this set within 0.3% of its own `v0.8.0` build: the port is
+a re-anchor, not a retune - nothing was deleted, and four patches (31, 59, 77, 83) needed real
+authoring.
 
 **Patches 52-89 - the P60 block - are verified the same way** and built at `sm_60` on top of that set:
 the 32 files, applied in numeric order onto the 40-patch tree, reproduce the rebased tree byte for
 byte; patch 84 (a re-authored staged Q6_K matvec) was verified the same way as a 33rd file (`git write-tree`
 identical), and that tree is what the 160 W numbers in the README were taken on. **86-89 are verified the
 same way again as 37 files**: stock `v0.8.0` + 78 patch files at `-F0`, 0 rejects, 52 files changed, and
-the resulting tree byte-identical (`diff -rq`) to the scratch tree the measurements were iterated on. They are documented as a group in the section **The P60 block (52-89)** at the end of this file.
+the resulting tree byte-identical (`diff -rq`) to the scratch tree the measurements were iterated on. At `v0.9.0` the same check runs again, with the same result: a fresh `v0.9.0` clone plus these 78
+files at `-F0` gives 0 rejects, 52 files changed, and a tree `diff -rq`-identical to the one the 2026-11-04
+numbers were taken on. Three of the block's patches moved because upstream moved under them - 59 and 83
+onto the new `RDNA4_M` clause in `mmq.cu`'s expert-tile rule, and 77's exact-verify attention branch now
+sits beside upstream's `flash_attn_ext_rows` instead of replacing what it replaced. 80 and 85-89 rejected
+only because their prerequisites were parked; all six applied unchanged once 59/77/83 landed.
+
+They are documented as a group in the section **The P60 block (52-89)** at the end of this file.
 
 This port is the opposite of the last one: 16 of the 33 files the set edits changed upstream, and
-three of those changes landed on code a patch hooks.
+three of those changes landed on code a patch hooks. The `v0.9.0` move is 14 of 52 files, four of them on
+hooked code: `kv_rows` / unified-KV multi-sequence attention in both `fattn-common.cuh` and
+`llama-graph.cpp`, the `RDNA4_M` term in `mmq.cu`'s expert-tile rule, and fused gate/up + GLU for MoE MMQ.
 
 | upstream change | what it did to the set |
 |---|---|
@@ -303,6 +315,16 @@ with at least two parallel blocks so it writes unnormalized partials plus
 online-softmax merge kernel. The scratch is bounded by the chunk: 64 MiB.
 `GGML_CUDA_FA_F16_KV_CHUNK` sets the chunk in tokens (rounded up to 256);
 `0` disables chunking.
+
+At `v0.9.0` this patch is a hand-port, and it is the one that taught the build gate its job. Upstream
+gave `launch_fattn` a `kv_rows` tensor (`dst->src[5]`) for unified-KV multi-sequence attention: K and V
+are then read through a row list, so capping the column extent would desynchronise the indices, and the
+chunk gate became `!kv_rows && (convert_K || convert_V) && n_kv_cols > kv_chunk`. The kernel also grew a
+`kv_rows` parameter, and the chunk path's launch site - which applied at zero fuzz and zero offset,
+because every context line around it was ours - still passed the v0.8.0 argument list. Every
+instantiation of `launch_fattn` then failed to compile, in `fattn-mma-f16.cuh` and `fattn.cu`, three
+files from the line the patch touches. The chunk path passes `(const int *) nullptr` there now, which
+its own gate makes the only correct value.
 
 Measured with a 27B model (64 layers, 16 with full attention, q4_0 KV, ubatch
 128, `LLAMA_DEC_SLOTS=0`), CUDA0 compute buffer:

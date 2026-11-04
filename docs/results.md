@@ -10,6 +10,68 @@ Every patch carries its measurement in the comments it adds to the source, and
 [patches.md](patches.md) is the index: per patch, the scope tag, the effect, the kill
 switch, what it changes about the output, and the alternatives that were tried and rejected.
 
+### Scripted - 2026-11-04, `v0.9.0`, 78 patches - **the rebase, both releases in one session**
+
+llama.cpp `v0.9.0` = `cd959bae9` (b12110) and `v0.8.0` = `8642541b2` (b11960), each built twice: stock,
+and stock + these 78 files applied with `patch -p1 -F0` at zero fuzz and zero offset. All four builds
+are CUDA 12.4, `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=60 -DGGML_NATIVE=ON -DGGML_NCCL=OFF -DGGML_CUDA_NCCL=OFF`.
+Two cards, 160 W, `-fa on -t 28 -ub 2048 -n 128`, 3 rounds with the arm order
+reversed on alternate rounds, the cards cooled below 45 C before each block, nothing exported for any
+arm. Raw rows: `v0.9.0-160w-p100x2-*.csv`.
+
+Putting both releases in one session is the point - a cross-session comparison of two ports is exactly
+the thing [benchmarking.md](benchmarking.md) says cannot be read as a port result.
+
+**Qwen3.8-27B UD-Q4_K_M (dense), `-sm tensor`, `-p 512,2048`**
+
+| arm | pp512 | pp2048 | tg128 | rounds | temps C |
+|---|---:|---:|---:|---:|---|
+| v080-stock | 230.73 ± 0.70 | 378.03 ± 2.36 | 21.02 ± 0.06 | 3 | 38-52 |
+| v080-patched | 378.92 ± 2.53 | 420.06 ± 2.25 | 29.83 ± 0.15 | 3 | 44-52 |
+| v090-stock | 230.35 ± 0.60 | 376.58 ± 0.42 | 20.94 ± 0.03 | 3 | 47-53 |
+| v090-patched | 377.18 ± 1.94 | 419.08 ± 0.60 | 29.78 ± 0.06 | 3 | 49-53 |
+
+**Qwen3.8-27B UD-Q4_K_M (dense), `-sm layer`, `-p 512,2048`**
+
+| arm | pp512 | pp2048 | tg128 | rounds | temps C |
+|---|---:|---:|---:|---:|---|
+| v080-stock | 144.32 ± 0.64 | 224.67 ± 0.50 | 13.22 ± 0.05 | 3 | 40-49 |
+| v080-patched | 207.64 ± 1.20 | 227.31 ± 0.45 | 18.45 ± 0.06 | 3 | 45-49 |
+| v090-stock | 144.12 ± 0.49 | 224.52 ± 0.37 | 13.20 ± 0.02 | 3 | 47-49 |
+| v090-patched | 206.67 ± 0.17 | 226.99 ± 0.19 | 18.44 ± 0.04 | 3 | 48-49 |
+
+**Cyber-Tiel-Coder-35B-A3B MTP UD-Q4_K_XL (MoE), `-sm tensor`, `-p 512`**
+
+| arm | pp512 | tg128 | rounds | temps C |
+|---|---:|---:|---:|---|
+| v080-stock | 767.93 ± 0.83 | 58.52 ± 0.85 | 3 | 41-44 |
+| v080-patched | 1580.22 ± 1.60 | 86.04 ± 0.02 | 3 | 42-44 |
+| v090-stock | 766.44 ± 1.04 | 59.65 ± 1.11 | 3 | 42-44 |
+| v090-patched | 1579.41 ± 0.91 | 85.79 ± 0.39 | 3 | 43-45 |
+
+**Cyber-Tiel-Coder-35B-A3B MTP UD-Q4_K_XL (MoE), `-sm layer`, `-p 512`**
+
+| arm | pp512 | tg128 | rounds | temps C |
+|---|---:|---:|---:|---|
+| v080-stock | 488.72 ± 0.61 | 58.40 ± 0.04 | 3 | 40-43 |
+| v080-patched | 1067.46 ± 0.98 | 119.13 ± 0.28 | 3 | 41-43 |
+| v090-stock | 488.68 ± 0.58 | 58.21 ± 0.04 | 3 | 42-43 |
+| v090-patched | 1068.89 ± 3.50 | 119.07 ± 0.18 | 3 | 42-44 |
+
+Read across: the gain is +64% prefill / +42% decode on the dense 27B under `tensor`, +43% / +40% under
+`layer`, and +106% / +44% (+119% / +105% at `layer`) on the MoE - the same shape as `v0.8.0`, to within
+half a percent. `pp2048` on the dense model stays near flat (+11.3% tensor, +1.1% layer) because
+large-batch prefill was never what the P60 block is for, and the 27B is the case where the block's
+matchers refuse the model: its decode gain is the 40 carried patches, not the block.
+
+**Correctness.** `test-backend-ops`, driven one op at a time so a single upstream case cannot end the
+run: 130 ops on each arm, **14,822 passing cases on stock, 14,822 on patched, and zero rows where the
+arms differ** - `FLASH_ATTN_EXT` 4041/4041, `MUL_MAT_ID` 932/932, `SET_ROWS` 160/160, `SSM_CONV`
+61/61, `GATED_DELTA_NET` 44/44. One op crashes, in both arms and in stock `v0.8.0` too:
+`MUL_MAT(type_a=q4_K, m=8192, n=9, k=512, per=[0,1,2,3])` reaches
+`GGML_ASSERT(convert_func != nullptr)` on a card with no `DP4A`. That is upstream's gap on this
+architecture, recorded here because it is the reason the suite is run per-op from now on.
+
 ### Shipped default - 2026-10-30 (late), `v0.8.0`, 74 patches - **P60 on, no environment variables**
 
 _Superseded the same day by the 78-patch section above; kept because it is what tag `v0.8.0` describes

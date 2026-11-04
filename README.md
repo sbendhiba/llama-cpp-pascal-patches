@@ -10,36 +10,39 @@ GP100 is the reason any of this exists. Alone among Pascal chips it has no `DP4A
 instruction the card is genuinely good at goes unused. The rest is what the last two years of llama.cpp
 made possible: a fused norm, deferred gathers, CUDA graphs, speculative decoding with an MTP head.
 
-This branch is the **`v0.8.0`** set - **78 patches** against llama.cpp `8642541b2`: 40 we carry (of which
-10 are Pascal-gated, 29 are hardware-neutral, one changes a constant every GPU sees) plus the 38-patch
-**P60 block** (52-89), a port and retune of [Mrinohk/qwen36-p100-patches](https://github.com/Mrinohk/qwen36-p100-patches)
+This branch is the **`v0.9.0`** set - **78 patches** against llama.cpp `cd959bae9` (b12110): 40 we carry
+(of which 10 are Pascal-gated, 29 are hardware-neutral, one changes a constant every GPU sees) plus the
+38-patch **P60 block** (52-89), a port and retune of [Mrinohk/qwen36-p100-patches](https://github.com/Mrinohk/qwen36-p100-patches)
 and [qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp) work for the same cards. Other branches
-and tags are other refs: `git tag -l` lists `v0.6.0`, `v0.7.0`, `v0.8.0` and the prerelease line `b11601`.
+and tags are other refs: `git tag -l` lists `v0.6.0`, `v0.7.0`, `v0.8.0`, `v0.9.0` and the prerelease
+line `b11601`.
 
 ## What you get
 
 3x Tesla P100-PCIE-16GB at **160 W**, CUDA 12.4, `-fa on -t 28 -ub 2048`, llama-bench, two cards unless
-stated. `stock` rows and the `v0.8.0`-era rows of this set come from the three-arm session of 2026-10-30
-([docs/results.md](docs/results.md)); the last column is the 78-patch build measured the same day against
-the 74-patch one, so a 4-patch delta cannot hide inside a session change:
+stated. These are the `v0.9.0` rows, measured 2026-11-04 with four arms in one session
+([docs/results.md](docs/results.md)): stock and this set at `v0.9.0`, and stock and this set at `v0.8.0`
+beside them, so a release delta and a port delta cannot be confused for each other.
 
-| model | split | stock pp512 / tg128 | this set pp512 / tg128 |
+| model | split | stock v0.9.0 pp512 / tg128 | this set v0.9.0 pp512 / tg128 |
 |---|---|---:|---:|
-| Cyber-Tiel-Coder-35B-A3B MTP UD-Q4_K_XL (MoE) | `-sm layer` | 488.75 / 58.34 | **1075.38 / 119.89** (+120% / +105%) |
-| | `-sm tensor` | 767.96 / 59.78 | **1600.59 / 87.13** (+108% / +46%) |
-| | `-sm layer`, 3 cards | - | 1077.12 / 118.83 |
-| Qwen3.8-27B UD-Q4_K_M (dense) | `-sm tensor` | 230.10 / 20.99 | 382.82 / 30.01 (+66% / +43%) |
-| | `-sm layer` | 143.80 / 13.21 | 208.82 / 18.52 (+45% / +40%) |
+| Cyber-Tiel-Coder-35B-A3B MTP UD-Q4_K_XL (MoE) | `-sm layer` | 488.68 / 58.21 | **1068.89 / 119.07** (+120% / +105%) |
+| | `-sm tensor` | 766.44 / 59.65 | **1579.41 / 85.79** (+106% / +44%) |
+| Qwen3.8-27B UD-Q4_K_M (dense) | `-sm tensor` | 230.35 / 20.94 | 377.18 / 29.78 (+64% / +42%) |
+| | `-sm layer` | 144.12 / 13.20 | 206.67 / 18.44 (+43% / +40%) |
 
-Speculative decode with the model's own MTP head (`--spec-type draft-mtp`, 4 slots): **99.43 t/s**
-against 79.04 with the last two switches turned off and the same draft acceptance. Every number above is
-a mean over interleaved rounds with the cards cooled between runs; sessions, flags and raw rows are in
-[docs/results.md](docs/results.md).
+The move from `v0.8.0` to `v0.9.0` is neutral on both sides: stock `v0.9.0` is within 0.4% of stock
+`v0.8.0` on every cell, and this set within 0.3% of its own `v0.8.0` build - which is what a rebase is
+supposed to look like. Three-card rows and the `v0.8.0` session are in
+[docs/results.md](docs/results.md); speculative decode with the model's own MTP head
+(`--spec-type draft-mtp`, 4 slots) measured **99.43 t/s** against 79.04 with the two switches turned off,
+on the `v0.8.0` build of this set. Every number above is a mean over interleaved rounds with the cards
+cooled between runs.
 
 ## Use it
 
 ```sh
-./scripts/patch-llama.sh ~/llama.cpp-patched --build      # clone v0.8.0, apply 78 patches, build for sm_60
+./scripts/patch-llama.sh ~/llama.cpp-patched --build      # clone v0.9.0, apply 78 patches, build for sm_60
 ```
 
 The script checks out the tag this set is maintained against, refuses to touch the tree if the commit
@@ -48,7 +51,7 @@ and stops at the first failure. Add `--check` to test the apply without leaving 
 `--ref` / `--commit` if you are deliberately aiming at another tree. By hand it is three commands:
 
 ```sh
-git clone --branch v0.8.0 --depth 1 https://github.com/ggml-org/llama.cpp && cd llama.cpp
+git clone --branch v0.9.0 --depth 1 https://github.com/ggml-org/llama.cpp && cd llama.cpp
 for p in /path/to/this/repo/patches/*.patch; do patch -p1 -F0 < "$p" || break; done
 cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=60 -DGGML_NATIVE=ON -DGGML_NCCL=OFF -DGGML_CUDA_NCCL=OFF
 ```
@@ -101,8 +104,13 @@ Each one has a way back, and [docs/patches.md](docs/patches.md) lists the sub-sw
   all. Measure before using any of them on Turing and later.
 - **One box.** 2 and 3 P100s at 160 W. Nothing has been run on four cards, and patch 49's N-way reduce
   was validated by its author on virtual devices before it ran on three real ones.
-- **No correctness suite has been run.** `test-backend-ops` has never been pointed at these trees, and
-  no perplexity number sits beside most of these gains. Verification here is throughput, output hashing,
+- **The correctness suite is now run, and it says nothing changed.** `test-backend-ops` at `v0.9.0`, one
+  op at a time on both arms: 130 ops, **14,822 passing cases on each**, zero rows where the arms differ
+  (`FLASH_ATTN_EXT` 4041/4041, `MUL_MAT_ID` 932/932, `SET_ROWS` 160/160, `GATED_DELTA_NET` 44/44). The one
+  crash is upstream's, not ours: `MUL_MAT(type_a=q4_K, m=8192, n=9, k=512, per=[0,1,2,3])` aborts on
+  `GGML_ASSERT(convert_func != nullptr)` on a Pascal card in stock `v0.9.0`, and did so in stock `v0.8.0`
+  at its own line 1516 - which is why the suite has to be driven op by op, or that one case ends the run.
+  No perplexity number sits beside most of these gains; verification is still throughput, output hashing,
   logit KLD and reading the graph.
 - One patch self-limits: 22 disables itself under `-sm tensor` (it conflicts with the meta backend), so
   the `-sm tensor` rows above are the set minus 22. Single-card rows include it.
@@ -126,8 +134,16 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
 
 ## Status of this branch
 
-All 40 of ours and the 38-patch P60 block are regenerated against llama.cpp `v0.8.0` (`8642541b2`) and
-verified by clean-room apply: a fresh clone plus these 78 files at `-F0` gives 0 rejects, 52 files
-changed, and a tree byte-identical to the one every number above was measured on - which is what
+All 40 of ours and the 38-patch P60 block are regenerated against llama.cpp `v0.9.0` (`cd959bae9`,
+b12110) and verified by clean-room apply: a fresh clone plus these 78 files at `-F0` gives 0 rejects, 52
+files changed, and a tree byte-identical to the one every number above was measured on - which is what
 `./scripts/patch-llama.sh --check` runs. Both stock and patched trees have been built at `sm_60` under
 CUDA 12.4 and run on the cards.
+
+Nothing was deleted at this ref: every patch either moved or stayed where it was. Four needed real
+authoring rather than a re-cut - **31** (the f16 KV chunk, against upstream's new `kv_rows` multi-sequence
+path), **59** and **83** (the MoE expert-tile rule, under the new `RDNA4_M` clause in the same `if`), and
+**77** (the exact-verify attention branch, now beside `flash_attn_ext_rows`). Six more - 80 and 85-89 -
+were cascade rejects that applied unchanged once their prerequisites landed. 31 is also the one that
+taught the build gate its job: it applied at zero fuzz and zero offset and then failed to compile,
+because the kernel it launches had grown a parameter.

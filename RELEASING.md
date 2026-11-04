@@ -120,6 +120,10 @@ g++ -fsyntax-only -std=c++17 -D_GNU_SOURCE \
   src/llama-model.cpp src/llama-sampler.cpp src/models/qwen4exp.cpp tests/test-backend-ops.cpp
 ```
 
+Add `-I<build>/src` for `src/llama.cpp`: it includes the generated `llama-version.h`, which exists only
+under the build directory. Without it that one file fails for a reason that has nothing to do with the
+patches, and the easy wrong conclusion is that the set is broken.
+
 Do not skip this because "the patches applied". A hunk that matches identical context in two places
 lands in the first one, and `-F0` is perfectly content with that: on `v0.6.0` a `models.h` edit
 intended for `llama_model_qwen4exp::graph` landed in `llama_model_qwen35::graph`, which upstream had
@@ -130,10 +134,38 @@ uncalled by the second one.
 
 **Identifier sweep.** Grep the patches for every `llama_*` / `ggml_*` / `GGML_*` name they use and
 confirm each still resolves in the patched tree. Renames produce exactly this failure: applies
-cleanly, references something that no longer exists.
+cleanly, references something that no longer exists. Two ways to get this gate wrong, both met on the
+`v0.9.0` port:
 
-Then, on the hardware: `test-backend-ops` full run, and `llama-bench` with both arms per
+- **`git grep` cannot see the tree a clean-room apply produces.** The files a patch *creates* are
+  untracked there, so every kernel and env switch the P60 block adds reads as a missing identifier -
+  20 phantom misses, then 394 of them once the pattern was also wrong. Grep the directory (`grep -r`),
+  not the index.
+- **GNU `grep -E` has no `(?:…)` groups.** `\b(?:llama|ggml)_[a-z0-9_]+\b` under `-E` is not what it
+  looks like: `(` is a literal and `?` quantifies it, so the alternation quietly degrades and the
+  `llama_*` half matches nothing. Plain `(...)` groups, or `-P`.
+- One legitimate miss is expected in a set this size: a patch that introduces a switch and a later
+  patch that deletes the code using it. `GGML_CUDA_P60_MEGA_GRAPHS` is introduced by 85 and removed by
+  86, so it resolves nowhere while both are applied. Read the sweep's output, do not just require zero.
+
+**The build is a gate, not a formality.** A patch can apply at zero fuzz and zero offset, with
+byte-exact context, and still be wrong in a way only nvcc sees, because the *thing it calls* changed
+shape. Patch 31 launches `flash_attn` and v0.9.0 gave that kernel a `kv_rows` parameter: the chunk
+path's launch kept the v0.8.0 argument list, so the call bound one argument short and every template
+instantiation of `launch_fattn` failed - in `fattn-mma-f16.cuh` and `fattn.cu`, three files away from
+the line the patch touched. Gates 1-3 pass it; only the compile catches it, and only if the build is
+run *before* the cards.
+
+Then, on the hardware: `test-backend-ops` and `llama-bench` with both arms per
 [benchmarks/README.md](benchmarks/README.md).
+
+**`test-backend-ops` has to be driven one op at a time.** At `v0.9.0` stock aborts on a Pascal card
+partway through `MUL_MAT` (`type_a=q4_K, m=8192, n=9, k=512, per=[0,1,2,3]` reaches
+`GGML_ASSERT(convert_func != nullptr)` in `ggml-cuda.cu`) - the same case, at its own line 1516, in
+stock `v0.8.0`. A single-suite run therefore ends there and tells you nothing about the 129 ops after
+it. Run `-b CUDA0 -o <OP>` per op from `--list-ops`, both arms, and compare the per-op
+pass/fail/crash counts: an abort becomes a row instead of an ending. The stock arm is not optional -
+without it, an upstream gap on the card looks exactly like a port defect.
 
 ## Dropping a single patch
 
