@@ -10,6 +10,128 @@ Every patch carries its measurement in the comments it adds to the source, and
 [patches.md](patches.md) is the index: per patch, the scope tag, the effect, the kill
 switch, what it changes about the output, and the alternatives that were tried and rejected.
 
+### Shipped default - 2026-11-04 (later), `v0.9.0`, 78 patches with 24 switched off - **reproducible**
+
+_Supersedes the four-arm section below it on `main`. Tag `v0.9.0` remains the set as ported, with patch 24
+on; this section is what the branch ships now, and the difference is one default and about 1% of decode._
+
+The port passed every gate and the published suite, and one thing about it was still wrong: the same
+binary, the same flags and the same corpus did not give the same logits twice. Nothing above caught it —
+throughput does not ask for a repeat, and `test-backend-ops` compares one run against the CPU reference.
+The instrument that does ask is now `benchmarks/det-logits.sh`: `llama-perplexity --save-all-logits` over a
+fixed corpus in two batch shapes, digesting each dump with the 64-byte header kept apart from the body
+(the tool writes a raw `_logits_` image, not a GGUF, despite the extension). Greedy text cannot stand in
+for this: an argmax hides everything under the top-two margin, and `llama-cli` prints its timing block on
+stdout, which is how the first version of this probe reported three different digests for three runs of the
+*reference* arm.
+
+**The failure, and where it was.** Cyber-Tiel 35B MoE, `-sm layer`, 4-token chunks: three runs of the
+shipped default, three digests, PPL 8.7479 / 8.8737 / 8.6983 on identical input. The 512-token prefill
+shape repeated itself exactly. Fourteen arms of one kill switch each, three runs per arm, later the same
+build with the switch off:
+
+| arm | result |
+|---|---|
+| default (patch 24 on) | 3 digests |
+| block off (`MMVQ=0 MEGA=0`) | 3 digests - so not the P60 block |
+| graphs off | 3 digests |
+| prefetch, weight-prefetch, split-cap, dec-slots, PDL, GDN-beta, concat-gather, cpy/l2 fuse, top-k | 3 digests each |
+| **`GGML_CUDA_DISABLE_FUSE_GDN_GATHER=1` (patch 24)** | **1 digest, 3 runs** |
+| stock `v0.9.0`, 3 runs | 1 digest |
+| stock `v0.8.0`, 3 runs | 1 digest, and the same digest as stock `v0.9.0` |
+
+So it is patch 24's deferred state gather, it is not the block, not graphs, not the card, and it behaves
+identically at `v0.8.0` — where it shipped for two releases. With the fold off, `v0.9.0` and `v0.8.0` land
+on one digest (`325e9d6471ad0608`), which is the clearest evidence that the fold, and only the fold, moves
+the answer. The mechanism is still open: the fold defers a node to a consumer up to 64 places down the
+graph, and its safety check is a bounded scan for readers in between. `--tool racecheck`, not memcheck, is
+the next probe.
+
+**What switching it off costs.** WikiText-2 (`scripts/get-wikitext-2.sh`, 1.29 MB), `-c 2048 --chunks 8`,
+two cards, 160 W, fold on and fold off in the same binary:
+
+| arm | `-sm layer` | `-sm tensor` |
+|---|---:|---:|
+| stock | 6.6455 ± 0.198 | 6.6867 ± 0.200 |
+| fold on (2 runs) | 6.5905 ± 0.196 | 6.5894 ± 0.196 |
+| fold off (2 runs) | 6.5905 ± 0.196 | 6.5894 ± 0.196 |
+
+Identical to the last digit printed. Throughput, `llama-bench -r 3`, fold on minus fold off:
+
+| config | pp512 | tg128 |
+|---|---:|---:|
+| 35B MoE `-sm layer` | -0.1% | -0.2% |
+| 35B MoE `-sm tensor` | +0.2% | **-1.9%** |
+| 27B dense `-sm layer` | -0.5% | -1.0% |
+| 27B dense `-sm tensor` | -0.8% | -0.9% |
+
+and on the MTP path (`llama-server --spec-type draft-mtp --spec-draft-n-max 5`, two passes over three
+prompts, means): 126.15 t/s with the fold off against 130.19 with it on at the short prompt, 81.05 against
+84.33 at the long ones - about 3%, with the same draft acceptance (143/235) and 0 CUDA-error lines in every
+arm. Two honest caveats on that figure: the pass-to-pass spread inside each arm is 1.7-3.2% (the second
+pass is consistently the faster one), so the fold's MTP gain is the same size as the noise; and the fold-on
+numbers come from the configuration this section is about not shipping.
+
+**Block liveness at `v0.9.0`, before the flip.** Same build as the tagged rows (patch 24 still on), one
+binary, two switches: `GGML_CUDA_P60_MMVQ=0 GGML_CUDA_P60_MEGA=0` against nothing exported. `-p 512 -n 128
+-ub 2048 -fa on -t 28/-t 42`, 3 reps, pp512 / tg128 means:
+
+| config | block off | block on | the block alone |
+|---|---:|---:|---:|
+| 35B MoE `-sm layer`, 2 cards | 503.76 / 69.50 | 1080.04 / 120.37 | +114% / +73% |
+| 35B MoE `-sm tensor`, 2 cards | 843.37 / 80.61 | 1600.39 / 87.12 | +90% / +8% |
+| 35B MoE `-sm layer`, 3 cards | 503.10 / 68.99 | 1080.23 / 117.68 | +115% / +71% |
+| 35B MoE `-sm tensor`, 3 cards | 848.61 / 82.61 | 1601.08 / 86.02 | +89% / +4% |
+| 27B dense `-sm tensor`, 2 cards | 388.78 / 29.71 | 379.93 / 29.88 | -2.3% / +0.6% |
+| 27B dense `-sm layer`, 2 cards | 206.12 / 18.23 | 207.51 / 18.48 | +0.7% / +1.4% |
+
+The dense rows are the README's claim that the matchers refuse a model they were not written for, measured
+rather than assumed: the block neither helps nor hurts the 27B beyond noise, and the third card is worth
+nothing on this MoE in either split. On the speculative path the block is worth more than it looks in the
+plain decode rows: with MTP enabled and the fold off, 126.15 t/s against 76.25 with `MMVQ=0 MEGA=0` at the
+short prompt and 81.55 against 59.82 at the long ones - +65% and +36%, with a different acceptance profile
+(143/235 against 137/266), which is what a different arithmetic path should give, and 0 CUDA-error lines in
+every arm including graphs-on.
+
+With the stock arm rebuilt at its new path the same three prompts have a reference: stock `v0.9.0` with
+`--spec-type draft-mtp` runs 62.21 t/s at the short prompt and 48.94 at the long ones (two passes, 61.01 /
+63.41 and 47.97-47.93 / 49.93, acceptance 139/259 and 121/342 / 124/329, 0 CUDA-error lines). Against that,
+the shipped build is +103% and +67% on the speculative path - and that gap is bigger than the plain decode
+rows suggest, because speculation gives the persistent 2..6-token halves work to do on every step.
+
+**The new default, measured as shipped.** Stock `v0.9.0` against `main` as it stands, two cards, 160 W,
+
+3 interleaved rounds, cooled below 45 C between blocks, nothing exported. Raw rows:
+`v0.9.0-p24off-160w-p100x2-*.csv`.
+
+| config | stock pp512 / tg128 | this set pp512 / tg128 | gain |
+|---|---:|---:|---:|
+| 27B dense `-sm tensor` | 229.68 / 20.97 | 378.90 / 29.67 | +65.0% / +41.5% |
+| 27B dense `-sm layer` | 144.13 / 13.23 | 207.53 / 18.34 | +44.0% / +38.7% |
+| 35B MoE `-sm tensor` | 765.75 / 57.37 | 1580.89 / 84.36 | +106.5% / +47.1% |
+| 35B MoE `-sm layer` | 488.86 / 58.19 | 1068.87 / 118.97 | +118.7% / +104.4% |
+
+Against the tagged build's own rows above, this costs 0.1-0.5% of decode on three configs and 1.7% on the
+MoE tensor split, and nothing on prefill. `benchmarks/det-logits.sh` on this build: verify shape default ×3
+and graphs-off all `325e9d6471ad0608`; prefill ×2 and graphs-off all `d43b5b42a7248028`; four PASS lines.
+
+**Another file, same family, checked in passing.** `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` UD-Q4_K_XL, 2 cards,
+160 W, three rounds each arm: stock 496.62 / 58.34 (pp512 / tg128, `-sm layer`) against this set 1087.74 /
+120.68, and 775.29 / 60.48 against 1608.66 / 87.08 at `-sm tensor` - the same shape of result as the
+Cyber-Tiel file, slightly ahead of it, which is not surprising: that file reports
+`general.name = Huihui Ornith 1.5 35B A3B Abliterated` and the same `qwen35moe` architecture, 256 experts,
+8 used, 2048 hidden, 512 expert FFN. With `GGML_CUDA_P60_MEGA_DEBUG=1` the trace shows 120 GDN matches and
+16 refusals, 12 at the matcher's conv/GDN gate (`ggml-cuda.cu:4522`, the every-fourth-layer attention
+layers) and 4 at its unknown-op default (4998) - refusals by design, not port damage.
+
+**Not recorded here.** 3-card rows for the new default - the liveness table is 3-card for the MoE, on the
+previous build. The stock MTP row is single-model and single-prompt-set: `draft-mtp` at `v0.9.0` was not
+measured on the Qwen3.6 file, only on the Cyber-Tiel one. And one box lesson worth writing down: `fix-rpath.sh`
+makes a moved build *run*, not *rebuild* - CMake caches absolute paths, so a renamed tree needs a fresh
+`cmake -S ... -B ...` before `cmake --build` will touch it again. No perplexity for the P60 block on
+the dense 27B (the WikiText-2 rows are the MoE), and the patch 24 race itself is still undiagnosed - the
+bisect says which patch, not which instruction.
+
 ### Scripted - 2026-11-04, `v0.9.0`, 78 patches - **the rebase, both releases in one session**
 
 llama.cpp `v0.9.0` = `cd959bae9` (b12110) and `v0.8.0` = `8642541b2` (b11960), each built twice: stock,
