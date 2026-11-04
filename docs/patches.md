@@ -1234,7 +1234,8 @@ input directly too.
 The `GET_ROWS` is ten nodes ahead, so this adds a mechanism to defer a node's
 execution and fold it into its consumer. Disabled when concurrent streams are
 in use, where reordering is unsafe.
-Switch: `GGML_CUDA_FUSE_GDN_GATHER=1`. Off by default since 2026-11-04 (after tag `v0.9.0`) - the old opt-out `GGML_CUDA_DISABLE_FUSE_GDN_GATHER` is gone.
+Switch: `GGML_CUDA_FUSE_GDN_GATHER=1`. Off by default since 2026-11-04, after `v0.9.0` was first
+tagged and then re-pointed to include the flip - the old opt-out `GGML_CUDA_DISABLE_FUSE_GDN_GATHER` is gone.
 
 **Why it is off now.** With the fold on, three identical runs of one binary, one corpus and one set of flags give three different logits digests in 2-6 token batches - PPL 8.70 to 8.87 between runs of the same thing (`benchmarks/det-logits.sh`). Stock repeats itself in that shape, at `v0.8.0` and `v0.9.0`, and so does this build with the fold off; both of the stable ones land on one digest across the two refs. What the fold was buying: nothing measurable on WikiText-2 perplexity (6.5905 with it, 6.5905 without, `-sm layer`; 6.5894 both ways, `-sm tensor`) and at most 1.9% of decode, on one config out of four. A 1% gain is not worth shipping answers that move between runs.
 

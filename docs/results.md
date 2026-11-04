@@ -12,8 +12,10 @@ switch, what it changes about the output, and the alternatives that were tried a
 
 ### Shipped default - 2026-11-04 (later), `v0.9.0`, 78 patches with 24 switched off - **reproducible**
 
-_Supersedes the four-arm section below it on `main`. Tag `v0.9.0` remains the set as ported, with patch 24
-on; this section is what the branch ships now, and the difference is one default and about 1% of decode._
+The section below it is the port as first tagged, with patch 24 on. The flip landed after that, and
+`v0.9.0` was then force-moved to this state, so the tag and `main` agree from here on - and the one
+honest cost of a moved tag is that a clone taken while `v0.9.0` pointed at `fe9dd4b` has the fold on.
+The difference between the two is one default and about 1% of decode.
 
 The port passed every gate and the published suite, and one thing about it was still wrong: the same
 binary, the same flags and the same corpus did not give the same logits twice. Nothing above caught it —

@@ -159,7 +159,9 @@ were cascade rejects that applied unchanged once their prerequisites landed. 31 
 taught the build gate its job: it applied at zero fuzz and zero offset and then failed to compile,
 because the kernel it launches had grown a parameter.
 
-After the `v0.9.0` tag went out, `24` was changed from default-on to opt-in for the reproducibility
-reason above, and every patch above it was re-cut at exact context (`land.sh` at 24, then the sweep,
-then the four hand-ports again in numeric order). Tag `v0.9.0` is the set as ported; `main` is that set
-with patch 24 off by default, gated and measured again.
+After the first `v0.9.0` tag went out, `24` was changed from default-on to opt-in for the
+reproducibility reason above, and every patch above it was re-cut at exact context (`land.sh` at 24,
+then the sweep, then the four hand-ports again in numeric order), gated and measured again. The tag was
+then force-moved to that state, so `v0.9.0` and `main` are the same 78 files today. What that costs is
+stated plainly: the tag pointed at `fe9dd4b` - patch 24 on - for about forty minutes, and a clone made
+in that window is not a clone of what is tagged now. `git fetch --tags --force` to find out.
