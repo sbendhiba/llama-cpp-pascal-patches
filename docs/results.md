@@ -10,6 +10,67 @@ Every patch carries its measurement in the comments it adds to the source, and
 [patches.md](patches.md) is the index: per patch, the scope tag, the effect, the kill
 switch, what it changes about the output, and the alternatives that were tried and rejected.
 
+### Scripted - 2026-11-08, `b12211`, 76 patches - **the port, and the regression the trace caught**
+
+llama.cpp `b12211` = `7d7f028`, 101 commits past `v0.9.0`. Three arms: stock `b12211`, this set at
+`b12211`, and this set at `v0.9.0` beside them so the release drift and the port delta are not read
+out of two sessions. Two cards, 160 W, `-fa on -t 28 -ub 2048 -n 128`, 3 interleaved rounds, cooled
+below 45 C between blocks, nothing exported. Raw rows: `b12211-160w-p100x2-*.csv`; the rows taken
+*before* the patch 64 fix below are kept as `b12211-160w-before-gdnfix-*`.
+
+| config | stock b12211 | this set b12211 | this set v0.9.0 | gain over stock |
+|---|---:|---:|---:|---:|
+| 27B dense `-sm tensor` pp512 / pp2048 / tg128 | 230.15 / 377.05 / 20.95 | 378.16 / 419.87 / 29.61 | 377.50 / 419.35 / 29.59 | +64.3% / +11.4% / +41.3% |
+| 27B dense `-sm layer` pp512 / pp2048 / tg128 | 144.30 / 224.77 / 13.22 | 207.41 / 227.30 / 18.32 | 207.31 / 227.15 / 18.34 | +43.7% / +1.1% / +38.6% |
+| 35B MoE `-sm tensor` pp512 / tg128 | 989.23 / 58.86 | 1565.70 / 84.65 | 1579.12 / 84.38 | +58.3% / +43.8% |
+| 35B MoE `-sm layer` pp512 / tg128 | 658.04 / 58.19 | 1060.92 / 119.22 | 1072.33 / 119.15 | +61.2% / +104.9% |
+
+**Read the prefill gain carefully: it fell because upstream got faster, not because the set got
+slower.** Stock `b12211` runs the MoE prefill at 658.04 (`layer`) and 989.23 (`tensor`) against
+`v0.9.0`'s 488.72 and 766.34 - +34.6% and +29.1% from upstream alone, which is #31047's linearized
+MoE layout plus the expert-tile rule that used to be our patch 59 and is now unconditional. This set's
+own prefill numbers are unchanged within noise (1060.92 against 1072.33, sd 6.68; 1565.70 against
+1579.12), so the *ratio* drops from +119% to +61% while the absolute throughput does not. Decode is
+flat across the ref on all four configs, the largest move being 0.3%.
+
+**The regression, and how it was found.** The first session at this ref put MoE `layer` decode at
+**95.59** against `v0.9.0`'s 118.97 - a 19.7% loss - with prefill and the dense model unchanged. Every
+apply gate was green: 76 patches at zero fuzz and zero offset, tree byte-identical, syntax clean,
+build clean, and `test-backend-ops` identical on both arms. What caught it was the matcher trace:
+`GGML_CUDA_P60_MEGA_DEBUG=1` logged **zero** `p60-gdn-match` lines where `v0.9.0` logs 120, and 12
+refusals at the GDN half's snapshot gate.
+
+The cause is upstream `040ce19` (#31660), which moved the conv-state store into
+`llm_graph_context::build_conv_state_store` and dropped the `cb()` that named the no-rollback view
+`conv_state_last`. Patch 64's collector recognised that copy *by name*; unnamed, the same `CPY` fell
+through to the next branch - "a VIEW of `conv_input`" - and was filed as a rollback snapshot.
+`n_cs_snap` became 1, the snapshot branch demanded `n_cs_snap == K` with `K >= 2`, and every
+linear-attention layer refused. The contract itself had not moved: the copy is still the last 3
+columns of `conv_input` into one cell, `3*8192` elements, offset `T` floats. So the fix recognises it
+by shape instead of by name (a rollback window is a 4-D view feeding `SET_ROWS`, never a `CPY`, so
+the two cannot be confused). After it: 120 `p60-gdn-match` lines and 16 refusals, exactly the
+`v0.9.0` pattern, and decode back to 119.22.
+
+This is the patch-08 failure mode in a new costume - a patch that applies, compiles, passes the ops
+suite and does nothing - and the only instrument that saw it was the matcher trace beside a
+throughput row from the previous ref. It is the reason the session keeps the previous release's
+patched arm in it.
+
+**Correctness and reproducibility, re-taken on the fixed build** (the first run of these two was on
+the build whose GDN half was refusing, so its PASS lines described a configuration that is not the
+one being shipped): `test-backend-ops` per op, 130 ops, **15,197 passing cases on each arm, zero rows
+where the arms differ**; the one crash is still upstream's `MUL_MAT` `q4_K`/`per=[0,1,2,3]`
+`convert_func` assert on a card with no DP4A. `benchmarks/det-logits.sh`: verify shape default x3 and
+graphs-off all `325e9d6471ad0608`, prefill x2 and graphs-off all `d43b5b42a7248028`, four PASS - and
+those are the *same digests* `v0.9.0` produces, so the port is bit-identical to the previous release
+on both shapes with the persistent halves actually running.
+
+**Still open at this ref.** The rollback/MTP conv-state store is now one `SET_ROWS` of overlapping
+windows with a per-layer slot order, where the GDN half's snapshot branch expects `K` separate
+copies; that path (`K > 1`, i.e. `--spec-type draft-mtp`) still refuses and needs its own re-target.
+The MTP numbers are therefore *not* carried over from `v0.9.0` and have not been re-measured here.
+No 3-card rows at this ref. Patch 24 stays opt-in, unchanged from `v0.9.0`.
+
 ### Shipped default - 2026-11-04 (later), `v0.9.0`, 78 patches with 24 switched off - **reproducible**
 
 The section below it is the port as first tagged, with patch 24 on. The flip landed after that, and

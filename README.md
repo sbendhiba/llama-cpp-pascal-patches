@@ -10,38 +10,47 @@ GP100 is the reason any of this exists. Alone among Pascal chips it has no `DP4A
 instruction the card is genuinely good at goes unused. The rest is what the last two years of llama.cpp
 made possible: a fused norm, deferred gathers, CUDA graphs, speculative decoding with an MTP head.
 
-This branch is the **`v0.9.0`** set - **78 patches** against llama.cpp `cd959bae9` (b12110): 40 we carry
-(of which 10 are Pascal-gated, 29 are hardware-neutral, one changes a constant every GPU sees) plus the
-38-patch **P60 block** (52-89), a port and retune of [Mrinohk/qwen36-p100-patches](https://github.com/Mrinohk/qwen36-p100-patches)
-and [qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp) work for the same cards. Other branches
-and tags are other refs: `git tag -l` lists `v0.6.0`, `v0.7.0`, `v0.8.0`, `v0.9.0` and the prerelease
-line `b11601`.
+This branch is the **`b12211`** set - **76 patches** against llama.cpp `7d7f028` (b12211, 101 commits
+past `v0.9.0`): 39 we carry (of which 10 are Pascal-gated, 28 are hardware-neutral, one changes a
+constant every GPU sees) plus the 37-patch **P60 block** (52-89), a port and retune of
+[Mrinohk/qwen36-p100-patches](https://github.com/Mrinohk/qwen36-p100-patches) and
+[qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp) work for the same cards. Two patches went
+at this ref because upstream made them unnecessary: **59** (the MoE expert-tile rule is now
+unconditional in `mmq.cu`) and **32** (upstream added its own split-input prefetch, with the same field
+names). Other branches and tags are other refs: `git tag -l` lists `v0.6.0`, `v0.7.0`, `v0.8.0`,
+`v0.9.0` and the prerelease line `b11601`; this branch is `b12211`.
 
 ## What you get
 
 3x Tesla P100-PCIE-16GB at **160 W**, CUDA 12.4, `-fa on -t 28 -ub 2048`, llama-bench, two cards unless
-stated. These are `main` as it stands: the `v0.9.0` port with patch 24 opt-in. Measured 2026-11-04
-against stock `v0.9.0` in one session with the arms interleaved ([docs/results.md](docs/results.md));
-the four-arm session that put `v0.8.0` stock and patched beside them, so a release delta and a port
-delta cannot be confused for each other, is the section above that flip.
+stated. Measured 2026-11-08 with three arms in one session - stock `b12211`, this set at `b12211`, and
+this set at `v0.9.0` beside them, so a release delta and a port delta are not read out of two sessions
+([docs/results.md](docs/results.md)).
 
-| model | split | stock v0.9.0 pp512 / tg128 | this set pp512 / tg128 |
+| model | split | stock b12211 pp512 / tg128 | this set pp512 / tg128 |
 |---|---|---:|---:|
-| Cyber-Tiel-Coder-35B-A3B MTP UD-Q4_K_XL (MoE) | `-sm layer` | 488.86 / 58.19 | **1068.87 / 118.97** (+119% / +104%) |
-| | `-sm tensor` | 765.75 / 57.37 | **1580.89 / 84.36** (+106% / +47%) |
-| Qwen3.8-27B UD-Q4_K_M (dense) | `-sm tensor` | 229.68 / 20.97 | 378.90 / 29.67 (+65% / +42%) |
-| | `-sm layer` | 144.13 / 13.23 | 207.53 / 18.34 (+44% / +39%) |
+| Cyber-Tiel-Coder-35B-A3B MTP UD-Q4_K_XL (MoE) | `-sm layer` | 658.04 / 58.19 | **1060.92 / 119.22** (+61% / +105%) |
+| | `-sm tensor` | 989.23 / 58.86 | **1565.70 / 84.65** (+58% / +44%) |
+| Qwen3.8-27B UD-Q4_K_M (dense) | `-sm tensor` | 230.15 / 20.95 | 378.16 / 29.61 (+64% / +41%) |
+| | `-sm layer` | 144.30 / 13.22 | 207.41 / 18.32 (+44% / +39%) |
 
-The move from `v0.8.0` to `v0.9.0` is neutral on both sides: stock `v0.9.0` is within 0.4% of stock
-`v0.8.0` on every cell, and this set within 0.5% of its own `v0.8.0` build - which is what a rebase is
-supposed to look like. Switching patch 24 off after the tag costs up to 1.7% of decode (MoE tensor) and
-0.5% or less everywhere else, and nothing on prefill. Three-card rows are in
-[docs/results.md](docs/results.md).
+**The MoE prefill percentage fell because upstream got faster, not because this set got slower.**
+Stock `b12211` prefill is 658 / 989 against `v0.9.0`'s 489 / 766 (+35% / +29%, from #31047's
+linearized MoE layout and the expert-tile rule that used to be patch 59); this set's own prefill is
+unchanged within noise, so the ratio drops from +119% to +61% at the same absolute throughput.
+Decode is flat across the ref on all four configs. Against its own `v0.9.0` build this set is within
+1.1% on every cell, and `benchmarks/det-logits.sh` gives the *same* logits digests as `v0.9.0` on both
+batch shapes - four PASS, with the persistent halves actually running.
+
+One path is not carried over yet: the rollback/MTP conv-state store became a single `SET_ROWS` at
+this ref (#31660), and the GDN half's snapshot branch still expects `K` separate copies, so
+`--spec-type draft-mtp` refuses those layers. The `v0.9.0` MTP numbers do not apply here and have not
+been re-measured. Three-card rows are in [docs/results.md](docs/results.md).
 
 ## Use it
 
 ```sh
-./scripts/patch-llama.sh ~/llama.cpp-patched --build      # clone v0.9.0, apply 78 patches, build for sm_60
+./scripts/patch-llama.sh ~/llama.cpp-patched --build      # clone b12211, apply 76 patches, build for sm_60
 ```
 
 The script checks out the tag this set is maintained against, refuses to touch the tree if the commit
@@ -50,7 +59,7 @@ and stops at the first failure. Add `--check` to test the apply without leaving 
 `--ref` / `--commit` if you are deliberately aiming at another tree. By hand it is three commands:
 
 ```sh
-git clone --branch v0.9.0 --depth 1 https://github.com/ggml-org/llama.cpp && cd llama.cpp
+git clone --branch b12211 --depth 1 https://github.com/ggml-org/llama.cpp && cd llama.cpp
 for p in /path/to/this/repo/patches/*.patch; do patch -p1 -F0 < "$p" || break; done
 cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=60 -DGGML_NATIVE=ON -DGGML_NCCL=OFF -DGGML_CUDA_NCCL=OFF
 ```
@@ -128,7 +137,7 @@ Each one has a way back, and [docs/patches.md](docs/patches.md) lists the sub-sw
 ## Where things live
 
 ```
-patches/            78 .patch files, applied in numeric order (52-89 are the P60 block)
+patches/            76 .patch files, applied in numeric order (52-89 are the P60 block)
 scripts/patch-llama.sh   clone llama.cpp at the pinned ref, apply the set, optionally build
 docs/patches.md     per-patch index: scope, effect, kill switch, what it changes, dead ends
 docs/results.md     every session: trees, flags, power, raw rows - and the caveats in full
@@ -145,11 +154,12 @@ CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR look
 
 ## Status of this branch
 
-All 40 of ours and the 38-patch P60 block are regenerated against llama.cpp `v0.9.0` (`cd959bae9`,
-b12110) and verified by clean-room apply: a fresh clone plus these 78 files at `-F0` gives 0 rejects, 52
-files changed, and a tree byte-identical to the one every number above was measured on - which is what
-`./scripts/patch-llama.sh --check` runs. Both stock and patched trees have been built at `sm_60` under
-CUDA 12.4 and run on the cards.
+All 76 are regenerated against llama.cpp `b12211` (`7d7f028`) and verified by clean-room apply: a
+fresh clone plus these files at `-F0` gives 0 rejects and a tree byte-identical to the one reviewed
+patch by patch - which is what `./scripts/patch-llama.sh --check` runs. The host-side syntax check is
+clean on all eight non-CUDA translation units, 382 of 383 identifiers resolve (the one that does not is
+introduced by 85 and deleted by 86 in the same set), and both stock and patched trees are built at
+`sm_60` under CUDA 12.4 with NCCL off.
 
 Nothing was deleted at this ref: every patch either moved or stayed where it was. Four needed real
 authoring rather than a re-cut - **31** (the f16 KV chunk, against upstream's new `kv_rows` multi-sequence
@@ -159,9 +169,14 @@ were cascade rejects that applied unchanged once their prerequisites landed. 31 
 taught the build gate its job: it applied at zero fuzz and zero offset and then failed to compile,
 because the kernel it launches had grown a parameter.
 
-After the first `v0.9.0` tag went out, `24` was changed from default-on to opt-in for the
-reproducibility reason above, and every patch above it was re-cut at exact context (`land.sh` at 24,
-then the sweep, then the four hand-ports again in numeric order), gated and measured again. The tag was
-then force-moved to that state, so `v0.9.0` and `main` are the same 78 files today. What that costs is
-stated plainly: the tag pointed at `fe9dd4b` - patch 24 on - for about forty minutes, and a clone made
-in that window is not a clone of what is tagged now. `git fetch --tags --force` to find out.
+Five patches needed real authoring at this ref, not a re-cut: **33** (re-anchored standalone after 32
+was deleted, and now carrying the `sched_backend_is_cpu` helper 32 used to define), **35** (the MMVQ
+batch-size function was split upstream), **42** (the qwen4exp graph constructors lost their `model`
+parameter when it became a member of `llm_graph_context`), **71** (upstream's `mm_ids_helper` swapped
+its `bounds` output for a `tile_spec` list, so the port computes the prefix sums itself) and **83**
+(its `mmq.cu` hunk is dropped with 59). 71 is the one that applied at zero fuzz and zero offset and
+then failed to compile - the second time the build gate has caught what the apply gates cannot.
+
+Patch 24 stays opt-in here, for the reproducibility reason above; that decision was taken at `v0.9.0`
+and measured, and nothing at `b12211` changes it. The `v0.9.0` tag is that release - 78 files, patch 24
+off - and this branch is the next ref, not a revision of it.
