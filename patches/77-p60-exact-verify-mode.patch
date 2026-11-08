@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index 6b0db97..0ae5b17 100644
+index e5a8adc..1d3bb79 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
 @@ -316,6 +316,9 @@ static const char * cu_get_error_str(CUresult err) {
@@ -22,10 +22,10 @@ index 6b0db97..0ae5b17 100644
      std::string name;
      cudaEvent_t copy_event = nullptr;
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index a32f839..aa965ae 100644
+index b91de42..eaf5bc4 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -6494,6 +6494,15 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
+@@ -6531,6 +6531,15 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
  
      ggml_cuda_set_device(cuda_ctx->device);
  
@@ -42,10 +42,10 @@ index a32f839..aa965ae 100644
      // reuse for a different tensor, so it must not outlive the graph that filled it
      cuda_ctx->q8_1_cache_clear();
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index 4b6e676..7e0c57c 100644
+index 8da9b3c..d3bda26 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
-@@ -1856,6 +1856,27 @@ void ggml_cuda_mul_mat_vec_q(
+@@ -1857,6 +1857,27 @@ void ggml_cuda_mul_mat_vec_q(
      GGML_ASSERT(        dst->type  == GGML_TYPE_F32);
      GGML_ASSERT(!ids || ids->type  == GGML_TYPE_I32); // Optional, used for batched GGML_MUL_MAT_ID.
  
@@ -74,10 +74,10 @@ index 4b6e676..7e0c57c 100644
          return;
      }
 diff --git a/src/llama-context.cpp b/src/llama-context.cpp
-index fc7c5d6..29851c0 100644
+index 56926c8..578fd23 100644
 --- a/src/llama-context.cpp
 +++ b/src/llama-context.cpp
-@@ -1837,8 +1837,13 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+@@ -1838,8 +1838,13 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
      // in order to correctly reuse a graph, it's full topology has to be uniquely determined by these parameters
      const auto gparams = graph_params(res, ubatch, mctx, gtype);
  
@@ -92,7 +92,7 @@ index fc7c5d6..29851c0 100644
      }
  
      if (hit) {
-@@ -1876,6 +1881,16 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+@@ -1877,6 +1882,16 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
              return nullptr;
          }
  
@@ -109,7 +109,7 @@ index fc7c5d6..29851c0 100644
          if (!ggml_backend_sched_alloc_graph(sch, gf)) {
              // ggml_backend_sched_alloc_splits already re-reserves and retries once on its own, so
              // reaching here means this slot's compute buffer cannot be grown to fit; reserving
-@@ -1931,8 +1946,7 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+@@ -1932,8 +1947,7 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
                  LLAMA_LOG_ERROR("%s: failed to allocate graph\n", __func__);
                  ret = GGML_STATUS_ALLOC_FAILED;
                  return nullptr;
@@ -120,10 +120,10 @@ index fc7c5d6..29851c0 100644
          if (use_slot && dec_cur >= 0) {
              dec_slots[slot].valid = true;
 diff --git a/src/llama-graph.cpp b/src/llama-graph.cpp
-index edf1ca7..19c8900 100644
+index b38daca..b14aa8d 100644
 --- a/src/llama-graph.cpp
 +++ b/src/llama-graph.cpp
-@@ -3033,19 +3033,42 @@ ggml_tensor * llm_graph_context::build_attn_mha(
+@@ -3080,19 +3080,42 @@ ggml_tensor * llm_graph_context::build_attn_mha(
              v = ggml_cast(ctx0, v, GGML_TYPE_F16);
          }
  

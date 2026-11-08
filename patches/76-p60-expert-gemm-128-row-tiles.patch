@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/p60-moe-gemm.cu b/ggml/src/ggml-cuda/p60-moe-gemm.cu
-index 7918cef..3327e8f 100644
+index eaaedf6..13a4a4d 100644
 --- a/ggml/src/ggml-cuda/p60-moe-gemm.cu
 +++ b/ggml/src/ggml-cuda/p60-moe-gemm.cu
-@@ -60,26 +60,28 @@ __global__ void moe_jobs(const int32_t * __restrict__ bounds, int n_experts, int
+@@ -88,26 +88,28 @@ __global__ void moe_jobs(const int32_t * __restrict__ bounds, int n_experts, int
  
  // TYPE: GGML_TYPE_Q4_K (144 B / 256), GGML_TYPE_Q5_K (176 B / 256) or GGML_TYPE_Q6_K (210 B / 256)
  // BN: pairs per tile (64, 32 or 16: fewer when experts get few tokens, e.g. short prompts)
@@ -36,7 +36,7 @@ index 7918cef..3327e8f 100644
  #pragma unroll
          for (int j = 0; j < PPT; j++) acc[i][j] = 0.f;
  
-@@ -87,72 +89,75 @@ __global__ void __launch_bounds__(NTH, 2) moe_gemm_f16(const uint8_t * __restric
+@@ -115,72 +117,75 @@ __global__ void __launch_bounds__(NTH, 2) moe_gemm_f16(const uint8_t * __restric
      const int bpair = tid / TPP, bq = tid % TPP;    // activation loader: pair, KPT k-pairs
  
      for (int k0 = 0; k0 < K; k0 += BK) {
@@ -175,7 +175,7 @@ index 7918cef..3327e8f 100644
              }
          }
          {
-@@ -174,14 +179,16 @@ __global__ void __launch_bounds__(NTH, 2) moe_gemm_f16(const uint8_t * __restric
+@@ -202,14 +207,16 @@ __global__ void __launch_bounds__(NTH, 2) moe_gemm_f16(const uint8_t * __restric
              }
          }
          __syncthreads();
@@ -195,7 +195,7 @@ index 7918cef..3327e8f 100644
              half2 bh[PPT];
              if constexpr (PPT == 4) {
                  *(uint4 *) bh = *(const uint4 *) &BP[kp][4 * tx];
-@@ -190,14 +197,13 @@ __global__ void __launch_bounds__(NTH, 2) moe_gemm_f16(const uint8_t * __restric
+@@ -218,14 +225,13 @@ __global__ void __launch_bounds__(NTH, 2) moe_gemm_f16(const uint8_t * __restric
              } else {
                  bh[0] = BP[kp][tx];
              }
@@ -212,7 +212,7 @@ index 7918cef..3327e8f 100644
  #pragma unroll
              for (int j = 0; j < PPT; j++) { const float2 f = __half22float2(h[i][j]); acc[i][j] += f.x + f.y; }
          __syncthreads();
-@@ -206,8 +212,9 @@ __global__ void __launch_bounds__(NTH, 2) moe_gemm_f16(const uint8_t * __restric
+@@ -234,8 +240,9 @@ __global__ void __launch_bounds__(NTH, 2) moe_gemm_f16(const uint8_t * __restric
      for (int j = 0; j < PPT; j++) {
          const int p = PPT * tx + j;
          if (p < jb.np) {
@@ -224,7 +224,7 @@ index 7918cef..3327e8f 100644
          }
      }
  }
-@@ -260,13 +267,14 @@ bool ggml_cuda_p60_moe_gemm(ggml_backend_cuda_context & ctx, const ggml_tensor *
+@@ -296,13 +303,14 @@ bool ggml_cuda_p60_moe_gemm(ggml_backend_cuda_context & ctx, const ggml_tensor *
      }
      moe_jobs<<<1, nthr, 0, stream>>>(bounds.get(), (int) n_experts, bn, jobs.get(), njobs.get());
  

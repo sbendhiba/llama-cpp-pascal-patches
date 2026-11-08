@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index 1a9cf55..2214686 100644
+index 8f79123..180fb00 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
-@@ -578,19 +578,9 @@ static constexpr __host__ __device__ int calc_nwarps(ggml_type type, int ncols_d
+@@ -579,19 +579,9 @@ static constexpr __host__ __device__ int calc_nwarps(ggml_type type, int ncols_d
      return 1;
  }
  
@@ -25,7 +25,7 @@ index 1a9cf55..2214686 100644
  
  static constexpr __host__ __device__ int calc_rows_per_block(ggml_type type, int ncols_dst, int table_id, bool small_k = false, int nwarps = 1) {
      if (table_id == MMVQ_PARAMETERS_GENERIC || table_id == MMVQ_PARAMETERS_GCN || table_id == MMVQ_PARAMETERS_TURING || table_id == MMVQ_PARAMETERS_GB10) {
-@@ -602,10 +592,24 @@ static constexpr __host__ __device__ int calc_rows_per_block(ggml_type type, int
+@@ -603,10 +593,24 @@ static constexpr __host__ __device__ int calc_rows_per_block(ggml_type type, int
                  if (table_id == MMVQ_PARAMETERS_GB10) {
                      return type == GGML_TYPE_IQ2_S || type == GGML_TYPE_IQ3_S ? 2 : 1;
                  }

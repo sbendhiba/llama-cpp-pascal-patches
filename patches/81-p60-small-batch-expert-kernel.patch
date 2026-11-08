@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/p60-moe-gemm.cu b/ggml/src/ggml-cuda/p60-moe-gemm.cu
-index 3327e8f..e38386a 100644
+index 13a4a4d..c0d76d8 100644
 --- a/ggml/src/ggml-cuda/p60-moe-gemm.cu
 +++ b/ggml/src/ggml-cuda/p60-moe-gemm.cu
 @@ -17,6 +17,11 @@ constexpr int BM = 64, BK = 64, KP = BK / 2, NTH = 256;
@@ -14,7 +14,7 @@ index 3327e8f..e38386a 100644
  __device__ __forceinline__ void p60_scale_min_k4(int j, const uint8_t * q, int & d, int & m) {
      if (j < 4) { d = q[j] & 63; m = q[j + 4] & 63; }
      else { d = (q[j + 4] & 0xF) | ((q[j - 4] >> 6) << 4); m = (q[j + 4] >> 4) | ((q[j] >> 6) << 4); }
-@@ -219,6 +224,97 @@ __global__ void __launch_bounds__(NTH, 2) moe_gemm_f16(const uint8_t * __restric
+@@ -247,6 +252,97 @@ __global__ void __launch_bounds__(NTH, 2) moe_gemm_f16(const uint8_t * __restric
      }
  }
  
@@ -112,7 +112,7 @@ index 3327e8f..e38386a 100644
  } // namespace
  
  bool ggml_cuda_p60_moe_gemm(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1,
-@@ -257,6 +353,33 @@ bool ggml_cuda_p60_moe_gemm(ggml_backend_cuda_context & ctx, const ggml_tensor *
+@@ -293,6 +389,33 @@ bool ggml_cuda_p60_moe_gemm(ggml_backend_cuda_context & ctx, const ggml_tensor *
  
      // tile width from the average pairs per expert (short prompts give experts few tokens)
      const int64_t avg = n_pairs / n_experts;

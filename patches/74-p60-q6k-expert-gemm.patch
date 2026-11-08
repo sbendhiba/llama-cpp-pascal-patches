@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/p60-moe-gemm.cu b/ggml/src/ggml-cuda/p60-moe-gemm.cu
-index c096e4b..bb6955f 100644
+index 13c13a2..e579ac2 100644
 --- a/ggml/src/ggml-cuda/p60-moe-gemm.cu
 +++ b/ggml/src/ggml-cuda/p60-moe-gemm.cu
-@@ -58,7 +58,7 @@ __global__ void moe_jobs(const int32_t * __restrict__ bounds, int n_experts, moe
+@@ -86,7 +86,7 @@ __global__ void moe_jobs(const int32_t * __restrict__ bounds, int n_experts, moe
      }
  }
  
@@ -11,7 +11,7 @@ index c096e4b..bb6955f 100644
  template <int TYPE>
  __global__ void __launch_bounds__(NTH, 2) moe_gemm_f16(const uint8_t * __restrict__ W, int64_t row_bytes, int64_t exp_bytes, int K,
          const half2 * __restrict__ X, const moe_job * __restrict__ jobs, const int * __restrict__ njobs,
-@@ -72,7 +72,7 @@ __global__ void __launch_bounds__(NTH, 2) moe_gemm_f16(const uint8_t * __restric
+@@ -100,7 +100,7 @@ __global__ void __launch_bounds__(NTH, 2) moe_gemm_f16(const uint8_t * __restric
      const int m0 = blockIdx.y * BM;
      const int tid = threadIdx.x, tx = tid & 15, ty = tid >> 4;
      const uint8_t * Wexp = W + (int64_t) jb.expert * exp_bytes;
@@ -20,7 +20,7 @@ index c096e4b..bb6955f 100644
  
      float acc[4][4];
  #pragma unroll
-@@ -84,7 +84,41 @@ __global__ void __launch_bounds__(NTH, 2) moe_gemm_f16(const uint8_t * __restric
+@@ -112,7 +112,41 @@ __global__ void __launch_bounds__(NTH, 2) moe_gemm_f16(const uint8_t * __restric
      const int bpair = tid >> 2, bq = tid & 3; // activation loader: pair, 8 k-pairs
  
      for (int k0 = 0; k0 < K; k0 += BK) {
@@ -63,7 +63,7 @@ index c096e4b..bb6955f 100644
              const int sb = k0 / 256, j = (k0 % 256) / 64;
              const uint8_t * blk = Wexp + (int64_t) (m0 + lr) * row_bytes + sb * SBB;
              const float d = __half2float(*(const half *) blk), dmin = __half2float(*(const half *) (blk + 2));
-@@ -173,13 +207,14 @@ bool ggml_cuda_p60_moe_gemm(ggml_backend_cuda_context & ctx, const ggml_tensor *
+@@ -201,13 +235,14 @@ bool ggml_cuda_p60_moe_gemm(ggml_backend_cuda_context & ctx, const ggml_tensor *
      }
      const int64_t K = src0->ne[0], M = src0->ne[1], n_experts = src0->ne[2];
      const int64_t n_used = ids->ne[0], n_tokens = ids->ne[1];
@@ -80,7 +80,7 @@ index c096e4b..bb6955f 100644
              ids->nb[0] != sizeof(int32_t)) {
          return false;
      }
-@@ -210,9 +245,12 @@ bool ggml_cuda_p60_moe_gemm(ggml_backend_cuda_context & ctx, const ggml_tensor *
+@@ -246,9 +281,12 @@ bool ggml_cuda_p60_moe_gemm(ggml_backend_cuda_context & ctx, const ggml_tensor *
      if (src0->type == GGML_TYPE_Q4_K) {
          moe_gemm_f16<GGML_TYPE_Q4_K><<<grid, NTH, 0, stream>>>((const uint8_t *) src0->data, src0->nb[1], src0->nb[2], (int) K,
              xs.get(), jobs.get(), njobs.get(), ids_dst.get(), (char *) dst->data, dst->nb[1]);

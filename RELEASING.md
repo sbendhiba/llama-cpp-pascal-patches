@@ -148,6 +148,20 @@ cleanly, references something that no longer exists. Two ways to get this gate w
   patch that deletes the code using it. `GGML_CUDA_P60_MEGA_GRAPHS` is introduced by 85 and removed by
   86, so it resolves nowhere while both are applied. Read the sweep's output, do not just require zero.
 
+**Deleting a patch can break a later one that borrowed from it.** At `b12211`, 32 was deleted as
+replaced by upstream - and 33 called `sched_backend_is_cpu`, which 32 defined. The apply gates said
+nothing (33's own hunks landed), and the host syntax check failed with an undeclared identifier.
+When a patch goes, grep the rest of the set for the symbols it defined and move them into whoever
+still uses them; the identifier sweep only checks that a name exists *somewhere*, and a name that
+exists in a deleted patch's diff is not in the tree.
+
+**A callee can change its output contract, not just its signature.** Patch 71 at `b12211` applied
+at zero fuzz and zero offset - every context line around the call was ours - and then failed to
+compile, because upstream's `mm_ids_helper` had swapped a `bounds` array for a `tile_spec` list and
+added a parameter. The signature was the visible half; the invisible half was that 71's own kernel
+read the array that no longer gets produced. When a port touches a call into upstream code, read
+what the callee *writes*, not only what it takes.
+
 **The build is a gate, not a formality.** A patch can apply at zero fuzz and zero offset, with
 byte-exact context, and still be wrong in a way only nvcc sees, because the *thing it calls* changed
 shape. Patch 31 launches `flash_attn` and v0.9.0 gave that kernel a `kv_rows` parameter: the chunk

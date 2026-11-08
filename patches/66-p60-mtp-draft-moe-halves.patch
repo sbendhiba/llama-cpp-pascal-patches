@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index b6cf42d..d9b3717 100644
+index 29eb323..cbb0193 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -4674,6 +4674,28 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4731,6 +4731,28 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      return e - i;
  }
  
@@ -31,7 +31,7 @@ index b6cf42d..d9b3717 100644
  static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, int i, bool dry = false) {
      const ggml_tensor * norm = g->nodes[i];
      const ggml_tensor * cur_t = nullptr;
-@@ -4691,7 +4713,7 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4748,7 +4770,7 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      int e = -1;
      for (int k = i + 2; k < g->n_nodes && k < i + 100; k++) {
          const ggml_tensor * t = g->nodes[k];
@@ -40,7 +40,7 @@ index b6cf42d..d9b3717 100644
              e = k;
              break;
          }
-@@ -4748,7 +4770,7 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4805,7 +4827,7 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      const ggml_tensor * add = g->nodes[e];
      if (!router || !sgate || !gate || !up || !down || !sg || !su || !sd || !ids || n_softmax != 1 || n_div != 1 ||
              T < 1 || T > 6 || ids->ne[0] != 8 || ids->ne[1] != T ||
@@ -49,7 +49,7 @@ index b6cf42d..d9b3717 100644
              !p60_mat(gate, GGML_TYPE_Q4_K, 2048, 512, 256) || !p60_mat(up, GGML_TYPE_Q4_K, 2048, 512, 256) ||
              !p60_mat(down, GGML_TYPE_Q5_K, 512, 2048, 256) ||
              !p60_mat(sg, GGML_TYPE_Q8_0, 2048, 512) || !p60_mat(su, GGML_TYPE_Q8_0, 2048, 512) || !p60_mat(sd, GGML_TYPE_Q8_0, 512, 2048) ||
-@@ -4763,7 +4785,7 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4820,7 +4842,7 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      a.x_in = (const float *) norm->src[0]->data; a.x_out = (float *) add->data;
      a.norm = (const float *) nmul->src[1]->data;
      memcpy(&a.eps, norm->op_params, sizeof(float));

@@ -4,17 +4,70 @@
 numbering. Order matters: several touch the same files, and later ones build
 on earlier ones. The tag is recorded once, in the top-level README.
 
-**This branch targets llama.cpp `v0.9.0` (`cd959bae9`, b12110), 150 commits past `v0.8.0`.** All 78 are
-regenerated against it and verified in numeric order at zero fuzz and zero offset, the clean-room
-tree they rebuild is byte-identical to the reviewed one (52 files changed), and 393 of the 394
-identifiers they reference resolve in the patched tree - the exception is
-`GGML_CUDA_P60_MEGA_GRAPHS`, introduced by 85 and deleted by 86 in the same set. Stock and patched
-trees at this ref have both been **built** at `sm_60`, and the set has been through a **full scripted
-session** at 160 W with the `v0.8.0` arms re-measured beside it (2 cards, 3 interleaved rounds, four
-configs, four arms - see the README and [results.md](results.md)). Upstream `v0.9.0` stock is within
-0.4% of `v0.8.0` stock on every cell, and this set within 0.3% of its own `v0.8.0` build: the port is
-a re-anchor, not a retune - nothing was deleted, and four patches (31, 59, 77, 83) needed real
-authoring.
+**This branch targets llama.cpp `b12211` (`7d7f028`), 101 commits past `v0.9.0`.** **76 patches**: the
+78 of `v0.9.0` minus two that upstream made unnecessary (32 and 59, below). All 76 are regenerated
+against it and verified in numeric order at zero fuzz and zero offset; the clean-room tree they
+rebuild is byte-identical to the reviewed one, 382 of the 383 identifiers they reference resolve (the
+exception is still `GGML_CUDA_P60_MEGA_GRAPHS`, introduced by 85 and deleted by 86 in the same set),
+the host-side syntax check is clean on all eight non-CUDA translation units, and both arms are
+**built** at `sm_60` under CUDA 12.4 with NCCL off. Five patches needed real authoring: 33, 35, 42,
+71 and 83.
+
+### What `b12211` moved, and what it cost the set
+
+16 of the 52 files the set edits changed upstream. The ones that landed on hooked code:
+
+| upstream change | what it did to the set |
+|---|---|
+| `69ee2ec` "CUDA: linearize MoE data layout for MMQ/MMF" (#31047) | **absorbed 59** and changed the contract 71 calls: `ggml_cuda_launch_mm_ids_helper` now takes a `ggml_cuda_mm_id_tile_spec*` and a `tile_width`, and no longer produces the per-expert `bounds` array that 71's own `moe_jobs` kernel reads |
+| `e95426f` "llama_moe_cache: run missed experts on CPU" (#30966) | **replaced 32**: upstream added `ggml_backend_sched_prefetch_inputs` with the same field names (`prefetch_events`, `prefetched`, `n_prefetched`, `prefetch_split`, `prefetch_backend_id`) and a different mechanism |
+| `e0f96a1` "move model to class member of llm_graph_context" (#31733) | both qwen4exp graph constructors lost their `const llama_model &` parameter, so 42's two `hc_fold()` call sites had to be re-anchored (the expression itself is unchanged - `model` is now the inherited member) |
+| the MMVQ batch-size split (`get_mmvq_mmid_max_batch_turing_plus`, `ggml_cuda_highest_compiled_arch`) | 35's insertion point moved; without the rename its wrapper hunk leaves two definitions of `get_mmvq_mmid_max_batch` |
+| `57d0482` radix top-K tied selections made deterministic (#31084), `12ab597` CPU backend F32 src1 (#31854) | 28/41 applied with offsets only; the second changes what `test-backend-ops` compares against, so the per-op table is re-taken at this ref rather than inherited |
+
+**59 `p60-moe-expert-tile` is deleted at this ref - upstream made the rule unconditional.** 59 extended
+the tokens-per-expert tile sizing from RDNA3/RDNA4 to NVIDIA without DP4A, behind
+`GGML_CUDA_P60_MMVQ`/`GGML_CUDA_P60_MMQ_EXPERT_TILE`. `69ee2ec` removed the architecture condition
+entirely: `mmq.cu` now computes `ncols_opt = (ne12*n_expert_used + ne02 - 1)/ne02` for every `ids`
+matmul on every card. There is no gate left to widen and no switch left to flip, so 83's `mmq.cu` hunk
+is dropped with it (83 keeps its other 24 hunks). The retired `GGML_CUDA_P60_MMQ_EXPERT_TILE` appears
+nowhere in the tree.
+
+**32 `sched-split-prefetch` is deleted at this ref - upstream occupies the same ground.** 32 cut a GPU
+split at the last node the next CPU split consumes and overlapped the tail with the CPU work, using
+its own `prefetch_event`/`prefetched`/`n_prefetched` fields. `e95426f` added
+`ggml_backend_sched_prefetch_inputs` with those names and a different mechanism (it prefetches the
+next split's inputs into host copies for the CPU expert path, and does not cut the split). Carrying
+both would allocate a second copy of one feature and have them fight over the same fields, which is
+the failure mode RELEASING.md warns about. 32 was off by default (`LLAMA_SCHED_PREFETCH=1`); its
+split-cutting variant is not carried forward, and re-authoring it on top of upstream's version would
+need a fresh measurement against the new MoE cache rather than the old one.
+
+**Deleting 32 broke 33, and the syntax gate is what caught it.** 33 called `sched_backend_is_cpu`,
+which 32 defined. With 32 gone the identifier was undeclared - `ggml-backend.cpp:2431` - so 33 now
+carries its own three-line copy. 33 is otherwise unchanged in intent: its `wpf_*` fields, its staging
+API and its `LLAMA_SCHED_WPF=<MiB>` opt-in are its own, and upstream has no staging area at all.
+
+**64 is the one that applied, compiled, passed the ops suite - and did nothing.** Upstream `040ce19`
+(#31660) moved the conv-state store into `llm_graph_context::build_conv_state_store` and dropped the
+`cb()` that named the no-rollback view `conv_state_last`. The GDN half's collector recognised that
+copy by name, so unnamed it fell through to the "a VIEW of `conv_input`" branch and was filed as a
+rollback snapshot: `n_cs_snap == 1`, the snapshot branch demands `n_cs_snap == K` with `K >= 2`, and
+every linear-attention layer refused. Measured cost: MoE `layer` decode 118.97 -> 95.59 (-19.7%),
+with prefill, the dense model, the build, the syntax check and all 130 ops comparisons green. The
+matcher trace is what saw it - zero `p60-gdn-match` lines where `v0.9.0` logs 120. The contract had
+not moved (still the last 3 columns of `conv_input`, `3*8192` elements, offset `T` floats), so the
+port recognises the copy by shape; a rollback window is a 4-D view feeding `SET_ROWS` and never a
+`CPY`, so the two cannot be confused. After the fix: 120 matches, 16 refusals, decode 119.22.
+
+**71 is the one that applied perfectly and then failed to compile.** Every context line around its
+`ggml_cuda_launch_mm_ids_helper` call is ours, so `-F0` was happy; the callee had changed shape *and*
+stopped returning the array 71's `moe_jobs` kernel reads. The port gives the helper a scratch
+`tile_spec` nothing here reads, and computes the per-expert prefix sums in a new `moe_bounds` kernel
+(count in shared memory, single-thread scan, `n_experts <= 1024` by this file's own gate). The compact
+ordering is still ascending by expert (`mmid.cu:112`), so it is the same array the old helper returned.
+This is the second time a build gate has caught what the apply gates cannot - patch 31 at `v0.9.0` was
+the first.
 
 **Patches 52-89 - the P60 block - are verified the same way** and built at `sm_60` on top of that set:
 the 32 files, applied in numeric order onto the 40-patch tree, reproduce the rebased tree byte for
@@ -29,6 +82,8 @@ sits beside upstream's `flash_attn_ext_rows` instead of replacing what it replac
 only because their prerequisites were parked; all six applied unchanged once 59/77/83 landed.
 
 They are documented as a group in the section **The P60 block (52-89)** at the end of this file.
+
+### The `v0.9.0` port (the previous ref)
 
 This port is the opposite of the last one: 16 of the 33 files the set edits changed upstream, and
 three of those changes landed on code a patch hooks. The `v0.9.0` move is 14 of 52 files, four of them on

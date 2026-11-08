@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index 0ae5b17..f954ddf 100644
+index 1d3bb79..05185f5 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
 @@ -316,6 +316,13 @@ static const char * cu_get_error_str(CUresult err) {
@@ -17,10 +17,10 @@ index 0ae5b17..f954ddf 100644
  #define GGML_CUDA_P60_EXACT_TAG 0x50363045
  
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 4c01ada..a0ca96e 100644
+index 9e0c9dc..d835f16 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -4656,7 +4656,7 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4713,7 +4713,7 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
          return e - i;
      }
      memcpy(&a.eps_norm, norm->op_params, sizeof(float));
@@ -29,7 +29,7 @@ index 4c01ada..a0ca96e 100644
      a.attn_norm = (const float *) nmul->src[1]->data;
      a.qkv = (const char *) qkv->data; a.z = (const char *) z->data; a.out = (const char *) out->data;
      a.alpha = (const float *) alpha->data; a.beta = (const float *) beta->data;
-@@ -4670,7 +4670,7 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4727,7 +4727,7 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      for (int k = 0; k < n_prerun; k++) {
          ggml_cuda_compute_forward(*ctx, prerun[k]);
      }
@@ -38,7 +38,7 @@ index 4c01ada..a0ca96e 100644
          ggml_cuda_p60_mega_gdn(*ctx, a);
      } else {
          ggml_cuda_p60_mega_gdn_t(*ctx, a, (int) T, (int) K, cs_slot, ss_slot);
-@@ -4809,7 +4809,7 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4866,7 +4866,7 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      if (exact) {
          a.router = (const float *) router->data; a.sgate = (const float *) sgate->data;
          ggml_cuda_p60_mega_moe_x(*ctx, a, (int) T);

@@ -20,7 +20,7 @@ index afb8633..aecf5cf 100644
      // Meta backend
      //
 diff --git a/ggml/src/ggml-backend.cpp b/ggml/src/ggml-backend.cpp
-index 3208756..b80e447 100644
+index 2dedde0..1081147 100644
 --- a/ggml/src/ggml-backend.cpp
 +++ b/ggml/src/ggml-backend.cpp
 @@ -20,6 +20,7 @@
@@ -49,10 +49,20 @@ index 3208756..b80e447 100644
 +    bool                  wpf_off_graph;
 +    bool                  wpf_borrowed;
 +
-     // run the GPU work that the next CPU split does not need while the CPU computes [LLAMA_SCHED_PREFETCH]
-     int prefetch;
-     ggml_backend_event_t prefetch_event[GGML_SCHED_MAX_BACKENDS];
-@@ -2087,6 +2102,187 @@ static bool ggml_backend_sched_is_host_weight(const struct ggml_tensor * t) {
+ 
+     int debug;
+ 
+@@ -2082,12 +2097,197 @@ static bool ggml_backend_sched_alloc_splits(ggml_backend_sched_t sched) {
+     return true;
+ }
+ 
++static bool sched_backend_is_cpu(ggml_backend_t backend) {
++    return ggml_backend_dev_type(ggml_backend_get_device(backend)) == GGML_BACKEND_DEVICE_TYPE_CPU;
++}
++
+ static bool ggml_backend_sched_is_host_weight(const struct ggml_tensor * t) {
+     return t->buffer != NULL &&
+         ggml_backend_buffer_get_usage(t->buffer) == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
          ggml_backend_buffer_is_host(t->buffer);
  }
  
@@ -240,7 +250,7 @@ index 3208756..b80e447 100644
  static void ggml_backend_sched_copy_input(ggml_backend_sched_t sched, struct ggml_backend_sched_split * split, struct ggml_tensor * input) {
      const int split_backend_id = split->backend_id;
      ggml_backend_t split_backend = sched->backends[split_backend_id];
-@@ -2111,6 +2307,10 @@ static void ggml_backend_sched_copy_input(ggml_backend_sched_t sched, struct ggm
+@@ -2122,6 +2322,10 @@ static void ggml_backend_sched_copy_input(ggml_backend_sched_t sched, struct ggm
          ggml_backend_synchronize(split_backend);
      }
  
@@ -251,10 +261,10 @@ index 3208756..b80e447 100644
      if (sched->callback_copy != NULL && ggml_backend_sched_is_host_weight(input) &&
          sched->callback_copy(split_backend, input, input_cpy, &split->graph, sched->callback_copy_user_data)) {
          return;
-@@ -2150,6 +2350,41 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
+@@ -2201,6 +2405,41 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
+     struct ggml_backend_sched_split * splits = sched->splits;
  
      int prev_backend_id = -1;
-     sched->n_prefetched = 0;
 +    sched->wpf_n = 0;
 +    sched->wpf_off_graph = false;
 +    bool wpf = false;
@@ -293,19 +303,19 @@ index 3208756..b80e447 100644
  
      for (int split_id = 0; split_id < sched->n_splits; split_id++) {
          struct ggml_backend_sched_split * split = &splits[split_id];
-@@ -2248,6 +2483,9 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
-                 if (ec != GGML_STATUS_SUCCESS) {
-                     return ec;
-                 }
+@@ -2238,6 +2477,9 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
+             if (ec != GGML_STATUS_SUCCESS) {
+                 return ec;
+             }
 +                if (wpf && !sched->wpf_off_graph && !sched_backend_is_cpu(split_backend)) {
 +                    sched_wpf_stage(sched, splits, split_id);
 +                }
-             }
          } else {
              // similar to ggml_backend_compare_graph_backend
-@@ -2390,6 +2628,15 @@ void ggml_backend_sched_free(ggml_backend_sched_t sched) {
+             for (int j0 = 0; j0 < split->graph.n_nodes; j0++) {
+@@ -2371,6 +2613,15 @@ void ggml_backend_sched_free(ggml_backend_sched_t sched) {
          }
-         ggml_backend_event_free(sched->prefetch_event[b]);
+         ggml_backend_event_free(sched->prefetch_events[b]);
      }
 +    ggml_backend_event_free(sched->wpf_ev_up);
 +    ggml_backend_event_free(sched->wpf_ev_free);

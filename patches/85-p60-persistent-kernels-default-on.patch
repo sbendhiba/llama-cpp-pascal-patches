@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index f954ddf..2ad084b 100644
+index 05185f5..b95f376 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
 @@ -1567,6 +1567,9 @@ struct ggml_backend_cuda_context {
@@ -26,10 +26,10 @@ index e08793f..92e6e89 100644
      if constexpr (!KDA) {
          if (p60_chunk && S_v == 128 && n_tokens >= 32 && warp_size == 32 &&
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index b9752db..2d69440 100644
+index 6d5e82e..0dc9249 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -5171,7 +5171,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -5228,7 +5228,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
      // whole single-token layer halves as one persistent kernel each (p60-mega.cu)
      if (node->op == GGML_OP_RMS_NORM) {
          static const bool enabled = (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0) &&
@@ -38,7 +38,7 @@ index b9752db..2d69440 100644
          if (enabled && ggml_cuda_info().devices[cuda_ctx->device].cc == 600) {
              static const bool attn = getenv("GGML_CUDA_P60_ATTN") == nullptr || atoi(getenv("GGML_CUDA_P60_ATTN")) != 0;
              int n = p60_try_mega_gdn(cuda_ctx, cgraph, i);
-@@ -5182,6 +5182,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -5239,6 +5239,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
                  n = p60_try_mega_attn(cuda_ctx, cgraph, i);
              }
              if (n > 0) {
@@ -46,7 +46,7 @@ index b9752db..2d69440 100644
                  return n;
              }
          }
-@@ -5232,7 +5233,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -5289,7 +5290,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
      }
      if (node->op == GGML_OP_ADD && i + 1 < cgraph->n_nodes && cgraph->nodes[i + 1]->op == GGML_OP_RMS_NORM) {
          static const bool mega = (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0) &&
@@ -55,7 +55,7 @@ index b9752db..2d69440 100644
          if (mega && ggml_cuda_info().devices[cuda_ctx->device].cc == 600 &&
                  (p60_try_mega_gdn(cuda_ctx, cgraph, i + 1, true) > 0 || p60_try_mega_moe(cuda_ctx, cgraph, i + 1, true) > 0 ||
                   ((getenv("GGML_CUDA_P60_ATTN") == nullptr || atoi(getenv("GGML_CUDA_P60_ATTN")) != 0) && p60_try_mega_attn(cuda_ctx, cgraph, i + 1, true) > 0))) {
-@@ -6554,6 +6555,14 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
+@@ -6591,6 +6592,14 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
  }
  
  #ifdef USE_CUDA_GRAPH
@@ -70,7 +70,7 @@ index b9752db..2d69440 100644
  static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, const void * graph_key) {
      ggml_cuda_graph * graph = cuda_ctx->cuda_graph(graph_key);
  
-@@ -6572,6 +6581,16 @@ static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, co
+@@ -6609,6 +6618,16 @@ static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, co
          }
      }
  
@@ -140,10 +140,10 @@ index 50586df..01a12f7 100644
  bool ggml_cuda_p60_moe_gemm(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1,
      const ggml_tensor * ids, ggml_tensor * dst);
 diff --git a/ggml/src/ggml-cuda/p60-moe-gemm.cu b/ggml/src/ggml-cuda/p60-moe-gemm.cu
-index e38386a..7d76c34 100644
+index c0d76d8..950d0b5 100644
 --- a/ggml/src/ggml-cuda/p60-moe-gemm.cu
 +++ b/ggml/src/ggml-cuda/p60-moe-gemm.cu
-@@ -319,7 +319,7 @@ __global__ void __launch_bounds__(NTH_S, 2) moe_small_f16(const uint8_t * __rest
+@@ -347,7 +347,7 @@ __global__ void __launch_bounds__(NTH_S, 2) moe_small_f16(const uint8_t * __rest
  
  bool ggml_cuda_p60_moe_gemm(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1,
          const ggml_tensor * ids, ggml_tensor * dst) {

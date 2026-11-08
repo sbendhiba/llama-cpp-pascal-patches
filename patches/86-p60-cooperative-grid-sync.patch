@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index 2ad084b..e24c4e5 100644
+index b95f376..d3d6f2b 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
 @@ -1305,6 +1305,7 @@ struct ggml_cuda_graph {
@@ -34,7 +34,7 @@ index 2ad084b..e24c4e5 100644
      p60_x_cache_entry p60_x_cache[p60_x_cache_n];
      int               p60_x_cache_next = 0;
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 2d69440..2266787 100644
+index 0dc9249..dabb049 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -751,11 +751,6 @@ ggml_backend_cuda_context::~ggml_backend_cuda_context() {
@@ -49,7 +49,7 @@ index 2d69440..2266787 100644
      if (copy_event != nullptr) {
          CUDA_CHECK(cudaEventDestroy(copy_event));
      }
-@@ -4458,6 +4453,9 @@ static int p60_mega_fail(int line, const ggml_tensor * t, const ggml_tensor * at
+@@ -4506,6 +4501,9 @@ static int p60_mega_fail(int line, const ggml_tensor * t, const ggml_tensor * at
  #define P60_MEGA_FAIL return p60_mega_fail(__LINE__, g->nodes[i], cur_t)
  
  static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, int i, bool dry = false) {
@@ -59,7 +59,7 @@ index 2d69440..2266787 100644
      const ggml_tensor * norm = g->nodes[i];
      const ggml_tensor * cur_t = nullptr;
      if (i + 2 >= g->n_nodes) {
-@@ -4707,6 +4705,9 @@ static bool p60_mat_f32ish(const ggml_tensor * t, int64_t ne0, int64_t ne1) {
+@@ -4764,6 +4762,9 @@ static bool p60_mat_f32ish(const ggml_tensor * t, int64_t ne0, int64_t ne1) {
  }
  
  static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, int i, bool dry = false, bool exact = false) {
@@ -69,7 +69,7 @@ index 2d69440..2266787 100644
      const ggml_tensor * norm = g->nodes[i];
      const ggml_tensor * cur_t = nullptr;
      if (i + 2 >= g->n_nodes) {
-@@ -4832,6 +4833,9 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4889,6 +4890,9 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
  
  // full-attention half: attn_norm ... attn_residual, 1..6 tokens (p60-fa.cu)
  static int p60_try_mega_attn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, int i, bool dry = false) {
@@ -79,7 +79,7 @@ index 2d69440..2266787 100644
      const ggml_tensor * norm = g->nodes[i];
      const ggml_tensor * cur_t = nullptr;
      if (i + 2 >= g->n_nodes) {
-@@ -5182,7 +5186,6 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -5239,7 +5243,6 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
                  n = p60_try_mega_attn(cuda_ctx, cgraph, i);
              }
              if (n > 0) {
@@ -87,7 +87,7 @@ index 2d69440..2266787 100644
                  return n;
              }
          }
-@@ -6555,17 +6558,15 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
+@@ -6592,17 +6595,15 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
  }
  
  #ifdef USE_CUDA_GRAPH
@@ -111,7 +111,7 @@ index 2d69440..2266787 100644
      if (graph->instances.empty()) {
          // Upstream gates graphs at Volta on a 2024 regression measured on a P40, which is sm_61 - sm_60
          // was never in that measurement.  Measured on 2x P100, one build, 5 interleaved rounds at
-@@ -6581,16 +6582,6 @@ static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, co
+@@ -6618,16 +6619,6 @@ static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, co
          }
      }
  

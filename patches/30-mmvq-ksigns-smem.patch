@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index 0ab5012..a8c7b13 100644
+index 8a60e29..8bbc717 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
-@@ -683,6 +683,10 @@ static __global__ void mul_mat_vec_q(
+@@ -684,6 +684,10 @@ static __global__ void mul_mat_vec_q(
      if constexpr (type == GGML_TYPE_IQ3_XXS) {
          iq3xxs_grid_smem_init(tid, blockDim.x*blockDim.y);
      }
@@ -13,7 +13,7 @@ index 0ab5012..a8c7b13 100644
  
      const     int row0 = rows_per_cuda_block*blockIdx.x;
      const     int blocks_per_row_x = ncols_x / qk;
-@@ -971,11 +975,14 @@ static __global__ void mul_mat_vec_q_moe(
+@@ -972,11 +976,14 @@ static __global__ void mul_mat_vec_q_moe(
  
      const uint32_t token_idx   = threadIdx.y;
  

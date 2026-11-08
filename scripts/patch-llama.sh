@@ -18,8 +18,8 @@
 # still exit 0. If the ref check fails, the patches are not applied at all.
 set -uo pipefail
 
-PINNED_REF="v0.9.0"
-PINNED_COMMIT="cd959bae9"
+PINNED_REF="b12211"
+PINNED_COMMIT="7d7f028"
 SOURCE="https://github.com/ggml-org/llama.cpp"
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)

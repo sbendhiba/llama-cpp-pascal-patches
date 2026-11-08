@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index 9affcba..e33f305 100644
+index 5dd9bac..4d430ec 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
 @@ -1526,6 +1526,37 @@ struct ggml_backend_cuda_context {
@@ -52,10 +52,10 @@ index 9affcba..e33f305 100644
  
      void q8_1_cache_free() {
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 4bac2ee..e563c34 100644
+index 184279c..4be35a0 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -4275,6 +4275,106 @@ static bool ggml_cuda_should_fuse_pre_add_rms_norm(const ggml_tensor * add, cons
+@@ -4323,6 +4323,106 @@ static bool ggml_cuda_should_fuse_pre_add_rms_norm(const ggml_tensor * add, cons
      return true;
  }
  
@@ -162,7 +162,7 @@ index 4bac2ee..e563c34 100644
  // The same conditions upstream's {RMS_NORM, MUL} fusion checks inside ggml_cuda_can_fuse,
  // factored out so they also work when the node indices are not consecutive
  static bool ggml_cuda_should_fuse_rms_norm_mul(const ggml_tensor * rms_norm, const ggml_tensor * mul) {
-@@ -4401,6 +4501,44 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -4449,6 +4549,44 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
  
      ggml_tensor * node = cgraph->nodes[i];
  
@@ -324,10 +324,10 @@ index 8514ca8..d71b934 100644
 +// ssm_conv + silu with the conv-state gather, concat and update copies folded in; ctx.p60_conv_state holds the plan
 +void ggml_cuda_p60_ssm_conv_state(ggml_backend_cuda_context & ctx, const ggml_tensor * ssm_conv, ggml_tensor * silu_dst);
 diff --git a/src/models/qwen35moe.cpp b/src/models/qwen35moe.cpp
-index 939f10f..91185a7 100644
+index 0b06b1f..91ca9ac 100644
 --- a/src/models/qwen35moe.cpp
 +++ b/src/models/qwen35moe.cpp
-@@ -406,16 +406,20 @@ ggml_tensor * llama_model_qwen35moe::graph::build_layer_attn_linear(
+@@ -393,16 +393,20 @@ ggml_tensor * llama_model_qwen35moe::graph::build_layer_attn_linear(
  
      ggml_tensor * conv_input = build_conv_state(inp, conv_states_all, qkv_mixed, conv_kernel_size, conv_channels, il);
  

@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index e7f9645..9affcba 100644
+index 01c4ffb..5dd9bac 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
 @@ -1515,15 +1515,20 @@ struct ggml_backend_cuda_context {
@@ -381,10 +381,10 @@ index 64a0054..e3d7b95 100644
  }
  
 diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
-index 4e291c2..d9a0cdd 100644
+index 058739d..bc18c60 100644
 --- a/tests/test-backend-ops.cpp
 +++ b/tests/test-backend-ops.cpp
-@@ -5786,6 +5786,58 @@ struct test_mul_mat_id_w4a4 : public test_mul_mat_id {
+@@ -5863,6 +5863,58 @@ struct test_mul_mat_id_w4a4 : public test_mul_mat_id {
      }
  };
  
@@ -443,7 +443,7 @@ index 4e291c2..d9a0cdd 100644
  // RMS_NORM * weight feeding a matmul: on sm_60 with GGML_CUDA_P60_MMVQ=1 the fused norm also fills the
  // mmvq-p60 activation cache, and the matmul reads it from there (MUL_MAT_ID through a reshape view)
  struct test_p60_norm_matmul : public test_case {
-@@ -11392,6 +11444,13 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+@@ -11676,6 +11728,13 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
      test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_F32, GGML_TYPE_F32, 16, 8, false, 8256, 32832, 64));
  #endif
  

@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 961aecd..a32f839 100644
+index 69d8efd..b91de42 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -2410,6 +2410,9 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
+@@ -2458,6 +2458,9 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
          }
  
          if (ggml_cuda_should_use_mmq(src0->type, cc, ne12, /*n_experts=*/ne02)) {
@@ -27,10 +27,10 @@ index 31ec69f..cc50844 100644
 +    const ggml_tensor * ids, ggml_tensor * dst);
 diff --git a/ggml/src/ggml-cuda/p60-moe-gemm.cu b/ggml/src/ggml-cuda/p60-moe-gemm.cu
 new file mode 100644
-index 0000000..c096e4b
+index 0000000..13c13a2
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/p60-moe-gemm.cu
-@@ -0,0 +1,219 @@
+@@ -0,0 +1,255 @@
 +#include "p60-mega.cuh"
 +#include "mmid.cuh"
 +
@@ -64,6 +64,34 @@ index 0000000..c096e4b
 +    for (int i = threadIdx.x; i < K / 2; i += blockDim.x) {
 +        const float2 v = x[i];
 +        o[i] = __floats2half2_rn(v.x, v.y);
++    }
++}
++
++// b12211: the ids helper exports a tile_spec list, not per-expert bounds (#31047), and moe_jobs below
++// wants the bounds. Count pairs per expert and scan - the helper still compacts in ascending expert
++// order, so this is the array it used to return.
++__global__ void moe_bounds(const int32_t * __restrict__ ids, int n_tokens, int n_used, int si1,
++                           int n_experts, int32_t * __restrict__ bounds) {
++    extern __shared__ int sh[];
++    const int tid = threadIdx.x;
++    for (int e = tid; e <= n_experts; e += blockDim.x) {
++        sh[e] = 0;
++    }
++    __syncthreads();
++    const int n_pairs = n_tokens*n_used;
++    for (int i = tid; i < n_pairs; i += blockDim.x) {
++        const int t = i / n_used;
++        const int k = i % n_used;
++        atomicAdd(&sh[ids[t*si1 + k]], 1);
++    }
++    __syncthreads();
++    if (tid == 0) {
++        int acc = 0;
++        for (int e = 0; e < n_experts; e++) {
++            bounds[e] = acc;
++            acc += sh[e];
++        }
++        bounds[n_experts] = acc;
 +    }
 +}
 +
@@ -224,8 +252,16 @@ index 0000000..c096e4b
 +    ggml_cuda_pool_alloc<int32_t> bounds(ctx.pool(), n_experts + 1);
 +    const int si1  = ids->nb[1] / sizeof(int32_t);
 +    const int sis1 = src1->nb[2] / src1->nb[1];
-+    ggml_cuda_launch_mm_ids_helper((const int32_t *) ids->data, ids_src1.get(), ids_dst.get(), bounds.get(),
-+        n_experts, n_tokens, n_used, src1->ne[1], si1, sis1, /*write_inverse =*/ false, stream);
++    // The helper now wants a tile_spec and a tile width. Nothing here reads the spec - moe_jobs wants
++    // the bounds - so it gets scratch sized for the width we pass, and bounds comes from moe_bounds.
++    const int spec_tw = 64;
++    ggml_cuda_pool_alloc<ggml_cuda_mm_id_tile_spec> tile_spec(ctx.pool(),
++        (size_t) ((n_pairs + spec_tw - 1)/spec_tw + n_experts));
++    ggml_cuda_launch_mm_ids_helper((const int32_t *) ids->data, ids_src1.get(), ids_dst.get(), tile_spec.get(),
++        n_experts, n_tokens, n_used, src1->ne[1], spec_tw, si1, sis1, /*write_inverse =*/ false, stream);
++    moe_bounds<<<1, 256, (size_t) (n_experts + 1)*sizeof(int), stream>>>((const int32_t *) ids->data,
++        (int) n_tokens, (int) n_used, si1, (int) n_experts, bounds.get());
++    CUDA_CHECK(cudaGetLastError());
 +
 +    ggml_cuda_pool_alloc<half2> xs(ctx.pool(), n_pairs * K / 2);
 +    moe_gather_f16<<<n_pairs, 256, 0, stream>>>((const char *) src1->data, src1->nb[1], ids_src1.get(), (int) K, xs.get());

@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index 0e50679..e7f9645 100644
+index d4d5625..01c4ffb 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
 @@ -1515,12 +1515,27 @@ struct ggml_backend_cuda_context {
@@ -684,7 +684,7 @@ index 0000000..10948a9
 +// Returns false (and does nothing) if not applicable. GGML_CUDA_P60_FUSE_NORM=0 disables it.
 +bool ggml_cuda_p60_rms_norm_mul(ggml_backend_cuda_context & ctx, const ggml_tensor * rms_norm, ggml_tensor * mul_tensor);
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index 0d34629..10e917f 100644
+index eff8b96..6733266 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
 @@ -1,5 +1,6 @@
@@ -694,7 +694,7 @@ index 0d34629..10e917f 100644
  #include "quantize.cuh"
  #include "unary.cuh"
  #include "vecdotq.cuh"
-@@ -1609,6 +1610,10 @@ void ggml_cuda_mul_mat_vec_q(
+@@ -1610,6 +1611,10 @@ void ggml_cuda_mul_mat_vec_q(
      GGML_ASSERT(        dst->type  == GGML_TYPE_F32);
      GGML_ASSERT(!ids || ids->type  == GGML_TYPE_I32); // Optional, used for batched GGML_MUL_MAT_ID.
  
@@ -727,10 +727,10 @@ index 1ee5685..0f4a198 100644
      float eps = 0.0f;
  
 diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
-index f9cb12c..4e291c2 100644
+index a17f6b4..058739d 100644
 --- a/tests/test-backend-ops.cpp
 +++ b/tests/test-backend-ops.cpp
-@@ -5786,6 +5786,83 @@ struct test_mul_mat_id_w4a4 : public test_mul_mat_id {
+@@ -5863,6 +5863,83 @@ struct test_mul_mat_id_w4a4 : public test_mul_mat_id {
      }
  };
  
@@ -814,7 +814,7 @@ index f9cb12c..4e291c2 100644
  // GGML_OP_MUL_MAT_ID + GGML_OP_ADD or GGML_OP_MUL
  struct test_mul_mat_id_fusion : public test_case {
      const ggml_type type_a;
-@@ -11315,6 +11392,16 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+@@ -11599,6 +11676,16 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
      test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_F32, GGML_TYPE_F32, 16, 8, false, 8256, 32832, 64));
  #endif
  

@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-backend.cpp b/ggml/src/ggml-backend.cpp
-index b80e447..55d188d 100644
+index 1081147..aee92fe 100644
 --- a/ggml/src/ggml-backend.cpp
 +++ b/ggml/src/ggml-backend.cpp
-@@ -1485,6 +1485,10 @@ static bool ggml_backend_sched_buffer_supported(ggml_backend_sched_t sched, stru
+@@ -1486,6 +1486,10 @@ static bool ggml_backend_sched_buffer_supported(ggml_backend_sched_t sched, stru
      return buft != NULL && ggml_backend_supports_buft(sched->backends[backend_id], buft);
  }
  
@@ -13,7 +13,7 @@ index b80e447..55d188d 100644
  static void ggml_backend_sched_set_if_supported(ggml_backend_sched_t sched, struct ggml_tensor * node, int cur_backend_id, int * node_backend_id) {
      if (ggml_backend_supports_op(sched->backends[cur_backend_id], node)) {
          *node_backend_id = cur_backend_id;
-@@ -1494,6 +1498,8 @@ static void ggml_backend_sched_set_if_supported(ggml_backend_sched_t sched, stru
+@@ -1495,6 +1499,8 @@ static void ggml_backend_sched_set_if_supported(ggml_backend_sched_t sched, stru
  
  // assigns backends to ops and splits the graph into subgraphs that can be computed on the same backend
  void ggml_backend_sched_split_graph(ggml_backend_sched_t sched, struct ggml_cgraph * graph) {
@@ -22,7 +22,7 @@ index b80e447..55d188d 100644
      // reset splits
      sched->n_splits = 0;
      sched->n_graph_inputs = 0;
-@@ -1769,6 +1775,23 @@ void ggml_backend_sched_split_graph(ggml_backend_sched_t sched, struct ggml_cgra
+@@ -1770,6 +1776,23 @@ void ggml_backend_sched_split_graph(ggml_backend_sched_t sched, struct ggml_cgra
                          }
                      }
                  }
@@ -46,7 +46,7 @@ index b80e447..55d188d 100644
              }
  
              if (node_backend_id != cur_backend_id || need_new_split) {
-@@ -1802,7 +1825,7 @@ void ggml_backend_sched_split_graph(ggml_backend_sched_t sched, struct ggml_cgra
+@@ -1803,7 +1826,7 @@ void ggml_backend_sched_split_graph(ggml_backend_sched_t sched, struct ggml_cgra
                  const int src_backend_id = sched->hv_tensor_backend_ids[src_id];
                  GGML_ASSERT(src_backend_id != -1); // all inputs should be assigned by now
  

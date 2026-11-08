@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 8b45053..0452fb9 100644
+index b74f6e6..2f2987d 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -1655,6 +1655,42 @@ struct batched_mul_mat_traits<GGML_TYPE_F16> {

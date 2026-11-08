@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/top-k.cu b/ggml/src/ggml-cuda/top-k.cu
-index b0f6099..b32163c 100644
+index 19cb45d..411cf66 100644
 --- a/ggml/src/ggml-cuda/top-k.cu
 +++ b/ggml/src/ggml-cuda/top-k.cu
-@@ -278,6 +278,242 @@ static void top_k_argsort_cuda(
+@@ -327,6 +327,242 @@ static void top_k_argsort_cuda(
      }
  }
  
@@ -245,7 +245,7 @@ index b0f6099..b32163c 100644
  void ggml_cuda_op_top_k(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
      const ggml_tensor * src0   = dst->src[0];
      const float *       src0_d = (const float *) src0->data;
-@@ -294,6 +530,19 @@ void ggml_cuda_op_top_k(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
+@@ -343,6 +579,19 @@ void ggml_cuda_op_top_k(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
      const int64_t    k     = dst->ne[0];
      ggml_cuda_pool & pool  = ctx.pool();
  

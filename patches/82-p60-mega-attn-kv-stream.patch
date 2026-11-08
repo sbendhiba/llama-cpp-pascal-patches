@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index a0ca96e..1ca7da9 100644
+index d835f16..d93e4fd 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -4932,7 +4932,7 @@ static int p60_try_mega_attn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, i
+@@ -4989,7 +4989,7 @@ static int p60_try_mega_attn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, i
      memcpy(&softcap,  (const float *) fa->op_params + 2, sizeof(float));
      if (p60_view_root(Qf) != qrope || Kf->type != GGML_TYPE_F16 || Vf->type != GGML_TYPE_F16 || mask == nullptr || mask->type != GGML_TYPE_F16 ||
              fa->src[4] != nullptr || max_bias != 0.0f || softcap != 0.0f ||
@@ -11,7 +11,7 @@ index a0ca96e..1ca7da9 100644
              Kf->ne[0] != 256 || Kf->ne[2] != 2 || Vf->ne[0] != 256 || Vf->ne[2] != 2 || Kf->ne[1] != Vf->ne[1] ||
              Kf->nb[1] != ksr->nb[1] || Vf->nb[1] != vsr->nb[1] || Kf->nb[2] != 512 || Vf->nb[2] != 512 ||
              mask->ne[0] < Kf->ne[1] || mask->ne[1] < T || mask->nb[0] != 2 || mask->ne[2] != 1 || mask->ne[3] != 1 ||
-@@ -4966,6 +4966,7 @@ static int p60_try_mega_attn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, i
+@@ -5023,6 +5023,7 @@ static int p60_try_mega_attn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, i
      memcpy(&a.attn_factor, rp + 8, sizeof(float));
      a.k_cache = (half *) ksr->data; a.k_row = ksr->nb[1] / 2; a.k_idx = (const int64_t *) ksr->src[1]->data;
      a.v_cache = (half *) vsr->data; a.v_row = vsr->nb[1] / 2; a.v_idx = (const int64_t *) vsr->src[1]->data;
