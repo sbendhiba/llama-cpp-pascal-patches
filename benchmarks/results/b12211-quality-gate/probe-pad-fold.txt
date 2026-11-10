@@ -1,0 +1,21 @@
+[cool] 40C
+-- control FOO=1 20:27:41
+   control    p0  71.30 t/s  acc=0.88393
+   control    p1  44.04 t/s  acc=0.44751
+   draft acceptance = 0.88393 (   99 accepted /   112 generated), mean len =  4.54|draft acceptance = 0.44751 (   81 accepted /   181 generated), mean len =  2.76|
+[cool] 41C
+-- nopad LLAMA_SPEC_PAD=0 20:28:16
+   nopad      p0  71.45 t/s  acc=0.88393
+   nopad      p1  43.91 t/s  acc=0.44751
+   draft acceptance = 0.88393 (   99 accepted /   112 generated), mean len =  4.54|draft acceptance = 0.44751 (   81 accepted /   181 generated), mean len =  2.76|
+[cool] 41C
+-- nofold GGML_CUDA_GEMM_FOLD=0 20:29:36
+   nofold     p0  71.38 t/s  acc=0.88393
+   nofold     p1  43.07 t/s  acc=0.43716
+   draft acceptance = 0.88393 (   99 accepted /   112 generated), mean len =  4.54|draft acceptance = 0.43716 (   80 accepted /   183 generated), mean len =  2.74|
+[cool] 41C
+-- control2 FOO=1 20:30:56
+   control2   p0  71.20 t/s  acc=0.88393
+   control2   p1  44.01 t/s  acc=0.44751
+   draft acceptance = 0.88393 (   99 accepted /   112 generated), mean len =  4.54|draft acceptance = 0.44751 (   81 accepted /   181 generated), mean len =  2.76|
+PPF_DONE

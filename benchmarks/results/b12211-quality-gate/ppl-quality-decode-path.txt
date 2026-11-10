@@ -1,0 +1,37 @@
+=== UD-Q4_K_M at batch 8 (decode kernels engaged) ===
+[cool] 45C
+-- stock q4-stock  21:50:09
+   rc=0      62s  Final estimate: PPL = 6.0529 +/- 0.30971  
+[cool] 47C
+-- p92 q4-p92  21:52:26
+   rc=0      36s  Final estimate: PPL = 6.0560 +/- 0.30984  
+[cool] 47C
+-- kld q4-kld  21:54:03
+   rc=0      36s    KLD:  -0.000028
+=== UD-Q6_K_XL at batch 8 (this is patch 92's own path) ===
+[cool] 47C
+-- stock q6-stock  21:55:40
+   rc=0      61s  Final estimate: PPL = 6.0480 +/- 0.31011  
+[cool] 47C
+-- p92 q6-p92  21:58:11
+   rc=0      42s  Final estimate: PPL = 6.0602 +/- 0.31107  
+[cool] 47C
+-- kld q6-kld  21:59:53
+   rc=0      42s    KLD:  -0.000017
+=== proof the patched kernels are actually live on this workload ===
+[cool] 47C
+-- nobody q6-nobody GGML_CUDA_MMVQ_P100_BODY=0 22:01:35
+   rc=0      54s    KLD:  -0.000021
+[cool] 47C
+-- nof16 q6-nof16 GGML_CUDA_MMVQ_F16=0 22:04:00
+   rc=0      45s    KLD:  -0.000022
+=== control: same arm twice, so a nonzero KLD can be told from run noise ===
+[cool] 47C
+-- stock2 q6-stock2  22:05:45
+   rc=0      62s  Final estimate: PPL = 6.0480 +/- 0.31011  
+[cool] 47C
+-- selfkld q6-self  22:08:18
+   rc=0      60s    KLD:  -0.000065
+=== did the decode path actually get used? kernel names from the run log ===
+(if that is empty, the logs do not name kernels and the routing claim above is unverified -- check GGML_CUDA_OP_PROFILE instead of trusting it)
+DECODE_PPLQ_DONE

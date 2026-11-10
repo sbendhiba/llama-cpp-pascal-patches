@@ -1,0 +1,43 @@
+[cool] 41C
+== p92 rep1 20:32:53
+[cool] 41C
+== theirs rep1 20:35:42
+[cool] 41C
+== p92 rep2 20:39:03
+[cool] 41C
+== theirs rep2 20:42:21
+
+=== per prompt (mean of 2 reps) ===
+p0 p92:  69.59 t/s  len 4.28   16.26 t/s/cyc | theirs:  68.97 t/s  len 4.36   15.82 t/s/cyc | 
+p1 p92:  43.14 t/s  len 2.68   16.10 t/s/cyc | theirs:  41.09 t/s  len 2.59   15.87 t/s/cyc | 
+p2 p92:  55.20 t/s  len 3.40   16.23 t/s/cyc | theirs:  53.33 t/s  len 3.36   15.87 t/s/cyc | 
+p3 p92:  58.11 t/s  len 3.54   16.41 t/s/cyc | theirs:  54.78 t/s  len 3.45   15.88 t/s/cyc | 
+p92    ts         mean  56.510  sd  9.406  n 8
+theirs ts         mean  54.541  sd  9.881  n 8
+p92    ts_per_cyc mean  16.251  sd  0.113  n 8
+theirs ts_per_cyc mean  15.858  sd  0.031  n 8
+p92    mean_len   mean   3.475  sd  0.568  n 8
+theirs mean_len   mean   3.440  sd  0.628  n 8
+p92/theirs: t/s 3.61%  per-cycle 2.48%
+POWER_DONE
+[cool] 41C
+== theirs rep3 (reversed order) 20:45:23
+[cool] 41C
+== p92 rep3 (reversed order) 20:48:29
+[cool] 41C
+== theirs rep4 (reversed order) 20:51:48
+[cool] 41C
+== p92 rep4 (reversed order) 20:54:54
+--- forward order (1,2), n=16
+  p92    t/s  56.51 (sd  9.41)  per-cycle  16.25  mean len 3.48  n 8
+  theirs t/s  54.54 (sd  9.88)  per-cycle  15.86  mean len 3.44  n 8
+  p92/theirs: t/s +3.61%  per-cycle +2.48%
+--- reversed (3,4), n=16
+  p92    t/s  56.43 (sd  9.37)  per-cycle  16.23  mean len 3.48  n 8
+  theirs t/s  54.68 (sd  9.92)  per-cycle  15.90  mean len 3.44  n 8
+  p92/theirs: t/s +3.20%  per-cycle +2.09%
+--- all, n=32
+  p92    t/s  56.47 (sd  9.39)  per-cycle  16.24  mean len 3.48  n 16
+  theirs t/s  54.61 (sd  9.90)  per-cycle  15.88  mean len 3.44  n 16
+  p92/theirs: t/s +3.41%  per-cycle +2.29%
+POWER_DONE2

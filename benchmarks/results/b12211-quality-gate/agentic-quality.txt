@@ -1,0 +1,13 @@
+[cool] 47C
+== stock 22:32:13
+{"label": "stock", "pass_rate": 68.8, "passed": 11, "total": 16, "by_kind": {"code": "2/3", "exact": "3/3", "fmt": "4/5", "json": "2/5"}}
+   cuda errors: 0
+[cool] 47C
+== p92 22:34:06
+{"label": "p92", "pass_rate": 68.8, "passed": 11, "total": 16, "by_kind": {"code": "2/3", "exact": "3/3", "fmt": "4/5", "json": "2/5"}}
+   cuda errors: 0
+=== agreement: how many replies are byte-identical between the two builds ===
+identical replies: 16/16
+pass flips (stock pass, p92 fail): []
+pass flips (p92 pass, stock fail): []
+AGENTIC_DONE

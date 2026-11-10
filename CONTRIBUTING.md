@@ -29,9 +29,9 @@ to shrink as upstream fixes things - see [RELEASING.md](RELEASING.md).
 **Output.** Unless the patch says otherwise, output must be **bit-identical** to the unpatched
 build, and the entry must say how that was shown. If it does change output - a different reduction
 order, a fused epilogue, a kernel that changes launch geometry - then: state exactly when it changes,
-measure the difference (perplexity, `llama-bench -npl`, top-k log-prob comparison), and default it
-**off** behind an environment variable with a documented kill switch. Several patches here are on by
-default and each one says so with its evidence; the rest are opt-in.
+run the package gate below on the set with the patch in it, and ship it **on by default with a runtime
+kill switch** (`GGML_...=0`), not a build-time option. A patch that fails the gate does not merge, and
+patch 24 is the one that earned its opt-in default that way.
 
 **Scope.** Architecture-specific gating needs an architecture-specific *reason*. `sm_60` gating is
 for the GP100 DP4A/HFMA2 asymmetry; a scheduler or sampler fix has no business being gated. Changing
@@ -62,6 +62,13 @@ Anything quoted in the README or in `docs/patches.md` has to survive this, and
 - perplexity is measured with `-ub 1` (and `-ub 5` for anything touching speculative verify batches)
   - plain `llama-perplexity` runs batched prefill and never touches the decode kernels most of these
   patches change
+- **every new patch or adopted candidate runs the package gate before it merges:**
+  `benchmarks/kld-gate.sh --base-bin <accepted build> --cand-bin <build with the change in it>`. PPL is
+  the ground-truth number and must not rise by more than ~0.5% on a quant we ship; the logit KL is judged
+  against a quantization step on the same harness (0.0306 for UD-Q4_K_M against `Q8_0`, 0.0103 for
+  UD-Q6_K_XL, both in [docs/results.md](results.md)), because a KL with no scale is not a verdict. The
+  gate is run on the set as a package: per-patch attribution is debugging, and a KL that does not move
+  when a decode patch is switched off at `-ub 512` is telling you the patch was never reached.
 
 ## Reporting a measurement on your hardware
 

@@ -1,12 +1,14 @@
 # The patches
 
-78 patches, grouped by scope below - 40 that we carry and the 38-patch P60 block at the end; the application order is the file
-numbering. Order matters: several touch the same files, and later ones build
+79 patches at this ref, grouped by scope below - 39 that we carry, the 37-patch P60 block (52-89) and the three
+adopted from the junkgpulab fork (90-92); the application order is the file numbering. Order matters: several touch the same files, and later ones build
 on earlier ones. The tag is recorded once, in the top-level README.
 
-**This branch targets llama.cpp `b12211` (`7d7f028`), 101 commits past `v0.9.0`.** **76 patches**: the
-78 of `v0.9.0` minus two that upstream made unnecessary (32 and 59, below). All 76 are regenerated
-against it and verified in numeric order at zero fuzz and zero offset; the clean-room tree they
+**This branch targets llama.cpp `b12211` (`7d7f028`), 101 commits past `v0.9.0`.** **79 patches**: the
+76 of this ref (the 78 of `v0.9.0` minus two that upstream made unnecessary, 32 and 59, below) plus
+**90**, **91** and **92**, adopted from [junkgpulab/llama.cpp-p100](https://github.com/junkgpulab/llama.cpp-p100)
+and measured here. All 79 are regenerated against it and verified in numeric order at zero fuzz and zero
+offset; the clean-room tree they
 rebuild is byte-identical to the reviewed one, 382 of the 383 identifiers they reference resolve (the
 exception is still `GGML_CUDA_P60_MEGA_GRAPHS`, introduced by 85 and deleted by 86 in the same set),
 the host-side syntax check is clean on all eight non-CUDA translation units, and both arms are
@@ -1822,7 +1824,7 @@ same case, same `rc=134`. Logits reproducibility: see `benchmarks/results/` (inh
 **Superseded by 91, then 92.** Q6_K MTP gained least here (+5-6% vs +15-17% on Q4_K_M) because two carriers
 were still missing: their `mmvq-f16.cu` Q6_K verify path, which 91 restores, and their vdr-4 Q6_K dot, which
 92 adds. With both, this branch measures ahead of the fork rather than behind it — see 92's "Closed, and
-ahead". Records for this evaluation live box-side in `/root/llama.cpp/records/` (`p90-*`), not committed.
+ahead". Raw rows: `benchmarks/results/b12211-quality-gate/`.
 
 ### 91 · `mmvq-f16-verify` — `sm_60` — **candidate, this branch only; needs 90**
 
@@ -1857,8 +1859,7 @@ q4_K `convert_func` abort unchanged).
 one prompt and closed by 92's vdr-4 dot, not by the FFN **GLU fusion** `ggml_cuda_mmvq_f16_glu` or the
 GDN-gate fusion this patch leaves unwired: on their own binary, `GGML_CUDA_GEMM_FOLD=0` and
 `LLAMA_SPEC_PAD=0` both leave their MTP throughput unchanged, and the fp16 file is byte-identical to ours,
-so what this path does not wire carries nothing. Records box-side in `/root/llama.cpp/records/`
-(`p91-*`, `jgpu-q6k-mtp.txt`), not committed.
+so what this path does not wire carries nothing. Raw rows: `benchmarks/results/b12211-quality-gate/`.
 
 ### 92 · `mmvq-q6k-dot-p100` — `sm_60` — **candidate, this branch only; part of 90**
 
@@ -1929,4 +1930,5 @@ patch vendored (same offsets, same `int acc[QR6_K]`, same pre-scale-by-4 and `0.
 `P100_NOY`/`P100_MEMONLY`/`P100_NOUNPACK` probe macros are all `0`), `mmvq-f16.cu` is byte-identical to ours,
 and both trees draft greedily by default (`probabilistic = false`, `--spec-draft-sampling greedy`), so their
 `LLAMA_SPEC_SAMPLE_TEMP=0` README recipe costs us nothing. Records box-side in `/root/llama.cpp/records/`
-(`probe-pad-fold.txt`, `p92-vs-theirs-power.{txt,jsonl}`, `pp-fold-probe.txt`), not committed.
+(`probe-pad-fold.txt`, `p92-vs-theirs-power.{txt,jsonl}`, `pp-fold-probe.txt`) are committed under
+`benchmarks/results/b12211-quality-gate/`.

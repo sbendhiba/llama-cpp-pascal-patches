@@ -1,0 +1,54 @@
+=== UD-Q4_K_M (stock writes the logits the p92 arm is scored against) ===
+[cool] 43C
+-- stock q4-stock 21:31:03
+   rc=0      69s  Final estimate: PPL = 5.0606 +/- 0.12860  
+[cool] 45C
+-- p92 q4-p92 21:33:29
+   rc=0      42s  Final estimate: PPL = 5.0475 +/- 0.12847  
+[cool] 45C
+-- p92-kld q4-p92-kld 21:35:43
+   rc=0      42s    KLD:  -0.000010
+[cool] 45C
+-- p92-rerun q4-p92-r 21:37:58
+   rc=0      41s  Final estimate: PPL = 5.0475 +/- 0.12847  
+=== UD-Q6_K_XL ===
+[cool] 45C
+-- stock q6-stock 21:40:12
+   rc=0      69s  Final estimate: PPL = 5.0881 +/- 0.13030  
+[cool] 45C
+-- p92 q6-p92 21:43:09
+   rc=0      41s  Final estimate: PPL = 5.0838 +/- 0.13047  
+[cool] 45C
+-- p92-kld q6-p92-kld 21:45:23
+   rc=0      42s    KLD:  -0.000016
+[cool] 45C
+-- p92-rerun q6-p92-r 21:47:37
+   rc=0      42s  Final estimate: PPL = 5.0838 +/- 0.13047  
+=== UD-IQ2_XXS (the mixed-quant file: is the answer still the same) ===
+[cool] 45C
+-- stock iq-stock 21:49:51
+   rc=1       0s    
+   tail:
+     0.00.017.370 E llama_model_load: error loading model: llama_model_loader: failed to load model from /root/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ2_XXS.gguf
+     0.00.017.378 E llama_model_load_from_file_impl: failed to load model
+     0.00.017.380 E cmn  common_init_: failed to load model '/root/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ2_XXS.gguf'
+     0.00.017.384 E llama_perplexity: unable to load model
+[cool] 45C
+-- p92 iq-p92 21:49:53
+   rc=1       0s    
+   tail:
+     0.00.017.523 E llama_model_load: error loading model: llama_model_loader: failed to load model from /root/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ2_XXS.gguf
+     0.00.017.527 E llama_model_load_from_file_impl: failed to load model
+     0.00.017.530 E cmn  common_init_: failed to load model '/root/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ2_XXS.gguf'
+     0.00.017.534 E llama_perplexity: unable to load model
+=== the per-chunk PPL table, so a single bad chunk cannot hide in a mean ===
+q4-stock   
+q4-p92     
+q6-stock   
+q6-p92     
+iq-stock   
+iq-p92     
+=== logits files written ===
+4064632788 /root/pplq/q4-stock-logits.gguf
+4064632788 /root/pplq/q6-stock-logits.gguf
+PPLQ_DONE

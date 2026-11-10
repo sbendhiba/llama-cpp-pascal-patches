@@ -1,0 +1,16 @@
+CASE 0 json  FAIL  validator rejected <think>\nThe user wants me to extract information from the text "invoice from ACME for 42 dollars" and format it as JSON with keys "name" (string) and "amount" 
+CASE 1 json  PASS   {\n  "items": [\n    "red",\n    "yellow",\n    "green"\n  ]\n}
+CASE 2 json  PASS   {"ok": true, "n": 2}
+CASE 3 json  FAIL  validator rejected ,c\n\n<think>\nThe user wants me to convert the given information to JSON format and output nothing else. Let me parse the data:\n\n- user id: 7\n- active: true
+CASE 4 json  FAIL  validator rejected , z=3\n\n```json\n[\n  {"k": "x", "v": 1},\n  {"k": "y", "v": 2},\n  {"k": "z", "v": 3}\n]\n```
+CASE 5 exact PASS   Based on standard conventions for file system operations in programming and API design (such as in Python's `os` module or common LLM tool definitions), the fun
+CASE 6 exact PASS   gh pr view 12 -R o/r
+CASE 7 exact PASS   git checkout .
+CASE 8 code  FAIL  validator rejected <think>\nThe user wants just the body of a merge function that merges two sorted lists into one sorted list using a while loop. No explanation, just the code bo
+CASE 9 code  PASS   if __name__ == "__main__":\n    pass
+CASE 10 code  PASS   d.get("k", 0)
+CASE 11 fmt   FAIL  validator rejected 1) what it is, 2) a key feature, 3) a common use.\n\n- TCP (Transmission Control Protocol) is a connection-oriented transport layer protocol that ensures reliab
+CASE 12 fmt   PASS   decrease amount
+CASE 13 fmt   PASS   0 9 * * 1-5
+CASE 14 fmt   PASS   2026-11-02
+CASE 15 fmt   PASS   1, 2, 3, 4, 5

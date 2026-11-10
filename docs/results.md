@@ -10,6 +10,126 @@ Every patch carries its measurement in the comments it adds to the source, and
 [patches.md](patches.md) is the index: per patch, the scope tag, the effect, the kill
 switch, what it changes about the output, and the alternatives that were tried and rejected.
 
+### Scripted - 2026-11-10, `b12211`, 79 patches - **the adoption measured, and the gap that was not there**
+
+llama.cpp `b12211` = `7d7f028`, three arms in cooled same-session blocks on 3x P100 at 160 W: the 79-patch
+tree (`author-p92`), stock `b12211`, and [junkgpulab/llama.cpp-p100](https://github.com/junkgpulab/llama.cpp-p100)
+at its own build (`build-p100`, upstream base `b11875` = commit `f0fb5984b`). Raw rows:
+`b12211-quality-gate/` in this directory.
+
+**MTP with the 27B's own MTP head.** `llama-server -m UD-Q6_K_XL -c 8192 -ub 2048 -fa on -t 28 -sm tensor
+--parallel 1 --spec-type draft-mtp --spec-draft-n-max 4 --spec-draft-p-min 0.2`, `/completion` at
+temperature 0, 256 tokens. Four prompts, two reps, run once with p92 first and once with the fork first, so
+an arm order cannot flatter an arm:
+
+| prompt | p92 t/s (range over 4) | fork t/s (range) | p92 /cycle | fork /cycle |
+|---|---:|---:|---:|---:|
+| p0 `def merge_sorted(a, b):` | 69.51 (69.40-69.66) | 69.06 (68.86-69.20) | 16.24 | 15.84 |
+| p1 two paragraphs on DP4A | 43.12 (43.09-43.17) | 41.12 (41.05-41.16) | 16.09 | 15.88 |
+| p2 haiku | 55.17 (55.14-55.22) | 53.43 (53.30-53.55) | 16.23 | 15.90 |
+| p3 translate to French | 58.08 (58.04-58.15) | 54.83 (54.69-54.92) | 16.41 | 15.89 |
+| **mean** | **56.47** | 54.61 | **16.24** | 15.88 |
+
+`/cycle` divides throughput by the mean draft length (3.48 for p92, 3.44 for the fork), which is what takes
+speculative acceptance out of the number. p92 wins every prompt, in both arm orders: +3.61% t/s and +2.48%
+per cycle forward, +3.20% and +2.09% reversed.
+
+**The 4% deficit reported earlier did not exist.** It was one 128-token prompt measured once, and the metric
+conflated two things: throughput, and how many draft tokens a cycle happened to keep. Patches 90-92 against
+the 76-patch build, same session and same launch line on that earlier 128-token protocol, are +23.7% (55.14
+to 68.22 on p0) and +24.3% (34.49 to 42.88 on p1), beside the fork's 71.41 and 44.01 - which is the number
+the fork's p0 simply does not repeat.
+
+**Their own knobs, probed on their binary.** One environment variable per arm, interleaved with a repeated
+control, all on the fork's build so nothing of ours is involved:
+
+| arm | p0 t/s | p1 t/s |
+|---|---:|---:|
+| control | 71.30 | 44.04 |
+| `LLAMA_SPEC_PAD=0` (their fixed-width verify off) | 71.45 | 43.91 |
+| `GGML_CUDA_GEMM_FOLD=0` (their prefill fold GEMM off) | 71.38 | 43.07 |
+| control repeat | 71.20 | 44.01 |
+
+Neither knob carries any decode throughput, so neither was worth porting: the fold GEMM is a prefill kernel
+by construction (`GGML_CUDA_GEMM_FOLD_MINROWS` 1024, and it declines any shape `mmvq` can serve), and the
+padded verify only fixes the graph width. `mmvq-f16.cu` is byte-identical between the trees, their shipped
+`vec_dot_q6_K_q8_1` is the function patch 92 vendored (their `P100_NOY` / `P100_MEMONLY` / `P100_NOUNPACK`
+probe macros are all `0`), and both trees draft greedily by default (`probabilistic = false`), so their
+`LLAMA_SPEC_SAMPLE_TEMP=0` recipe is what ours already does. Stacking our set onto their base was tried and
+abandoned: 38 of 73 patches apply and 38 reject, because the whole P60 block is cut against `b12211` and
+their base is `b11875` - the coherent direction is the one taken, their kernels on our tree.
+
+**Prefill** (`llama-bench -n 0`, 2 reps, tensor): p92 550.1 / 540.9 t/s at pp1024 / pp4096 against the
+fork's 439.9 / 474.3, i.e. +25% and +14% in the one column where their fold GEMM could have mattered.
+
+### Quality gate - 2026-11-10, same trees - **PPL, logit KL, strict outputs**
+
+WikiText-2 test, `-c 2048`, `-sm tensor`, `-ngl 99 -fa on -t 28 -b 2048 -ub 512`. Per-chunk PPL is in the
+raw rows so one chunk cannot hide inside a mean.
+
+| quant | tokens | stock PPL | p92 PPL | mean KLD p92 vs stock |
+|---|---:|---:|---:|---:|
+| UD-Q4_K_M | 16384 (`--chunks 8`) | 5.0606 | 5.0475 | 0.006609 +- 0.000373 |
+| UD-Q6_K_XL | 16384 | 5.0881 | 5.0838 | 0.010202 +- 0.001559 |
+| UD-IQ2_XXS | 16384 | 5.7274 | 5.6910 | better on all 8 chunks |
+| UD-Q4_K_M, `-b 8 -ub 8` | 4096 (`--chunks 2`) | 6.0529 | 6.0560 | 0.000361 +- 0.000020 |
+| UD-Q6_K_XL, `-b 8 -ub 8` | 4096 | 6.0480 | 6.0602 | 0.000451 +- 0.000024 |
+
+Three things this set of numbers needs said out loud:
+
+- **The harness has no floor.** The same build scored against its own saved logits gives mean KLD
+  0.000000 +- 0.000000 (maximum 0.000059), so the KLs above are differences the patches cause, not
+  round-trip artifacts of `--save-all-logits`.
+- **They are not caused by the adoption.** At the batch shape the patched kernels actually serve, turning
+  patch 90 off reads 0.000463 and patch 91 off reads 0.000423, against 0.000451 with both on. The KL is
+  dominated by the older global patches - 01's vmad `dp4a` emulation rewrites the primitive every quant
+  dot shares - and by prefill-time choices, not by 90-92.
+- **Batch shape moves the reference build further than the patches do.** Stock alone reads 6.1295 at
+  `-ub 512` and 6.0529 at `-ub 8` over the same 4096 tokens: 1.3%, six times the largest between-builds
+  delta in the table.
+- **Prefill-shaped gates do not reach MMVQ.** `ggml-cuda.cu:2136` routes to `mul_mat_vec_q` only while
+  `src1->ne[1] <= MMVQ_MAX_BATCH_SIZE` (8), so a normal perplexity run at `-ub 512` measures the MMQ and
+  cuBLAS paths. The `-b 8 -ub 8` arms are the ones that exercise patches 90-92, which is why they exist.
+
+**The yardstick: what a quantization step costs.** Same harness, same corpus, stock build throughout, with
+`Q8_0` writing the base logits (its own PPL 5.0924):
+
+| arm | mean KLD | max |
+|---|---:|---:|
+| UD-Q4_K_M against `Q8_0` | 0.030589 +- 0.005112 | 21.06 |
+| UD-Q6_K_XL against `Q8_0` | 0.010322 +- 0.002589 | 14.11 |
+| *for reference:* UD-Q4_K_M, 79 patches against stock | 0.006609 | 1.47 |
+| *for reference:* UD-Q6_K_XL, 79 patches against stock | 0.010202 | 7.46 |
+
+So the entire patch set's distribution shift is a quarter of the Q4_K_M quantization step and, at Q6_K_XL,
+indistinguishable from it (0.0102 against 0.0103). Caveat kept on the record because it matters: those two
+files differ in more than the quant - the UD ladder keeps some tensors at higher precision - so this is a
+reference scale, not a controlled quantization ablation. `Q8_0`'s PPL being no better than the UD files
+(5.0924 against 5.0606 and 5.0881) is the same symptom.
+
+**Isolation, recorded but not the gate.** At the prefill shape the numbers are identical to six digits with
+the adoption switched off - default, `GGML_CUDA_MMVQ_P100_BODY=0` and `GGML_CUDA_MMVQ_F16=0` all read mean
+KLD 0.010202 with maximum 7.455615 on UD-Q6_K_XL - which is what `ggml-cuda.cu:2136` predicts: at `-ub 512`
+the batch is never `<= MMVQ_MAX_BATCH_SIZE`, so those patches are not reached, and the KL belongs to the
+older global patches. The gate is still run on the package (`benchmarks/kld-gate.sh`); this paragraph
+explains a number rather than setting a bar.
+
+**Strict outputs, temperature 0, 16 fixed prompts** - JSON that must parse (5), exact tool and git commands
+(3), code completions (3), format constraints (5). Chosen because PPL and KL cannot see this class of
+failure.
+
+| arm | passed | json | exact | code | fmt | cuda errors |
+|---|---:|---:|---:|---:|---:|---:|
+| stock | 11/16 | 2/5 | 3/3 | 2/3 | 4/5 | 0 |
+| p92 (79 patches) | 11/16 | 2/5 | 3/3 | 2/3 | 4/5 | 0 |
+
+**16/16 replies byte-identical between the builds, and no case passes on one and fails on the other.** The
+absolute rate is not a capability claim - the validators assume specific key names, so a correct answer
+spelled differently counts as a miss - but the comparison is the measurement. Read against the KL table,
+this is the pair that answers the question that started it: a distribution shift you can measure under
+batched prefill, and not one greedy token that changed.
+
+
 ### Scripted - 2026-11-08, `b12211`, 76 patches - **the port, and the regression the trace caught**
 
 llama.cpp `b12211` = `7d7f028`, 101 commits past `v0.9.0`. Three arms: stock `b12211`, this set at

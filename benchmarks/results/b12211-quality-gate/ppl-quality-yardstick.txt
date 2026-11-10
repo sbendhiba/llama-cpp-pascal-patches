@@ -1,0 +1,30 @@
+=== yardstick: what a quantization step costs, stock build throughout ===
+[cool] 47C
+-- q8-base y-q8-base  22:15:24
+   rc=0      79s  Final estimate: PPL = 5.0924 +/- 0.13051 |  | 
+[cool] 47C
+-- q4-vs-q8 y-q4-vs-q8  22:17:58
+   rc=0      67s   | Mean    KLD:   0.030589 ±   0.005112 | Maximum KLD:  21.060923
+[cool] 47C
+-- q6-vs-q8 y-q6-vs-q8  22:20:20
+   rc=0      67s   | Mean    KLD:   0.010322 ±   0.002589 | Maximum KLD:  14.114767
+=== isolation at the prefill shape, against the stock prefill logits ===
+[cool] 47C
+-- p92-default y-q6-default  22:22:42
+   rc=0      42s   | Mean    KLD:   0.010202 ±   0.001559 | Maximum KLD:   7.455615
+[cool] 47C
+-- body-off y-q6-bodyoff GGML_CUDA_MMVQ_P100_BODY=0 22:24:39
+   rc=0      42s   | Mean    KLD:   0.010202 ±   0.001559 | Maximum KLD:   7.455615
+[cool] 47C
+-- f16-off y-q6-f16off GGML_CUDA_MMVQ_F16=0 22:26:22
+   rc=0      42s   | Mean    KLD:   0.010202 ±   0.001559 | Maximum KLD:   7.455615
+[cool] 47C
+-- p92-default y-q4-default  22:28:19
+   rc=0      43s   | Mean    KLD:   0.006609 ±   0.000373 | Maximum KLD:   1.472708
+[cool] 47C
+-- body-off y-q4-bodyoff GGML_CUDA_MMVQ_P100_BODY=0 22:30:17
+   rc=0      43s   | Mean    KLD:   0.006609 ±   0.000373 | Maximum KLD:   1.472708
+=== the number that would make this a defect, stated plainly ===
+A patch set is suspect if KL rises while PPL also rises. Here PPL did not rise on either quant or
+either shape, so the KL is a difference, not a degradation -- the yardstick above says how small.
+YARD_DONE
