@@ -1,0 +1,148 @@
+diff --git a/ggml/src/ggml-cuda/mmvq-p100-body.cu b/ggml/src/ggml-cuda/mmvq-p100-body.cu
+index 2624a6e..e93b202 100644
+--- a/ggml/src/ggml-cuda/mmvq-p100-body.cu
++++ b/ggml/src/ggml-cuda/mmvq-p100-body.cu
+@@ -108,7 +108,12 @@ static constexpr __device__ vec_dot_q_cuda_t get_vec_dot_q_cuda(ggml_type type)
+         case GGML_TYPE_Q4_K:    return vec_dot_q4_K_q8_1;
+         case GGML_TYPE_Q5_K:    return vec_dot_q5_K_q8_1;
+ #endif
++        // P100: rewritten q6_K dot
++#if defined(__CUDA_ARCH_LIST__) && __CUDA_ARCH_LIST__ == 600
++        case GGML_TYPE_Q6_K:    return vec_dot_q6_K_q8_1_p100;
++#else
+         case GGML_TYPE_Q6_K:    return vec_dot_q6_K_q8_1;
++#endif
+         case GGML_TYPE_IQ2_XXS: return vec_dot_iq2_xxs_q8_1;
+         case GGML_TYPE_IQ2_XS:  return vec_dot_iq2_xs_q8_1;
+         case GGML_TYPE_IQ2_S:   return vec_dot_iq2_s_q8_1;
+@@ -182,7 +187,12 @@ static constexpr __host__ __device__ int get_vdr_mmvq(ggml_type type) {
+         case GGML_TYPE_Q4_K:    return VDR_Q4_K_Q8_1_MMVQ;
+         case GGML_TYPE_Q5_K:    return VDR_Q5_K_Q8_1_MMVQ;
+ #endif
++        // P100: the rewritten q6_K dot runs at vdr = 4
++#if defined(__CUDA_ARCH_LIST__) && __CUDA_ARCH_LIST__ == 600
++        case GGML_TYPE_Q6_K:    return VDR_Q6_K_Q8_1_MMVQ_P100;
++#else
+         case GGML_TYPE_Q6_K:    return VDR_Q6_K_Q8_1_MMVQ;
++#endif
+         case GGML_TYPE_IQ2_XXS: return VDR_IQ2_XXS_Q8_1_MMVQ;
+         case GGML_TYPE_IQ2_XS:  return VDR_IQ2_XS_Q8_1_MMVQ;
+         case GGML_TYPE_IQ2_S:   return VDR_IQ2_S_Q8_1_MMVQ;
+@@ -475,7 +485,7 @@ static constexpr __host__ __device__ int get_mmvq_mmid_max_batch_rdna4(ggml_type
+     }
+ }
+ 
+-int ggml_cuda_mmvq_mmid_override_p100() {
++static int ggml_cuda_mmvq_mmid_override_p100() {
+     static const int ov = [] {
+         const char * e = getenv("LLAMA_MMVQ_MMID_MAX");
+         const int v = e ? atoi(e) : 0;
+@@ -486,13 +496,13 @@ int ggml_cuda_mmvq_mmid_override_p100() {
+     return ov;
+ }
+ 
+-int ggml_cuda_mmvq_mmid_cap_p100() {
++static int ggml_cuda_mmvq_mmid_cap_p100() {
+     const int ov = ggml_cuda_mmvq_mmid_override_p100();
+     return ov > MMVQ_MAX_BATCH_SIZE ? ov : MMVQ_MAX_BATCH_SIZE;
+ }
+ 
+ // Host function: returns the max batch size for the current arch+type at runtime.
+-int get_mmvq_mmid_max_batch_p100(ggml_type type, int cc) {
++static int get_mmvq_mmid_max_batch_p100(ggml_type type, int cc) {
+     // NVIDIA: P100, Volta, Ada Lovelace, and Blackwell always use MMVQ for MUL_MAT_ID.
+     if (GGML_CUDA_CC_IS_NVIDIA(cc)) {
+         if (cc == GGML_CUDA_CC_PASCAL || cc == GGML_CUDA_CC_VOLTA || cc >= GGML_CUDA_CC_ADA_LOVELACE) {
+@@ -834,7 +844,7 @@ static constexpr __host__ __device__ bool mmvq_two_rows_ncols1(ggml_type type) {
+     }
+ }
+ 
+-static constexpr __host__ __device__ int calc_rows_per_block(ggml_type type, int ncols_dst, int table_id, bool small_k = false, int nwarps = 1) {
++static constexpr __host__ __device__ int calc_rows_per_block(ggml_type type, int ncols_dst, int table_id, bool small_k = false, [[maybe_unused]] int nwarps = 1) {
+     if (table_id == MMVQ_PARAMETERS_GENERIC || table_id == MMVQ_PARAMETERS_GCN || table_id == MMVQ_PARAMETERS_TURING || table_id == MMVQ_PARAMETERS_GB10) {
+         switch (ncols_dst) {
+             case 1:
+@@ -2286,7 +2296,7 @@ static int64_t ggml_cuda_mmvq_chunk_width(const ggml_type type) {
+     return type == GGML_TYPE_Q6_K || type == GGML_TYPE_Q5_K ? 5 : MMVQ_MAX_BATCH_SIZE;
+ }
+ 
+-bool ggml_cuda_mmvq_chunked_ok(const int cc, const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * dst) {
++static bool ggml_cuda_mmvq_chunked_ok(const int cc, const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * dst) {
+     static const int64_t max_cols = [] {
+         const char * s = getenv("GGML_CUDA_MMVQ_CHUNK_MAX");
+         return std::min(s ? (int64_t) atoi(s) : (int64_t) 28, 5*MMVQ_CHUNK_MAX_CHUNKS);
+@@ -2304,7 +2314,7 @@ bool ggml_cuda_mmvq_chunked_ok(const int cc, const ggml_tensor * src0, const ggm
+ static void ggml_cuda_mul_mat_vec_q_chunks(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+                                            const ggml_tensor * src1, ggml_tensor * dst);
+ 
+-bool ggml_cuda_mul_mat_vec_q_chunked(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
++static bool ggml_cuda_mul_mat_vec_q_chunked(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+                                      const ggml_tensor * src1, ggml_tensor * dst) {
+     if (!ggml_cuda_mmvq_chunked_ok(ggml_cuda_info().devices[ctx.device].cc, src0, src1, dst)) {
+         return false;
+@@ -2315,7 +2325,7 @@ bool ggml_cuda_mul_mat_vec_q_chunked(ggml_backend_cuda_context & ctx, const ggml
+ 
+ // A quantized src0 whose rows are a view (non-contiguous) with no non-contiguous fp16 converter cannot
+ // take the cuBLAS path; the mat-vec kernels read strided rows, so run it as mat-vec column chunks.
+-bool ggml_cuda_mul_mat_vec_q_chunked_strided(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
++static bool ggml_cuda_mul_mat_vec_q_chunked_strided(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+                                              const ggml_tensor * src1, ggml_tensor * dst) {
+     const int64_t n = src1->ne[1];
+     if (!ggml_is_quantized(src0->type) || ggml_is_contiguously_allocated(src0) ||
+diff --git a/ggml/src/ggml-cuda/vecdotq-p100.cuh b/ggml/src/ggml-cuda/vecdotq-p100.cuh
+index be66bc4..b5e96f6 100644
+--- a/ggml/src/ggml-cuda/vecdotq-p100.cuh
++++ b/ggml/src/ggml-cuda/vecdotq-p100.cuh
+@@ -575,3 +575,52 @@ static __device__ __forceinline__ float vec_dot_iq4_xs_q8_1_p100(
+     return d * sumi;
+ }
+ // ---- end leg ---------------------------------------------------------------------------------
++
++// P100 (sm_60) rewrite of the q6_K x q8_1 mmvq dot. Upstream folds each 4-bit pair to float and
++// multiplies by the scale per (group, column); this runs the whole vdr-wide group through an
++// integer accumulator per column and converts once. The scale, the q8_1 `.ds` and the block d are
++// constant across the group, so the int->float conversion and the two XMAD scale multiplies
++// (Pascal has no IMAD) collapse from vdr*QR6_K to QR6_K. The 6-bit values are pre-scaled by 4 (the
++// sign lands in bit 7 after the XOR); the 0.25f below undoes it exactly, being a power of two.
++// Peak |acc| = vdr*4*128*128 = 262144, inside float's exactly-representable integer range, so the
++// group-fold loses nothing and rounds less often than the upstream path.
++#define VDR_Q6_K_Q8_1_MMVQ_P100 4
++
++static __device__ __forceinline__ float vec_dot_q6_K_q8_1_p100(
++        const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
++
++    const block_q6_K * bq6_K = (const block_q6_K *) vbq + kbx;
++
++    // mmvq drives kqs = vdr * (tid % (qi/vdr)), so iqs is a multiple of vdr. The bq8/scale/vh
++    // indices floor-divide by moduli that are multiples of vdr, so all vdr lanes share them; the
++    // ql, qh and q8_1 lane indices step by one across the group.
++    const int bq8_offset   = 2 * QR6_K * (iqs / (QI6_K/2)) + (iqs % (QI6_K/2)) / (QI6_K/4);
++    const int scale_offset = (QI6_K/4) * (iqs / (QI6_K/2)) + (iqs % (QI6_K/2)) / (QI6_K/8);
++    const int vh_shift     = 2 * ((iqs % (QI6_K/2)) / (QI6_K/4));
++    const int qh_idx       = (QI6_K/4) * (iqs / (QI6_K/2)) + iqs % (QI6_K/4);
++
++    const int8_t * scales = bq6_K->scales + scale_offset;
++
++    int acc[QR6_K] = { 0 };
++#pragma unroll
++    for (int l = 0; l < VDR_Q6_K_Q8_1_MMVQ_P100; ++l) {
++        const int vl = get_int_b2(bq6_K->ql, iqs + l);
++        const int vh = get_int_b2(bq6_K->qh, qh_idx + l) >> vh_shift;
++#pragma unroll
++        for (int i = 0; i < QR6_K; ++i) {
++            const int vil4 = (4*i >= 2 ? (vl >> (4*i - 2)) : (vl << (2 - 4*i))) & 0x3C3C3C3C;
++            const int vih4 = ((vh << (6 - 4*i)) & 0xC0C0C0C0) ^ 0x80808080;
++            const int u    = get_int_b4(bq8_1[bq8_offset + 2*i].qs, (iqs + l) % QI8_1);
++            acc[i] = ggml_cuda_dp4a(vil4 | vih4, u, acc[i]);
++        }
++    }
++
++    float sumf = 0.0f;
++#pragma unroll
++    for (int i = 0; i < QR6_K; ++i) {
++        sumf += (__low2float(bq8_1[bq8_offset + 2*i].ds) * (float) scales[4*i]) * (float) acc[i];
++    }
++
++    const float d = bq6_K->d;
++    return d * 0.25f * sumf;
++}

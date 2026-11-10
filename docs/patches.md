@@ -1855,3 +1855,47 @@ q4_K `convert_func` abort unchanged).
 fused with SWIGLU in one launch) and the GDN-gate fusion, which this patch does not wire — only the dense
 `_try` call is restored. That is the next candidate. Records box-side in `/root/llama.cpp/records/`
 (`p91-*`, `jgpu-q6k-mtp.txt`), not committed.
+### 92 · `mmvq-q6k-dot-p100` — `sm_60` — **candidate, this branch only; part of 90**
+
+Closes the Q6_K MTP residual 90/91 left. The p100 body (90) brought in their `mul_mat_vec_q`, but its
+Q6_K dot still came from our `vecdotq.cuh` at upstream `VDR_Q6_K_Q8_1_MMVQ = 2`; theirs is `4` and the
+function is rewritten. This patch adds a p100-local `vec_dot_q6_K_q8_1_p100` and `VDR_Q6_K_Q8_1_MMVQ_P100 = 4`,
+and routes the p100 body's `get_vdr_mmvq` / `get_vec_dot_q_cuda` at Q6_K to them under
+`__CUDA_ARCH_LIST__ == 600` — exactly the pattern 90 already uses for Q4_K/Q5_K (`_p100`). **No new flag:**
+it rides on `GGML_CUDA_MMVQ_P100_BODY`; `=0` falls back to our VDR-2 path. Our `mmvq.cu`, `vecdotq.cuh` and
+patch 84 (whose staged kernel is pinned to `vdr == 2`) are untouched — the whole change is inside the p100
+body, which is why the earlier "swap the global VDR" experiment that broke patch 84's `static_assert` and
+crashed does not happen here.
+
+**The dot.** Upstream folds each 4-bit pair to float and scales per (group, column); the rewrite keeps the
+whole vdr-4 group in an integer accumulator per column and converts once — the scale, the q8_1 `.ds` and the
+block `d` are constant across the group, so on a chip with no IMAD the int→float and the two XMAD scale
+multiplies collapse from `4*QR6_K` to `QR6_K`; values are pre-scaled by 4 and undone by the exact `0.25f`.
+Hand-written here (junkgpulab's file carried `P100_MEMONLY`/`NOY`/`NOUNPACK` probe macros and dead `#if 0`
+branches; this is the real path only).
+
+**Also cleans 90's vendored file.** `mmvq-p100-body.cu` had six TU-internal functions (`*_mmid_override_p100`,
+`*_mmid_cap_p100`, `get_mmvq_mmid_max_batch_p100`, and the three `*_chunked*` helpers) with no header
+declaration -> `-Wmissing-declarations`; made them `static` (verified none is called from `ggml-cuda.cu`),
+and marked `calc_rows_per_block`'s unused `nwarps` `[[maybe_unused]]`. The build is now warning-free in our
+files.
+
+**Measured** (2x/3x P100 160 W, tensor, Q6_K_XL 27B, same session). Q6_K, 91 -> 92:
+
+| | tg128 | MTP p0 | MTP p1 |
+|---|---:|---:|---:|
+| patch 91 | 34.07 | 64.86 | 40.92 |
+| **patch 92** | **35.84** | **68.3** | **43.0** |
+| their fork | 31.20 | 71.35 | 44.11 |
+
+MTP runs twice, identical, zero CUDA errors — the crash from the global-VDR experiment is gone. The vdr-4
+dot is not bit-identical to the vdr-2 dot (different fold order); logits reproducibility 4 PASS. Per-op
+ADD/MUL_MAT/MUL_MAT_ID identical to ours (168/1131/932, 0 fail). Clean-room apply of the full 79-patch set
+at `-F0`: zero fuzz, zero offset, tree byte-identical.
+
+**Global to every mixed quant.** After this the p100 body has a `_p100` dot for **every** K-quant (Q4_K/Q5_K
+already, Q6_K now) and the non-K ones (Q4_0/Q4_1/Q5_0/Q5_1/Q8_0/Q2_K/Q3_K) too; the IQ types (IQ1/IQ2/IQ3/
+IQ4) decode on our vecdotq.cuh (29/30 smem) and verify on the f16 generic kernel (91), whose `gen_type`
+list covers them all. So a UD-Q*_XL or UD-IQ2_XXS file — which mixes these types in one model — hits an
+optimized path for every tensor type it contains. Not closed: Q6_K MTP still ~4% behind their fork
+(68.3 vs 71.35) — a fraction of the base-level (b11887 vs b12211) difference, not a single subsystem.
