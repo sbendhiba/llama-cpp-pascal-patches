@@ -156,7 +156,7 @@ Both arms exist at `sm_60` under CUDA 12.4 with `-DGGML_CUDA=ON -DGGML_NCCL=OFF 
 which aborts on these cards in `ncclGroupEnd()` identically in both arms, and patch 49 never runs.
 
 This branch is measured now. The full scripted session - 5 interleaved rounds, four configs, both models
-and both splits - is in `benchmarks/results/v0.7.0-p100x2-{tensor,layer}-{27b,35b}.csv` and tabulated at
+and both splits - is in `benchmarks/results/v0.7.0-p100x2-{tensor,layer}-{27b,35b}-summary.md` and tabulated at
 the top of the README: decode **+42.0%** (27B tensor) / **+36.1%** (27B layer) / **+34.3%** (MoE tensor,
 +39.8% if one bad stock round is counted) / **+20.4%** (MoE layer), prefill **+74.2%** pp512 and
 **+14.9%** pp2048 on 27B tensor. What that does *not* do is re-establish the per-patch numbers quoted
@@ -517,7 +517,7 @@ Nothing in the logs, nothing in the timings — only the output was wrong.
 
 Separated from the gate on 2026-10-13, four arms on one binary, 4 interleaved rounds, 27B `-sm tensor`
 `-p 2048 -n 128`: the stream alone is **+3.47% pp2048 and +0.00% tg128**
-([`…-xchg-knob.csv`](../benchmarks/results/v0.6.0-p100x2-xchg-knob.csv), with
+([`…-xchg-knob-summary.md`](../benchmarks/results/v0.6.0-p100x2-xchg-knob-summary.md), with
 [`…-exchange-cost.md`](../benchmarks/results/v0.6.0-p100x2-exchange-cost.md) for the read). Earlier
 the two increments had only ever been quoted together. That number was not accepted as the gate,
 because this is a synchronisation change and throughput cannot tell "faster" from
@@ -549,7 +549,7 @@ above.
 **The flip** (2026-10-13): the default is now on, `GGML_CUDA_AR_H2D_STREAM=0` opts back into the
 single-stream path, and the comment at `ggml_cuda_ar_h2d_stream_enabled` says so. The same two
 lines are the only change to this patch; the confirmation A/B, default against opt-out, is in
-[`…-h2d-default.csv`](../benchmarks/results/v0.6.0-p100x2-h2d-default.csv).
+[`…-h2d-default-summary.md`](../benchmarks/results/v0.6.0-p100x2-h2d-default-summary.md).
 
 **N GPUs** (2..4 devices by default; `GGML_CUDA_AR_NGPU` moves the ceiling). Upstream accepts
 exactly two devices:
@@ -587,8 +587,8 @@ count compiled in (`N_FIXED = 2`), because a runtime rank loop on the
 token-generation path was measured to cost ~0.5%. That neutrality has now been checked: with
 all three variables unset, `tensor-27b` and `layer-35b` reproduce the pre-merge rows at 30.14 →
 30.07 and 70.64 → 70.66 decode, with the stock arms drifting the same way
-([`…-tensor-27b-aroff.csv`](../benchmarks/results/v0.6.0-p100x2-tensor-27b-aroff.csv),
-[`…-layer-35b-aroff.csv`](../benchmarks/results/v0.6.0-p100x2-layer-35b-aroff.csv)).
+([`…-tensor-27b-aroff-summary.md`](../benchmarks/results/v0.6.0-p100x2-tensor-27b-aroff-summary.md),
+[`…-layer-35b-aroff-summary.md`](../benchmarks/results/v0.6.0-p100x2-layer-35b-aroff-summary.md)).
 
 Adapted from `0003-CUDA-enable-the-internal-AllReduce-on-Pascal.patch`,
 `0004-CUDA-run-the-AllReduce-copy-engine-H2D-on-its-own-st.patch` and

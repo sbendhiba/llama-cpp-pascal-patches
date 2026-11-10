@@ -129,7 +129,12 @@ results in one directory per run, which is how the `v0.6.0` session was organise
 p100x2-layer-35b` writes `v0.6.0-p100x2-layer-35b.csv`, whose rows also carry the full `bench_args`,
 so a file name is never the only record of what produced a number.
 
-`run.sh` writes the first two. The third is for measurements taken straight from `llama-bench` before
+`run.sh` writes the first two, and **this repo keeps only the summary**: the per-round csv
+exports were dropped from `results/` on 2026-11-10 because every one of them had a `-summary.md`
+beside it with the same numbers tabulated (the header of [docs/results.md](../docs/results.md) has the
+recovery recipe). A run you make from now on still produces both files - the difference is only what
+gets committed. The `b12211-quality-gate/` logs are the exception and stay, because their Mean and
+Maximum KLD lines exist nowhere else. The third is for measurements taken straight from `llama-bench` before
 the script existed, or for configurations the script has not re-taken yet: it carries the per-cell σ,
 the arm definitions and an explicit list of what was not recorded, so a hand-run number can be quoted
 with its weaknesses attached. `v0.6.0-p100x2-manual.md` is that file, and the scripted csv next to it
