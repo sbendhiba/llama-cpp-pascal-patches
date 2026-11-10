@@ -1819,9 +1819,12 @@ MUL_MAT_ID identical to ours normalized — the sole textual difference is the p
 abort (task #43) moving from `ggml-cuda.cu:1751` to `:1752`, the one-line shift from this patch's added include;
 same case, same `rc=134`. Logits reproducibility: see `benchmarks/results/` (inherited from the adoption gate).
 
-**Not closed.** Q6_K MTP gains least (+5-6% vs +15-17% on Q4_K_M) and still trails the junkgpulab fork. The
-carrier is their `mmvq-f16.cu` Q6_K verify path, which this patch deliberately leaves out; that is the next
-candidate. Records for this evaluation live box-side in `/root/llama.cpp/records/` (`p90-*`), not committed.### 91 · `mmvq-f16-verify` — `sm_60` — **candidate, this branch only; needs 90**
+**Superseded by 91, then 92.** Q6_K MTP gained least here (+5-6% vs +15-17% on Q4_K_M) because two carriers
+were still missing: their `mmvq-f16.cu` Q6_K verify path, which 91 restores, and their vdr-4 Q6_K dot, which
+92 adds. With both, this branch measures ahead of the fork rather than behind it — see 92's "Closed, and
+ahead". Records for this evaluation live box-side in `/root/llama.cpp/records/` (`p90-*`), not committed.
+
+### 91 · `mmvq-f16-verify` — `sm_60` — **candidate, this branch only; needs 90**
 
 Closes most of the Q6_K **MTP** gap that 90 left open. Their `mmvq.cu` calls `ggml_cuda_mmvq_f16_try`
 inside the decode kernel for the dense verify widths (`!ids && !fusion`, 2..16 columns); 90 stripped that
@@ -1850,11 +1853,13 @@ earlier clean session vs 23.74 now, and the relative gain is +16..18% in every s
 identical). Per-op ADD/MUL_MAT/MUL_MAT_ID identical to ours (168/1131/932, 0 fail; the shared pre-existing
 q4_K `convert_func` abort unchanged).
 
-**Not closed.** Q6_K MTP still trails the junkgpulab fork by ~13% in the same session (63.81/39.97 vs
-73.15/45.46). The remaining carrier is their FFN **GLU fusion** `ggml_cuda_mmvq_f16_glu` (gate+up matvecs
-fused with SWIGLU in one launch) and the GDN-gate fusion, which this patch does not wire — only the dense
-`_try` call is restored. That is the next candidate. Records box-side in `/root/llama.cpp/records/`
+**Superseded by 92.** The ~13% Q6_K MTP deficit recorded here (63.81/39.97 vs 73.15/45.46) was measured on
+one prompt and closed by 92's vdr-4 dot, not by the FFN **GLU fusion** `ggml_cuda_mmvq_f16_glu` or the
+GDN-gate fusion this patch leaves unwired: on their own binary, `GGML_CUDA_GEMM_FOLD=0` and
+`LLAMA_SPEC_PAD=0` both leave their MTP throughput unchanged, and the fp16 file is byte-identical to ours,
+so what this path does not wire carries nothing. Records box-side in `/root/llama.cpp/records/`
 (`p91-*`, `jgpu-q6k-mtp.txt`), not committed.
+
 ### 92 · `mmvq-q6k-dot-p100` — `sm_60` — **candidate, this branch only; part of 90**
 
 Closes the Q6_K MTP residual 90/91 left. The p100 body (90) brought in their `mul_mat_vec_q`, but its
@@ -1897,5 +1902,31 @@ at `-F0`: zero fuzz, zero offset, tree byte-identical.
 already, Q6_K now) and the non-K ones (Q4_0/Q4_1/Q5_0/Q5_1/Q8_0/Q2_K/Q3_K) too; the IQ types (IQ1/IQ2/IQ3/
 IQ4) decode on our vecdotq.cuh (29/30 smem) and verify on the f16 generic kernel (91), whose `gen_type`
 list covers them all. So a UD-Q*_XL or UD-IQ2_XXS file — which mixes these types in one model — hits an
-optimized path for every tensor type it contains. Not closed: Q6_K MTP still ~4% behind their fork
-(68.3 vs 71.35) — a fraction of the base-level (b11887 vs b12211) difference, not a single subsystem.
+optimized path for every tensor type it contains.
+
+**Closed, and ahead.** The ~4% that 68.3 vs 71.35 seemed to leave does not survive a measurement with power.
+Same session, cooled, 3-card tensor, 4 prompts x 256 tokens x 2 reps x **both arm orders** (n=16 per arm),
+and normalising throughput by the mean draft length so draft-acceptance luck is not part of the metric:
+
+| Q6_K 27B, same session | p92 | their fork | p92 vs them |
+|---|---:|---:|---:|
+| MTP, 4 prompts x 256 x 2 reps x 2 orders | 56.47 t/s | 54.61 t/s | **+3.4%** |
+| MTP per draft cycle (t/s / mean len) | 16.24 | 15.88 | **+2.3%** |
+| MTP on the p0 prompt alone | 69.59 | 68.97 | +0.9% |
+| prefill pp1024 / pp4096 (`-n 0`, 2 reps) | 550.1 / 540.9 t/s | 439.9 / 474.3 t/s | **+25% / +14%** |
+
+Their 71.35 does not reproduce: their p0 reads 68.97 in the forward-order reps and 69.10 reversed (ours 69.59
+and 69.66), and both arm orders agree on the verdict (+3.6%/+2.5% and +3.2%/+2.1%), so the residual was one
+lucky sample of a 128-token prompt, not a subsystem. Nothing is left to port to catch them because on this
+model we are not behind them.
+
+**Their remaining subsystems, measured and declined.** On their own binary with one environment variable
+flipped, `GGML_CUDA_GEMM_FOLD=0` reads 71.38 and `LLAMA_SPEC_PAD=0` reads 71.45 against a 71.30/71.20
+control — inside the run-to-run spread — so neither the fold GEMM nor the fixed-width verify is a decode
+carrier, and the fold is a prefill kernel anyway (its `MINROWS` gate and its refusal of any shape mmvq can
+handle) in the very column where we already lead. Their shipped `vec_dot_q6_K_q8_1` is the function this
+patch vendored (same offsets, same `int acc[QR6_K]`, same pre-scale-by-4 and `0.25f` epilogue, and their
+`P100_NOY`/`P100_MEMONLY`/`P100_NOUNPACK` probe macros are all `0`), `mmvq-f16.cu` is byte-identical to ours,
+and both trees draft greedily by default (`probabilistic = false`, `--spec-draft-sampling greedy`), so their
+`LLAMA_SPEC_SAMPLE_TEMP=0` README recipe costs us nothing. Records box-side in `/root/llama.cpp/records/`
+(`probe-pad-fold.txt`, `p92-vs-theirs-power.{txt,jsonl}`, `pp-fold-probe.txt`), not committed.
