@@ -41,22 +41,34 @@ PASS, with the persistent halves actually running.
 
 ### Qwen3.8-27B with the MTP head
 
-`llama-server` `/completion`, `--spec-type draft-mtp --spec-draft-n-max 4 --spec-draft-p-min 0.2`,
-3-card tensor, 4 prompts x 256 tokens x 2 reps x **both arm orders**. Per-cycle divides throughput by the
-mean draft length, so speculative acceptance is not part of the number - one prompt on its own is how a
-phantom gap gets manufactured.
+`llama-server` `/completion` at temperature 0, `--spec-type draft-mtp --spec-draft-n-max 4
+--spec-draft-p-min 0.2`, 3-card tensor, 4 prompts x 256 tokens x 2 reps x **both arm orders**, every arm
+identity-checked so a request cannot be answered by the previous build's server. Per-cycle divides
+throughput by the mean draft length, which takes speculative acceptance out of the number.
 
-| metric | **this set (79)** | junkgpulab fork |
-|---|---:|---:|
-| Q6_K_XL MTP, mean t/s over 4 prompts | **56.47** | 54.61 |
-| Q6_K_XL MTP, t/s per draft cycle | **16.24** | 15.88 |
-| Q6_K_XL prefill pp1024 / pp4096 | **550.1 / 540.9** | 439.9 / 474.3 |
+| UD-Q6_K_XL, 27B | stock `b12211` | **this set (79)** | gain |
+|---|---:|---:|---:|
+| MTP, mean over 4 prompts | 36.11 t/s | **56.45** | **+56.3%** |
+| MTP per draft cycle | 10.36 | **16.23** | +56.7% |
+| MTP, code prompt | 44.42 | **69.51** | +56.5% |
+| MTP, prose / haiku / translation | 27.77 / 37.94 / 34.32 | **43.09 / 55.16 / 58.03** | +55.2 / +45.4 / +69.1% |
+| tg128 | 20.44 | **35.64** | +74.4% |
+| pp512 / pp1024 / pp2048 / pp4096 | 286.1 / 345.7 / 396.3 / 389.2 | **514.5 / 546.2 / 552.3 / 537.4** | +79.8 / +58.0 / +39.3 / +38.1% |
+| Q8_0 of the same model, MTP code + chat | 36.06 | **54.67** | +51.6% |
 
-p92 wins every prompt, in both arm orders: +3.61% t/s and +2.48% per cycle forward, +3.20% and +2.09%
-reversed. Against the 76-patch build, same session and same launch line on the earlier 128-token protocol,
-patches 90-92 are +23.7% and +24.3% (55.14 to 68.22, 34.49 to 42.88) beside the fork's 71.41 and 44.01 -
-the fork's 71.41 is a single prompt that does not repeat, and the per-cycle column is why the gap between
-them was never real.
+What the shape of the table says:
+
+- **Decode gains most.** +74.4% at tg128 and +56.3% under MTP, which is what a set built around GP100's
+  missing `DP4A` and unused `HFMA2` should do.
+- **Prefill gain narrows as the prompt grows** - +79.8% at pp512 down to +38.1% at pp4096 - because the
+  set's advantage is at small batches and upstream's own prefill closes the distance at large ones. Take
+  the pp row as four numbers, not one.
+- **Not one quant ladder's luck.** At Q8_0, where nothing sits at 4 or 6 bits, MTP still gains +51.6%;
+  stock Q8_0 and stock Q6_K_XL run within 0.2% of each other here, so both arms face the same hardware
+  limit and the comparison is not against a handicapped baseline.
+- **The spread across prompts is the honest part.** The per-prompt gains run +45.4% to +69.1%: prompt
+  length and how well the MTP head drafts a given style both move the number, so a single-prompt figure
+  of any kind - ours or anybody else's - is not a result.
 
 One path is not carried over yet: the rollback/MTP conv-state store became a single `SET_ROWS` at this ref
 (#31660) and the GDN half's snapshot branch still expects `K` separate copies, so `--spec-type draft-mtp`

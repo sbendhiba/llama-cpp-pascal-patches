@@ -18,6 +18,50 @@ Every patch carries its measurement in the comments it adds to the source, and
 [patches.md](patches.md) is the index: per patch, the scope tag, the effect, the kill
 switch, what it changes about the output, and the alternatives that were tried and rejected.
 
+### Scripted - 2026-11-10 (later), `b12211`, 79 patches - **stock vs the set, and a harness that lied**
+
+Same box, same model (Qwen3.8-27B UD-Q6_K_XL and its Q8_0), the two canonical trees
+`/root/llama.cpp/b12211-{stock,patched}`. This session exists because the published MTP table compared
+the set against the fork rather than against stock, which is not the comparison a reader of this repo
+needs.
+
+**The first attempt was silently wrong, and the numbers looked fine.** `arm()` did `stop(); sleep 3;`
+then started the next server and polled `/health`. A 27 GB tensor-split server does not always release
+port 8099 inside three seconds: the new arm's bind failed (`couldn't bind HTTP server socket`), the
+health poll was answered by the *previous, still-dying* server, and the arm measured the wrong build
+while looking like it measured itself. Symptoms were mild - two sessions truncated at 1 and 2 prompts of
+4, one row came back with `mean len` missing, and the aggregate then averaged a per-cycle value of 0
+into a real one, reporting 8.13 t/s per cycle for an arm that had just printed 16.26. Nothing in the
+throughput columns was out of family, which is exactly why the bug survived a glance.
+
+The fix is three cheap assertions rather than more sleeps: a **port per arm**, a hard wait until `ss -ltn`
+shows nothing listening, and an **identity check** that the PID launched is alive, that its own log names
+the model it was given, and that `/health` answers before any request goes out. A row is only recorded if
+the server also printed a timing line for it. Re-run with those, protocol A came back 16 rows, zero
+dropped, in both arm orders:
+
+| | stock | this set | gain |
+|---|---:|---:|---:|
+| MTP mean over 4 prompts | 36.11 | **56.45** | +56.3% |
+| per draft cycle (len 3.49 / 3.48) | 10.36 | **16.23** | +56.7% |
+| p0 code 44.42 / p1 prose 27.77 | - | 69.51 / 43.09 | +56.5 / +55.2% |
+| p2 haiku 37.94 / p3 translate 34.32 | - | 55.16 / 58.03 | +45.4 / +69.1% |
+| tg128 | 20.44 | **35.64** | +74.4% |
+| pp512 / pp1024 / pp2048 / pp4096 | 286.1 / 345.7 / 396.3 / 389.2 | **514.5 / 546.2 / 552.3 / 537.4** | +79.8 / +58.0 / +39.3 / +38.1% |
+| Q8_0, MTP code + chat | 36.06 | **54.67** | +51.6% |
+
+Cross-checks worth recording: the set's mean appears as 56.51, 56.54 and 56.45 across three independent
+sessions including the earlier fork comparison, so the throughput column was never in doubt - only its
+provenance was. And the same launch line with the video's draft flags (`-ngld 99 -ctkd q8_0 -ctvd q8_0`)
+measured stock 35.69 against the set 55.43, i.e. about 1-2% *below* the plain-flags session on both arms,
+so those flags are not where a remembered 70-73 t/s came from: 69.5-69.7 is simply the short code prompt
+on this set, and the 4-prompt mean is legitimately 56.5. (`-ubd` from the same launch line does not exist
+at this ref - it belongs to the fork's older base - and would have aborted every arm.)
+
+Raw rows: `/tmp/mtp-hard.{txt,jsonl}` and `/tmp/q6k-stock-vs-set-*.csv` were session artifacts on the bench
+box, not committed; the per-round CSV exports are no longer kept in this repo at all (see the note at the
+top of this file).
+
 ### Scripted - 2026-11-10, `b12211`, 79 patches - **the adoption measured, and the gap that was not there**
 
 llama.cpp `b12211` = `7d7f028`, three arms in cooled same-session blocks on 3x P100 at 160 W: the 79-patch
