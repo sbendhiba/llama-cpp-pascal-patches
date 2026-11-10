@@ -1821,4 +1821,37 @@ same case, same `rc=134`. Logits reproducibility: see `benchmarks/results/` (inh
 
 **Not closed.** Q6_K MTP gains least (+5-6% vs +15-17% on Q4_K_M) and still trails the junkgpulab fork. The
 carrier is their `mmvq-f16.cu` Q6_K verify path, which this patch deliberately leaves out; that is the next
-candidate. Records for this evaluation live box-side in `/root/llama.cpp/records/` (`p90-*`), not committed.
+candidate. Records for this evaluation live box-side in `/root/llama.cpp/records/` (`p90-*`), not committed.### 91 · `mmvq-f16-verify` — `sm_60` — **candidate, this branch only; needs 90**
+
+Closes most of the Q6_K **MTP** gap that 90 left open. Their `mmvq.cu` calls `ggml_cuda_mmvq_f16_try`
+inside the decode kernel for the dense verify widths (`!ids && !fusion`, 2..16 columns); 90 stripped that
+call because `mmvq-f16.cu` was not taken. This patch adds the self-contained fp16 multi-column matvec
+(the Q6_K kernel plus a generic kernel for the other K-quants) and restores the call. **On by default**;
+`GGML_CUDA_MMVQ_F16=0` falls back to the integer path, `GGML_CUDA_MMVQ_F16_MINROWS` (default 16) sets the
+smallest row count that takes it.
+
+**Self-contained.** `mmvq-f16.cu` keeps its activation cache in a file-static `unordered_map` keyed on the
+context (no `common.cuh` fields), and its public symbols (`ggml_cuda_mmvq_f16_try/_takes/_glu/_gdn_gate/
+_invalidate`) do not collide with our patch-12 `mmvq-f16-sm60.cu` (`..._sm60`). The only wiring beyond the
+restored call is `ggml_cuda_mmvq_f16_invalidate` at the start of every graph compute, beside 90's q8_1
+invalidate. The CMake `*.cu` glob compiles it (re-run cmake configure when adding the file).
+
+**Measured** (2x P100-PCIE-16GB, 160 W, `-sm tensor`, Q6_K_XL 27B, same-session cooled A/B). MTP
+(`--spec-type draft-mtp --spec-draft-n-max 4 --spec-draft-p-min 0.2`, greedy, two prompts), 90 -> 91:
+p0 44.78 -> **63.81** (+42.5%), p1 27.92 -> **39.97** (+43.1%); acceptance unchanged (98/113, 80/181),
+zero CUDA errors. Plain decode is **unchanged** by the flag (f16 on 28.17 vs off 28.11 t/s; both +18.4%
+over ours 23.74 in the same cooled session) because f16 only takes ncols >= 2 — prefill flat. An apparent
+34.11 -> 28.17 decode "regression" was cross-session clock drift, not code: ours itself read 29.40 in the
+earlier clean session vs 23.74 now, and the relative gain is +16..18% in every session.
+
+**Numerics.** The fp16 path is not bit-identical to the integer path (NMSE ~5e-7); verify perplexity on the
+35B corpus moves 8.7717 -> 8.8461, prefill unchanged. It is fully deterministic: logits reproducibility
+4 PASS (verify repeated 3x identical, graphs-off identical, prefill repeated 2x identical, graphs-off
+identical). Per-op ADD/MUL_MAT/MUL_MAT_ID identical to ours (168/1131/932, 0 fail; the shared pre-existing
+q4_K `convert_func` abort unchanged).
+
+**Not closed.** Q6_K MTP still trails the junkgpulab fork by ~13% in the same session (63.81/39.97 vs
+73.15/45.46). The remaining carrier is their FFN **GLU fusion** `ggml_cuda_mmvq_f16_glu` (gate+up matvecs
+fused with SWIGLU in one launch) and the GDN-gate fusion, which this patch does not wire — only the dense
+`_try` call is restored. That is the next candidate. Records box-side in `/root/llama.cpp/records/`
+(`p91-*`, `jgpu-q6k-mtp.txt`), not committed.
