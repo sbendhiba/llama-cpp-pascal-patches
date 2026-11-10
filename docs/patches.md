@@ -1768,3 +1768,57 @@ crashes with an illegal memory access at the first verify step on the second dev
 switch is opt-in (both findings are measured in the README). `83` also puts `ggml_cuda_set_device()`
 in front of the `mega_bar` and q8_1-cache allocations, which is not the crash's cause but is the
 correct device for a buffer that outlives the call that made it.
+### 90 · `mmvq-p100-body` — `sm_60` — **candidate, this branch only**
+
+This branch (`p100-mmvq-body`) adds one patch on top of the 76-patch `b12211` set: the whole
+`mul_mat_vec_q` kernel body adopted from [junkgpulab/llama.cpp-p100](https://github.com/junkgpulab/llama.cpp-p100).
+It is **on by default**; `GGML_CUDA_MMVQ_P100_BODY=0` falls back to our `mmvq.cu` unchanged.
+
+**What it takes.** Their decode kernel, geometry (`calc_nwarps` / `calc_rows_per_block` / `split_rows`),
+dispatch, the chunked paths, `vecdotq-p100.cuh` (one lane per block, aligned loads + funnel shift, selected
+at `__CUDA_ARCH_LIST__ == 600`) and their grow-only q8_1 activation cache with a graph-epoch guard. It does
+**not** take their `mmvq-f16.cu` / `mmv-p100` decoder framework — that is the remaining Q6_K MTP gap, below.
+
+**How it coexists.** Both translation units compile into one binary (the `*.cu` glob picks up
+`mmvq-p100-body.cu`; no CMake change). Their six public symbols that collide with ours
+(`ggml_cuda_should_use_mmvq`, `ggml_cuda_mul_mat_vec_q`, `ggml_cuda_op_mul_mat_vec_q`,
+`get_mmvq_mmid_max_batch`, `ggml_cuda_mmvq_mmid_override`, `ggml_cuda_mmvq_mmid_cap`) are renamed with a
+`_p100` suffix; our three entry points dispatch to theirs when the flag is on and return, otherwise run our
+path. The q8_1-cache epoch check and per-compute invalidate in `ggml-cuda.cu` are guarded by the same runtime
+flag, so with it off the graph path is byte-for-byte the old one.
+
+**What it supersedes when on.** 02 (rows-per-block), 09 (nwarps small-k) and 10 (q8_1 activation cache) — their
+equivalents are inside the adopted body. It keeps 29/30 (the IQ shared tables) and 35 (the mmid batch cap),
+and leaves 12 (the HFMA2 Q4_1 path, a separate file) alone. When on it bypasses the in-file P60 staged Q8_0/Q6_K
+kernels and the `P60_EXACT` branch — it is an alternative decode path, so exact-mode users disable it.
+
+**The merge obligation the ops gate caught.** Their kernel predates 29/30, which move the IQ3_XXS grid and the
+ksigns table into `__shared__` memory and require an init call (it contains a `__syncthreads()`) before any early
+return. Without it the IQ2_XXS/IQ2_XS/IQ3_XXS dot products read uninitialised shared memory — 134 ops failures
+(90 MUL_MAT, 41 MUL_MAT_ID, 3 downstream ADD), errors ~1-2. The adopted body carries the two init calls in both
+its decode and MoE kernels; with them the per-op table is identical to ours.
+
+**Measured** (2x P100-PCIE-16GB, 160 W, `-sm tensor`, `-fa on -t 28 -ub 2048`, 2 reps; `b12211` arms, clean
+control). Decode tg128, ours -> adopted:
+
+| quant | ours t/s | adopted t/s | gain | pp512 |
+|---|---:|---:|---:|---:|
+| Q4_0  | 34.13 | 38.59 | +13.1% | flat |
+| Q4_K_M | 34.97 | 39.18 | +12.1% | +0.7% |
+| Q6_K  | 29.40 | 34.11 | +16.0% | +0.4% |
+
+MTP (`--spec-type draft-mtp --spec-draft-n-max 4 --spec-draft-p-min 0.2`, greedy, parallel 1, two prompts),
+ours -> adopted: Q4_K_M 46.71->53.98 (+15.6%) and 30.11->35.21 (+16.9%); Q6_K 42.39->44.78 (+5.6%) and
+26.23->27.92 (+6.4%). Draft acceptance is identical across arms (Q4_K_M 99/112->99/109, 83/172->83/173;
+Q6_K 98/113 and 80/181 unchanged), so the gain is kernel throughput, not a change in speculative behaviour.
+Zero CUDA errors. `GGML_CUDA_MMVQ_P100_BODY=0` reproduces the ours column (Q4_0 34.13).
+
+**Gates.** Clean-room apply of the full 77-patch set at `-F0`: zero fuzz, zero offset, tree byte-identical to the
+reviewed one. Both kernels build at `sm_60` under CUDA 12.4, NCCL off, no duplicate symbols. Per-op ADD/MUL_MAT/
+MUL_MAT_ID identical to ours normalized — the sole textual difference is the pre-existing q4_K `convert_func`
+abort (task #43) moving from `ggml-cuda.cu:1751` to `:1752`, the one-line shift from this patch's added include;
+same case, same `rc=134`. Logits reproducibility: see `benchmarks/results/` (inherited from the adoption gate).
+
+**Not closed.** Q6_K MTP gains least (+5-6% vs +15-17% on Q4_K_M) and still trails the junkgpulab fork. The
+carrier is their `mmvq-f16.cu` Q6_K verify path, which this patch deliberately leaves out; that is the next
+candidate. Records for this evaluation live box-side in `/root/llama.cpp/records/` (`p90-*`), not committed.
