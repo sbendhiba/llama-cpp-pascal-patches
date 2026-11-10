@@ -5,6 +5,14 @@ raw rows. The summary table in the README is the headline; this file is the evid
 reverse-date order. New sessions go on top, and an arm that is not built from `patches/` with
 `patch -p1 -F0` says so.
 
+**On the raw exports.** `benchmarks/results/` used to carry one `.csv` per session arm beside its
+`-summary.md`, every round and test as it ran. Those are deleted as of 2026-11-10: the summaries tabulate
+the same numbers and the exports are 598 KB of duplication. They are not gone -
+`git log --diff-filter=D --name-only -- benchmarks/results` lists every one, and
+`git show <commit>:benchmarks/results/<name>.csv` prints any single file. What stayed is the evidence that
+exists nowhere else: `b12211-quality-gate/`, whose per-run logs are the only place the Mean and Maximum
+KLD lines quoted in the README's quality table were ever written down.
+
 
 Every patch carries its measurement in the comments it adds to the source, and
 [patches.md](patches.md) is the index: per patch, the scope tag, the effect, the kill
@@ -135,7 +143,7 @@ batched prefill, and not one greedy token that changed.
 llama.cpp `b12211` = `7d7f028`, 101 commits past `v0.9.0`. Three arms: stock `b12211`, this set at
 `b12211`, and this set at `v0.9.0` beside them so the release drift and the port delta are not read
 out of two sessions. Two cards, 160 W, `-fa on -t 28 -ub 2048 -n 128`, 3 interleaved rounds, cooled
-below 45 C between blocks, nothing exported. Raw rows: `b12211-160w-p100x2-*.csv`; the rows taken
+below 45 C between blocks, nothing exported. Raw rows: `b12211-160w-p100x2-*-summary.md`; the rows taken
 *before* the patch 64 fix below are kept as `b12211-160w-before-gdnfix-*`.
 
 | config | stock b12211 | this set b12211 | this set v0.9.0 | gain over stock |
@@ -285,7 +293,7 @@ rows suggest, because speculation gives the persistent 2..6-token halves work to
 **The new default, measured as shipped.** Stock `v0.9.0` against `main` as it stands, two cards, 160 W,
 
 3 interleaved rounds, cooled below 45 C between blocks, nothing exported. Raw rows:
-`v0.9.0-p24off-160w-p100x2-*.csv`.
+`v0.9.0-p24off-160w-p100x2-*-summary.md`.
 
 | config | stock pp512 / tg128 | this set pp512 / tg128 | gain |
 |---|---:|---:|---:|
@@ -322,7 +330,7 @@ and stock + these 78 files applied with `patch -p1 -F0` at zero fuzz and zero of
 are CUDA 12.4, `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=60 -DGGML_NATIVE=ON -DGGML_NCCL=OFF -DGGML_CUDA_NCCL=OFF`.
 Two cards, 160 W, `-fa on -t 28 -ub 2048 -n 128`, 3 rounds with the arm order
 reversed on alternate rounds, the cards cooled below 45 C before each block, nothing exported for any
-arm. Raw rows: `v0.9.0-160w-p100x2-*.csv`.
+arm. Raw rows: `v0.9.0-160w-p100x2-*-summary.md`.
 
 Putting both releases in one session is the point - a cross-session comparison of two ports is exactly
 the thing [benchmarking.md](benchmarking.md) says cannot be read as a port result.
@@ -496,7 +504,7 @@ The point of this run is provenance: each arm is a tree made by taking llama.cpp
 2x P100 at **160 W**, `-fa on -t 28 -ub 2048 -n 128`, 3 interleaved rounds with the order reversed on
 even rounds, cooled to 45 C before each config. Standard deviation across rounds is under 1.4 t/s on
 every cell except `stock` tg on the 35B tensor split (1.04). Raw rows:
-`benchmarks/results/v0.8.0-clean-160w-p100x2-*.csv`.
+`benchmarks/results/v0.8.0-clean-160w-p100x2-*-summary.md`.
 
 | model | split | arm | pp512 t/s | pp2048 t/s | tg128 t/s |
 |---|---|---|---:|---:|---:|
@@ -621,7 +629,7 @@ is on a UPS that trips above 600 W of system draw, 5 rounds per config, **four a
 45 C before each config. Flags are the published ones: `-fa on -t 28 -ub 2048 -n 128`, `-p 512,2048`
 on the 27B and `-p 4096` on the 35B. Build lines `620d2225c (11669)` for both `v0.7.0` arms and
 `8642541b2 (11960)` for both `v0.8.0` arms, nothing exported for any arm, all four built with
-`-DGGML_CUDA_NCCL=OFF`. Raw rows: `benchmarks/results/v0.8.0-160w-p100x2-{tensor,layer}-{27b,35b}.csv`.
+`-DGGML_CUDA_NCCL=OFF`. Raw rows: `benchmarks/results/v0.8.0-160w-p100x2-{tensor,layer}-{27b,35b}-summary.md`.
 
 | Model | Split | arm | pp512 t/s | pp2048 t/s | tg128 t/s |
 |---|---|---:|---:|---:|
@@ -682,8 +690,9 @@ the start. Same box, same runner, 5 rounds, arms interleaved with the order reve
 both arms build line `620d2225c (11669)`, nothing exported for either arm, cooled to 45 C between
 configs (38-60, 43-56, 43-54 and 42-52 C in table order). `-fa on -t 28 -ub 2048 -n 128`,
 `-p 512,2048` on the 27B and `-p 4096` on the 35B, and both arms built with `-DGGML_CUDA_NCCL=OFF`.
-One row per arm, round and test is in `benchmarks/results/` as `v0.7.0-p100x2-tensor-27b.csv`,
-`-layer-27b`, `-tensor-35b` and `-layer-35b`, each with the summary `run.sh` printed beside it.
+The four summaries `run.sh` printed are `v0.7.0-p100x2-tensor-27b-summary.md`, `-layer-27b`,
+`-tensor-35b` and `-layer-35b`; the per-round `.csv` that sat beside each is in git history only (see the
+note at the top of this file).
 
 | Model | Split | pp512 t/s | | pp2048 t/s | | tg128 t/s | |
 |---|---|---:|---:|---:|---:|---:|---:|
@@ -730,7 +739,7 @@ flip below. Three arms, 5 interleaved rounds, same runner and same flags
 as the 2-card session above, both arms built `-DGGML_CUDA_NCCL=OFF`, cooled to 45 C between configs. The
 `NGPU=1` arm is the **same binary** as the default arm behind a wrapper that exports one variable, so
 that pair isolates the gate from everything else. Rows in
-`benchmarks/results/v0.7.0-p100x3-{tensor,layer}-{27b,35b}.csv`.
+`benchmarks/results/v0.7.0-p100x3-{tensor,layer}-{27b,35b}-summary.md`.
 
 Qwen3.8-27B Q4_0 dense, `-sm tensor`:
 
@@ -831,7 +840,7 @@ Read three things into that against the section below it, which is the same box 
   in one binary, not across these tables — see
   [`../benchmarks/results/v0.6.0-p100x2-cuda-graphs.md`](../benchmarks/results/v0.6.0-p100x2-cuda-graphs.md).
 
-Rows are in `benchmarks/results/` as `v0.6.0-p100x2-{tensor,layer}-{27b,35b}-g50.csv` with the
+Rows are in `benchmarks/results/` as `v0.6.0-p100x2-{tensor,layer}-{27b,35b}-g50-summary.md` with the
 `run.sh` table beside each. The softest number in the set is the 35B tensor stock arm: its decode
 sd is 3.11 t/s, the highest of any arm here, so that +35.4% carries a couple of points of slack.
 Perplexity on the shipped defaults is unchanged from the fallback paths it replaced (27B `-sm layer`
@@ -890,7 +899,7 @@ position. The same test puts the *fallback* reduction at mean KLD 0.000093 / max
 difference in summation order that does exist between reductions is now measured instead of argued.
 Raw rows: [`…-ppl-46patch.txt`](../benchmarks/results/v0.6.0-p100x2-ppl-46patch.txt),
 [`…-logit-identity.txt`](../benchmarks/results/v0.6.0-p100x2-logit-identity.txt),
-[`…-h2d-default.csv`](../benchmarks/results/v0.6.0-p100x2-h2d-default.csv).
+[`…-h2d-default-summary.md`](../benchmarks/results/v0.6.0-p100x2-h2d-default-summary.md).
 
 The third candidate, `a8b274ea6` (hash the meta split-state cache, pool the per-depth source states,
 `GGML_BACKEND_META_MAX_DEVICES` 16 -> 8), was built and measured on the card and is **not shipped**.
@@ -920,7 +929,7 @@ table order.
 
 The 27B was also taken at pp512: 229.72 → 229.07 (−0.3%) under tensor, 145.47 → 145.20 (−0.2%) under
 layer. One row per arm, round and test - with build commit, temperature and environment - is in
-[benchmarks/results/](../benchmarks/results/) as `v0.6.0-p100x2-tensor-27b.csv`, `-layer-27b`,
+[benchmarks/results/](../benchmarks/results/) as `v0.6.0-p100x2-tensor-27b-summary.md`, `-layer-27b`,
 `-tensor-35b` and `-layer-35b`, each with the table `run.sh` printed beside it.
 
 Three things to read out of that table, and the middle one corrects a claim this README used to make:
@@ -990,9 +999,9 @@ Three things follow from it, and each changes something written elsewhere in thi
 
 The patched arm ran warmer than stock inside these sessions (52-62 C against 44-62 C), so the
 gains are if anything understated. Provenance per row in
-[`../benchmarks/results/v0.6.0-p100x2-tensor-27b-ar49on.csv`](../benchmarks/results/v0.6.0-p100x2-tensor-27b-ar49on.csv)
+[`../benchmarks/results/v0.6.0-p100x2-tensor-27b-ar49on-summary.md`](../benchmarks/results/v0.6.0-p100x2-tensor-27b-ar49on-summary.md)
 and
-[`…-tensor-35b-ar49on.csv`](../benchmarks/results/v0.6.0-p100x2-tensor-35b-ar49on.csv). The two
+[`…-tensor-35b-ar49on-summary.md`](../benchmarks/results/v0.6.0-p100x2-tensor-35b-ar49on-summary.md). The two
 `…-aroff` files beside them are the same two tensor configs re-taken after patches 49, 50 and the
 N-GPU port were folded into one, which is how the merge was shown to be free at two cards: 30.14 →
 30.07 and 70.64 → 70.66 decode, with both arms of the 27B drifting the same way.
