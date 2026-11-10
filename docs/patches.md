@@ -1929,6 +1929,6 @@ handle) in the very column where we already lead. Their shipped `vec_dot_q6_K_q8
 patch vendored (same offsets, same `int acc[QR6_K]`, same pre-scale-by-4 and `0.25f` epilogue, and their
 `P100_NOY`/`P100_MEMONLY`/`P100_NOUNPACK` probe macros are all `0`), `mmvq-f16.cu` is byte-identical to ours,
 and both trees draft greedily by default (`probabilistic = false`, `--spec-draft-sampling greedy`), so their
-`LLAMA_SPEC_SAMPLE_TEMP=0` README recipe costs us nothing. Records box-side in `/root/llama.cpp/records/`
-(`probe-pad-fold.txt`, `p92-vs-theirs-power.{txt,jsonl}`, `pp-fold-probe.txt`) are committed under
-`benchmarks/results/b12211-quality-gate/`.
+`LLAMA_SPEC_SAMPLE_TEMP=0` README recipe costs us nothing. Raw rows for all of it -
+`probe-pad-fold.txt`, `p92-vs-theirs-power.{txt,jsonl}`, `pp-fold-probe.txt`, the PPL and KL gates and the
+strict-output cases - are committed under `benchmarks/results/b12211-quality-gate/`.
