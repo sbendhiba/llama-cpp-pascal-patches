@@ -1,0 +1,17 @@
+-- ours-q4km  16:20:36
+   ours-q4km p0 46.71 t/s acc=99/112
+   ours-q4km p1 30.11 t/s acc=83/172
+   cuda-error lines: 0
+-- p90-q4km  16:20:54
+   p90-q4km p0 53.98 t/s acc=99/109
+   p90-q4km p1 35.21 t/s acc=83/173
+   cuda-error lines: 0
+-- ours-q6k  16:21:12
+   ours-q6k p0 42.39 t/s acc=98/113
+   ours-q6k p1 26.23 t/s acc=80/181
+   cuda-error lines: 0
+-- p90-q6k  16:21:33
+   p90-q6k p0 44.78 t/s acc=98/113
+   p90-q6k p1 27.92 t/s acc=80/181
+   cuda-error lines: 0
+P90_MTP_DONE

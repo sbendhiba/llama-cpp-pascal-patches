@@ -1,0 +1,41 @@
+[model] /root/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/43f522df59109a037f64f1e29ab1eff5c00e8e1e/Qwen3.8-27B-UD-IQ2_XXS.gguf
+### decode (2 reps, 3-card tensor)
+[cool] 40C
+== iq2xxs-27b-3card on p100x3-iq2xxs: 2 round(s), 3 arm(s)
+== env: CUDA_VISIBLE_DEVICES
+== args: -m /root/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/43f522df59109a037f64f1e29ab1eff5c00e8e1e/Qwen3.8-27B-UD-IQ2_XXS.gguf -fa on -t 28 -ub 2048 -n 128 -p 512 -sm tensor
+
+   round 1/2  arm ours            38 C
+   round 1/2  arm theirs          41 C
+   round 1/2  arm p91             43 C
+   round 2/2  arm p91             45 C
+   round 2/2  arm theirs          46 C
+   round 2/2  arm ours            47 C
+
+| arm | test | mean t/s | sd across rounds | rounds | temps C |
+|---|---|---:|---:|---:|---|
+| p91 | pp512 | 469.00 | 0.93 | 2 | 43-45 C |
+| p91 | tg128 | 38.45 | 0.00 | 2 | 43-45 C |
+| ours | pp512 | 466.51 | 0.32 | 2 | 38-47 C |
+| ours | tg128 | 35.69 | 0.06 | 2 | 38-47 C |
+| theirs | pp512 | 365.20 | 0.12 | 2 | 41-46 C |
+| theirs | tg128 | 32.04 | 0.01 | 2 | 41-46 C |
+
+delta of each other arm against ours:
+   p91 on pp512: +0.53%
+   p91 on tg128: +7.72%
+   theirs on pp512: -21.72%
+   theirs on tg128: -10.24%
+
+wrote /root/llama-cpp-pascal-patches/benchmarks/results/iq2xxs-27b-3card-p100x3-iq2xxs.csv and /root/llama-cpp-pascal-patches/benchmarks/results/iq2xxs-27b-3card-p100x3-iq2xxs-summary.md
+Then: put the numbers in the README table with the date, the llama.cpp tag and the arm
+definitions. A throughput figure without its build commit, its temperatures and its arm
+ordering is not a measurement - see docs/benchmarking.md for why.
+-- ours MTP 17:49:51
+
+### MTP: not applicable to this file
+The UD-IQ2_XXS (UD3.1, snapshot 43f522df) GGUF contains no MTP layers: llama-server exits
+with "context type MTP requested but model doesnt contain MTP layers". Decode applies (+7.72%
+over ours, beats their fork); MTP cannot be measured on this file. The Q4_K_M/Q6_K files
+(snapshot 4ca72078) do carry the MTP head.
+IQ2XXS_DONE

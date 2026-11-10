@@ -1,0 +1,8 @@
+### Q6_K decode (2 reps, tensor, 160W)
+| qwen35 27B Q6_K                |  23.55 GiB |    27.32 B | CUDA       |  -1 |     2048 | tensor |   1 |           pp512 |        403.27 ± 0.04 |
+| qwen35 27B Q6_K                |  23.55 GiB |    27.32 B | CUDA       |  -1 |     2048 | tensor |   1 |           tg128 |         28.17 ± 0.11 |
+### Q6_K MTP default-on
+   p91-q6k p0 63.81 t/s acc=98/113
+   p91-q6k p1 39.97 t/s acc=80/181
+   cuda-error lines: 0
+P91_Q6K_DONE

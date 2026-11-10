@@ -1,0 +1,26 @@
+[devices] CUDA_VISIBLE_DEVICES=0,1,2
+-- ours-q4km 17:35:50
+   ours-q4km p0 58.87 t/s acc=99/109
+   ours-q4km p1 30.53 t/s acc=72/212
+   cuda-error lines: 0
+-- theirs-q4km 17:36:50
+   theirs-q4km p0 79.07 t/s acc=100/108
+   theirs-q4km p1 49.26 t/s acc=83/175
+   cuda-error lines: 0
+-- p91-q4km 17:37:28
+   p91-q4km p0 78.61 t/s acc=99/112
+   p91-q4km p1 50.79 t/s acc=82/179
+   cuda-error lines: 0
+-- ours-q6k 17:38:03
+   ours-q6k p0 55.13 t/s acc=98/113
+   ours-q6k p1 34.44 t/s acc=80/181
+   cuda-error lines: 0
+-- theirs-q6k 17:39:03
+   theirs-q6k p0 71.38 t/s acc=99/112
+   theirs-q6k p1 44.04 t/s acc=81/181
+   cuda-error lines: 0
+-- p91-q6k 17:39:43
+   p91-q6k p0 64.88 t/s acc=98/113
+   p91-q6k p1 40.93 t/s acc=80/181
+   cuda-error lines: 0
+FINAL_MTP_DONE

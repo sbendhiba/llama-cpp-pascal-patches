@@ -1,0 +1,20 @@
+[cool] 41C
+== iq2xxs-stock-3card on p100x3-iq2xxs-stock: 2 round(s), 1 arm(s)
+== env: CUDA_VISIBLE_DEVICES
+== args: -m /root/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/43f522df59109a037f64f1e29ab1eff5c00e8e1e/Qwen3.8-27B-UD-IQ2_XXS.gguf -fa on -t 28 -ub 2048 -n 128 -p 512 -sm tensor
+
+   round 1/2  arm stock           39 C
+   round 2/2  arm stock           43 C
+
+| arm | test | mean t/s | sd across rounds | rounds | temps C |
+|---|---|---:|---:|---:|---|
+| stock | pp512 | 271.50 | 0.09 | 2 | 39-43 C |
+| stock | tg128 | 23.46 | 0.00 | 2 | 39-43 C |
+
+delta of each other arm against stock:
+
+wrote /root/llama-cpp-pascal-patches/benchmarks/results/iq2xxs-stock-3card-p100x3-iq2xxs-stock.csv and /root/llama-cpp-pascal-patches/benchmarks/results/iq2xxs-stock-3card-p100x3-iq2xxs-stock-summary.md
+Then: put the numbers in the README table with the date, the llama.cpp tag and the arm
+definitions. A throughput figure without its build commit, its temperatures and its arm
+ordering is not a measurement - see docs/benchmarking.md for why.
+IQ2XXS_STOCK_DONE
