@@ -180,3 +180,24 @@ on: the stable arm repeating itself proves nothing unless the unstable one diver
 
 [../docs/benchmarking.md](../docs/benchmarking.md) is why each of those rules exists, including the
 two cases where a well-built microbenchmark predicted an effect that did not exist in the model.
+
+## Two instruments added at `v1.0.0`
+
+[`mtp-ab.sh`](mtp-ab.sh) is the speculative table, so that the protocol stops being something each session
+re-derives: [`mtp-prompts.txt`](mtp-prompts.txt) holds the four prompts (code, prose, haiku, translation),
+each case runs at temperature 0 with `ignore_eos` so the token sequence is a function of the build, every
+arm gets its own port plus a hard `ss -ltn` wait plus a pid-and-model identity check, both arm orders run,
+and the summary prints raw t/s and cycles/second side by side with the position-within-block spread. The
+prompts are in the repo because their absence cost this project a headline: the `b12211` +56.3% row was real
+and was not reproducible by anybody, including the session that wrote it - the same build reads 52.02 on
+these four, and the difference between 56.3% and 44.0% is entirely which four prompts you are willing to
+name. Use `--base-env`/`--cand-env` to A/B a switch inside one binary; that is how patch 22's slots get
+measured, since they are off by default and no tensor-split arm ever sees them.
+
+[`knob-sweep.sh`](knob-sweep.sh) is RELEASING.md's identifier sweep made executable, so it stops being a
+paragraph someone re-implements with grep each rebase. It reads the `getenv("NAME")` and
+`p60_env_on("NAME")` calls out of `patches/*.patch`, the same calls out of the patched tree, and the
+switches the docs promise, and reports the set difference in both directions. The case it exists for is the
+one no other gate can see: a knob whose read disappears during a conflict resolution applies cleanly,
+compiles, measures normally, and stops being a switch - the README keeps advertising `NAME=0` and the user
+gets the default forever. It expects one legitimate miss in a set this size, and says which one.

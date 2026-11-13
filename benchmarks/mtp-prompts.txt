@@ -1,0 +1,25 @@
+=== p0 code
+Implement, in C, a function `int ring_write(struct ring *r, const void *src, size_t n)` for a
+single-producer single-consumer lock-free ring buffer with a power-of-two capacity. The ring lives in
+shared memory, so no mutex is allowed. Handle wrap-around with one memcpy per side when the write
+crosses the end of the buffer, return the number of bytes actually written, and make sure a reader on
+another core can never observe a partially published slot. Explain the memory ordering you chose and
+why the compiler cannot reorder it. Then list the two invariants that must hold across the publish
+step and show where each one is established.
+=== p1 prose
+Write a continuation of this paragraph in the same voice, keeping the register plain and concrete and
+avoiding any summary at the end: the workshop had been quiet since the grinding stopped, and the dust
+that had hung in the light of the single window for forty years began, in the last month, to settle.
+Someone had taken the jigs apart and stacked them along the far wall, and the bench where the old man
+used to set the clearance on every bearing was bare except for a tin of screws and a copy of a
+catalogue from 1978 with the pages turned down at the section on tapered rollers.
+=== p2 haiku
+Write exactly three haiku about a data centre at night, each on its own line, each in the form
+5-7-5, no titles, no numbering, no commentary before or after. The images should be about the
+machinery itself - fans, blinkenlights, cold aisle containment - and none of them may use the word
+"ghost", "dream" or "silence".
+=== p3 translate
+Translate the following into German, then into Japanese, keeping the sentence order and the technical
+terms exact, and give no explanation: "The anchor escapement changed the geometry: the pendulum now
+swung through a small arc, roughly two degrees, and the escape wheel was cut with teeth whose shape
+let it lock and release cleanly. A seconds pendulum became accurate to a few seconds a day."

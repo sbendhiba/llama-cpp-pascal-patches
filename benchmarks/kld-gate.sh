@@ -69,10 +69,14 @@ run() {
   "$bin/llama-perplexity" -m "$MODEL" -f "$CORPUS" -c "$CTX" --chunks "$chunks" -ngl "$NGL" \
       -sm tensor -fa on -t "$THREADS" -b "$bs" -ub "$ub" "$@" > "$WORK/$tag.log" 2>&1
   local rc=$?
+  # the minus in -0.000000 is real and it is the floor: llama-perplexity prints the mean of per-position
+  # KL divergences, and a sum that lands a hair below zero prints that way. A matcher without [-+] reads
+  # the one arm whose job is to prove the harness is honest as a blank, which is how this gate reported
+  # "floor-decode: (nothing)" on v1.0.0 while the floor was exactly zero.
   printf '%-16s rc=%-3s %-38s | %-32s | %s\n' "$tag" "$rc" \
-    "$(grep -oE 'Final estimate: PPL = [0-9.]+ \+/- [0-9.]+' "$WORK/$tag.log" | tail -1)" \
-    "$(grep -oE 'Mean    KLD: *[0-9.]+ ± *[0-9.]+' "$WORK/$tag.log" | tail -1)" \
-    "$(grep -oE '95.0%   KLD: *[0-9.]+' "$WORK/$tag.log" | tail -1)"
+    "$(grep -oE 'Final estimate: PPL = [-+0-9][0-9.]* \+/- [-+0-9][0-9.]*' "$WORK/$tag.log" | tail -1)" \
+    "$(grep -oE 'Mean    KLD: *[-+0-9][0-9.]* ± *[0-9.]+' "$WORK/$tag.log" | tail -1)" \
+    "$(grep -oE '95.0%   KLD: *[-+0-9][0-9.]*' "$WORK/$tag.log" | tail -1)"
   [ $rc -ne 0 ] && tail -3 "$WORK/$tag.log"
 }
 
@@ -83,19 +87,26 @@ echo "base  : $BASE"
 echo "cand  : $CAND"
 echo
 echo "--- prefill (-b 2048 -ub 512, $CHUNKS_PF chunks) ---"
-run base-prefill 2048 512 "$CHUNKS_PF" "$BASE" --save-all-logits "$WORK/kld-base-prefill.gguf"
-run cand-prefill 2048 512 "$CHUNKS_PF" "$CAND" --kl-divergence --kl-divergence-base "$WORK/kld-base-prefill.gguf"
+run base-prefill     2048 512 "$CHUNKS_PF" "$BASE" --save-all-logits "$WORK/kld-base-prefill.gguf"
+run cand-prefill     2048 512 "$CHUNKS_PF" "$CAND" --kl-divergence --kl-divergence-base "$WORK/kld-base-prefill.gguf"
+# The candidate scored against base logits prints the KLD table and no PPL of its own, so the column the
+# README's quality table quotes - "PPL this set" - came from a separate plain run each time it was written.
+# Making it an arm of this gate is the only way the gate can decide the PPL half of its own verdict.
+run cand-prefill-ppl 2048 512 "$CHUNKS_PF" "$CAND"
 echo
 echo "--- verify  (-b 8 -ub 5, $CHUNKS_DEC chunks: the MTP width) ---"
-run base-verify 8 5 "$CHUNKS_DEC" "$BASE" --save-all-logits "$WORK/kld-base-verify.gguf"
-run cand-verify 8 5 "$CHUNKS_DEC" "$CAND" --kl-divergence --kl-divergence-base "$WORK/kld-base-verify.gguf"
-run floor-verify 8 5 "$CHUNKS_DEC" "$BASE" --kl-divergence --kl-divergence-base "$WORK/kld-base-verify.gguf"
+run base-verify     8 5 "$CHUNKS_DEC" "$BASE" --save-all-logits "$WORK/kld-base-verify.gguf"
+run cand-verify     8 5 "$CHUNKS_DEC" "$CAND" --kl-divergence --kl-divergence-base "$WORK/kld-base-verify.gguf"
+run floor-verify    8 5 "$CHUNKS_DEC" "$BASE" --kl-divergence --kl-divergence-base "$WORK/kld-base-verify.gguf"
+run cand-verify-ppl 8 5 "$CHUNKS_DEC" "$CAND"
 echo
 echo "--- decode  (-b 8 -ub 1, $CHUNKS_DEC chunks: single-token) ---"
-run base-decode 8 1 "$CHUNKS_DEC" "$BASE" --save-all-logits "$WORK/kld-base-decode.gguf"
-run cand-decode 8 1 "$CHUNKS_DEC" "$CAND" --kl-divergence --kl-divergence-base "$WORK/kld-base-decode.gguf"
-run floor-decode 8 1 "$CHUNKS_DEC" "$BASE" --kl-divergence --kl-divergence-base "$WORK/kld-base-decode.gguf"
+run base-decode     8 1 "$CHUNKS_DEC" "$BASE" --save-all-logits "$WORK/kld-base-decode.gguf"
+run cand-decode     8 1 "$CHUNKS_DEC" "$CAND" --kl-divergence --kl-divergence-base "$WORK/kld-base-decode.gguf"
+run floor-decode    8 1 "$CHUNKS_DEC" "$BASE" --kl-divergence --kl-divergence-base "$WORK/kld-base-decode.gguf"
+run cand-decode-ppl 8 1 "$CHUNKS_DEC" "$CAND"
 echo
-echo "floor-verify and floor-decode must read Mean KLD 0.000000 for the rest to mean anything."
-echo "compare cand Mean KLD against the quantization step: 0.0306 (Q4_K_M vs Q8_0), 0.0103 (Q6_K_XL vs Q8_0)."
+echo "floor-verify and floor-decode must read Mean KLD 0.000000 (or -0.000000) for the rest to mean anything."
+echo "PPL is the ground truth: compare cand-*-ppl against the base-* row on the same shape; mean KLD is"
+echo "judged against a quantization step (0.0306 for Q4_K_M vs Q8_0, 0.0103 for Q6_K_XL vs Q8_0)."
 echo "per-chunk rows stay in $WORK/*.log"
