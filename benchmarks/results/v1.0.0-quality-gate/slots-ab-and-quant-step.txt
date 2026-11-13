@@ -1,0 +1,46 @@
+### 1/4 slots A/B (patch 22, -sm layer, one build) 18:48:21
+rc=0
+prompt      slots-off   slots-8     gain | slots-off/cyc slots-8/cyc     gain
+p0              29.45     33.80   +14.8% |      8.10      9.28   +14.5%
+p1              24.46     24.29    -0.7% |      9.45      9.38    -0.7%
+p2              34.71     34.52    -0.6% |      9.46      9.41    -0.6%
+p3              31.42     31.30    -0.4% |      9.36      9.33    -0.4%
+MEAN            30.01     30.98    +3.2% |      9.09      9.35    +2.8%
+mean tokens per cycle: slots-off 3.33, slots-8 3.33  (a gap here means the arms drafted differently, not that one is faster)
+--- position within the block (clock sag check) ---
+  base  pos1 28.99, pos2 31.03
+  cand  pos1 30.99, pos2 30.97
+raw rows: /root/ports/repo-v1/benchmarks/results/v1.0.0-p22-slots-layer-mtp.jsonl (32)
+### 2/4 det patched 18:54:05
+rc=0
+  default-pf-1       63075340 bytes  header 3e822e2594cc  body 0bcc38769019d57d
+  default-pf-2       63075340 bytes  header 3e822e2594cc  body 0bcc38769019d57d
+  nographs-pf        63075340 bytes  header 3e822e2594cc  body 0bcc38769019d57d
+  nographs          126150660 bytes  header 6c388002dd09  body 83282fef3c52c041
+
+  headers: 2 distinct across 7 dumps - compare bodies only
+
+verdicts:
+  verify  (-ub 4): the default repeated 3 times IDENTICAL PASS
+  verify  (-ub 4): graphs off vs the default IDENTICAL PASS
+  prefill (-ub 256): the default repeated 2 times IDENTICAL PASS
+  prefill (-ub 256): graphs off vs the default IDENTICAL PASS
+### 3/4 det stock 18:55:23
+rc=0
+  default-pf-1       63075340 bytes  header 3e822e2594cc  body 458c51df527c6734
+  default-pf-2       63075340 bytes  header 3e822e2594cc  body 458c51df527c6734
+  nographs-pf        63075340 bytes  header 3e822e2594cc  body 458c51df527c6734
+  nographs          126150660 bytes  header 6c388002dd09  body 0bcd78c53dd0b3f5
+
+  headers: 2 distinct across 7 dumps - compare bodies only
+
+verdicts:
+  verify  (-ub 4): the default repeated 3 times IDENTICAL PASS
+  verify  (-ub 4): graphs off vs the default IDENTICAL PASS
+  prefill (-ub 256): the default repeated 2 times IDENTICAL PASS
+  prefill (-ub 256): graphs off vs the default IDENTICAL PASS
+### 4/4 quantization-step yardstick, -sm layer 18:57:12
+q8-base          rc=0   Final estimate: PPL = 5.0921 +/- 0.13084 
+q4km-vs-q8       rc=0    Mean    KLD:   0.028056 ±   0.003840
+q6k-vs-q8        rc=0    Mean    KLD:   0.010371 ±   0.002346
+SESSION7-DONE 19:01:04

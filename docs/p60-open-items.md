@@ -166,3 +166,29 @@ round spread (sd 0.8-1.7). Their 27B claim was +5.3% MTP decode; we measured pla
 - **shinbunbun 45** (qwen4exp QSA sparse gather): 1 of 6 hunks applied, the rest sit on the
   `gather_mask` -> `sel_mask` rename and the pool-level selection rework. Different model family,
   blocked on its own porting task, unrelated to the P60 block.
+
+## 5. Patch 12 is not reached, and no switch says so — found at the `v1.0.0` port
+
+**Status: documented, not fixed. Measured at `b12211`, structurally identical at `v1.0.0`.**
+
+Patch 12's Q4_1 HFMA2 GEMV hooks `ggml_cuda_mul_mat_vec_q` at its own line, and patch 90's adopted body
+hands the same function to `ggml_cuda_mul_mat_vec_q_p100` and `return`s 120 lines earlier. Both orders are
+the same at `b12211` (`346 / 1878 / 1999 / 2120`) and at `v1.0.0` (`342 / 1874 / 1995 / 2116`), so with the
+set's defaults 12 compiles, passes, and never runs. It is reachable only under
+`GGML_CUDA_MMVQ_P100_BODY=0` - and the numbers in its index entry, +15.9 / +18.8 / +18.6% per decode cycle
+at MTP widths on Q4_1, were taken exactly that way, body off against body on.
+
+Why it stays in the set instead of being deleted as dead: it is not dead code, it is a *second implementation*
+of the same job that the default routes around. The measured state of Q4_1 under the defaults is that this
+set is 2-6% per cycle **slower** than the body-off fallback at MTP widths - patch 91's `gen_takes()` has no
+Q4_1 case, so Q4_1 falls through the generic fp16 verify table instead of onto the kernel written for it.
+
+Two ways to close it, one measurement to make first:
+
+- give patch 91's `gen_takes()` a Q4_1 column gate so the verify path takes it, or
+- let patch 90's body consult 12's supported-predicate before choosing its generic Q4_1 instantiation.
+
+Both change the arithmetic for one quant, so both owe the package gate a run and Q4_1 a re-measure at
+`-b 8 -ub 5`. Nothing here should be done inside a rebase: a rebase's job is to move the set, and the port
+moved it faithfully - `v1.0.0`-patched measured +0.5% against `b12211`-patched on the same four prompts,
+which is the evidence that the gap described above is inherited, not new.

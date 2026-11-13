@@ -10,13 +10,202 @@ reverse-date order. New sessions go on top, and an arm that is not built from `p
 the same numbers and the exports are 598 KB of duplication. They are not gone -
 `git log --diff-filter=D --name-only -- benchmarks/results` lists every one, and
 `git show <commit>:benchmarks/results/<name>.csv` prints any single file. What stayed is the evidence that
-exists nowhere else: `b12211-quality-gate/`, whose per-run logs are the only place the Mean and Maximum
-KLD lines quoted in the README's quality table were ever written down.
+exists nowhere else: `b12211-quality-gate/` and `v1.0.0-quality-gate/`, whose per-run logs are the only place
+the Mean and Maximum KLD lines quoted in the README's quality table were ever written down, along with the
+determinism verdicts and the quantization-step arms taken under `-sm layer`.
 
 
 Every patch carries its measurement in the comments it adds to the source, and
 [patches.md](patches.md) is the index: per patch, the scope tag, the effect, the kill
 switch, what it changes about the output, and the alternatives that were tried and rejected.
+
+### Scripted - 2026-11-13, `v1.0.0` (`b1b770d`), 79 patches - **the port, and the prompt set that moved the headline**
+
+Three arms on 3x P100 at 160 W, CUDA 12.4, `-DGGML_CUDA_NCCL=OFF`: stock `v1.0.0`
+(`/root/llama.cpp/b1b770d-stock`), the 79-patch set at `v1.0.0` (`b1b770d-patched`, clean-room applied and
+built), and the previous release's patched arm (`b12211-patched`) brought into the same block as the control
+that makes a silent refusal visible.
+
+**The port.** 79 files against 148 upstream commits. 18 applied byte-identical (04, 13, 14, 16, 28, 37, 40,
+41, 61, 68, 72-76, 79, 81, 92), 52 landed at offsets and were re-cut at exact context, 9 needed authoring:
+
+| patch | why it did not just apply |
+|---|---|
+| 10 `mmvq-q8-1-activation-cache` | `quantize_row_q8_1_cuda` lost its `ids` and `type_src0` parameters - 13 arguments became 11 |
+| 21 `sched-reset-lazy` | upstream added a third per-tensor table, `hv_tensor_requires_copy`; the lazy walk has to restore it too, or a tensor that stopped needing a copy keeps a stale assignment |
+| 22 `decode-sched-slots` | `sched_new(size_t, bool)` became `sched_new(const sched_params &)` and `sched_reserve()` was rewritten around it; five hunks had to be re-anchored, the meta-device self-disable kept as-is |
+| 35 `mmvq-mmid-batch-cap` | upstream put an `F8_E4M3` guard in front of both AMD `MMVF` branches the cap condition sits inside |
+| 36 `mmvq-chunk-large-batch` | a few-row MMQ path and the same `F8_E4M3` branch were inserted ahead of the cuBLAS fallback the block is written to precede |
+| 54 `p60-fuse-residual-adds` | `mmq-few.cuh` joined the include block; the `mmvq-p60.cuh` line re-anchored |
+| 77 `p60-exact-verify-mode` | forward declarations for `ggml_cuda_graph` were inserted between `sched` and the member the patch adds |
+| 86 `p60-cooperative-grid-sync` | `ggml_cuda_graph` moved out of `common.cuh` into `graph.cuh`, and its `is_enabled()` grew a pool-debug term |
+| 90 `mmvq-p100-body` | the graph struct move again, plus the cuda-context constructor moving into `ggml-cuda.cu`, plus the adopted file's 13-argument q8_1 call |
+
+**Two things only the build caught.** 22's slot block calls `sched_new`, which changed shape; 90's adopted
+`mmvq-p100-body.cu` still had the fork's 13-argument `quantize_row_q8_1_cuda` while upstream had trimmed it
+to 11. Both applied at zero fuzz, zero offset, byte-exact context. This is RELEASING.md's argument for
+treating the build as a gate rather than a formality, restated at a new ref: a hunk can match identical
+context in two places, and a callee can change its contract without the call site's neighborhood moving at
+all.
+
+**Gates, before the cards.** Clean-room apply at `v1.0.0`: 79/79, zero rejects, zero offset hunks, and the
+tree it rebuilds is byte-identical to the reviewed one (`diff -r` clean against the arm). `patch-llama.sh`
+now fails an offset instead of reporting success - the first cut of that check tested for the wording
+"succeeded at offset", which matches nothing in `patch`'s real output (`Hunk #1 succeeded at 762 (offset 11
+lines).`), so all 52 shifted hunks of this port would have been reported as exact. The ref check refused the
+apply until
+`PINNED_COMMIT` was corrected to the commit the annotated tag peels to: `git rev-parse v1.0.0` returns the
+tag object `a6d1a74db`, `git clone --branch v1.0.0` checks out `b1b770d`. Knob sweep: 76 knobs introduced,
+75 still read; the miss is `GGML_CUDA_P60_MEGA_GRAPHS`, introduced by 85 and deleted by 86 in the same set.
+Host syntax check clean on `src/llama-context.cpp` and `ggml/src/ggml-backend.cpp`, the two hand-ported
+non-CUDA units.
+
+**Correctness on the card.** `test-backend-ops` on both arms, one op at a time, `-b CUDA0`: 21 ops
+(ADD, CONCAT, CPY, DIAG, DUP, GET_ROWS, L2_NORM, MUL_MAT, MUL_MAT_ID, MUL, NORM, REPEAT, RMS_NORM, ROLL,
+ROPE, SSM_CONV, SSM_SCAN, SUM and the zero-case GLU/SOFTMAX/SWAP filters) with identical counts -
+`MUL_MAT_ID` 1040/1040, `ROPE` 490/490, `GET_ROWS` 227/227, `CONCAT` 221/221, `CPY` 285/285 on both. The
+whole-op `MUL_MAT` runs are *not* comparable as first taken: the upstream `convert_func` abort ends whichever
+worker hits it, so `-j 8` left stock at 1347 log lines and patched at 1027 for a reason that has nothing to
+do with either build. Re-run per weight type, sequentially, 16 types on `MUL_MAT` and 16 on `MUL_MAT_ID`:
+every count identical, no assert on either arm. That is now the way this gate is run - see RELEASING.md.
+
+**Throughput, llama-bench, 3 reps, interleaved with the order reversed.** pp512 / tg128 per config, three
+cards, temperatures as recorded in each summary file:
+
+| config | stock | this set | gain |
+|---|---:|---:|---|
+| 27B UD-Q4_K_M `-sm tensor` | 283.64 / 23.08 | 497.77 / 39.54 | +75.5% / +71.3% |
+| 27B UD-Q4_K_M `-sm layer` | 145.69 / 13.34 | 209.48 / 22.45 | +43.8% / +68.3% |
+| 35B MoE UD-Q4_K_XL `-sm tensor` | 903.39 / 38.83 (sd 5.29) | 1618.13 / 80.36 | +79.1% / +107% |
+| 35B MoE UD-Q4_K_XL `-sm layer` | 657.79 / 58.22 | 1081.02 / 118.32 | +64.4% / +103.2% |
+| 27B UD-Q6_K_XL `-sm tensor`, pp512/1024/2048/4096 | 288.4 / 348.5 / 399.9 / 392.2 | 514.8 / 543.9 / 550.8 / 537.9 | +78.5 / +56.1 / +37.7 / +37.2% |
+| 27B UD-Q6_K_XL `-sm tensor`, tg128 | 20.63 | 36.01 | +74.4% |
+
+Raw rows: `benchmarks/results/v1.0.0-160w-p100x3-*-summary.md`. Patch 22 is *not* in the tensor rows - it
+self-disables on a meta device, and `sched_reserve: decode graph slots disabled: a meta device does not
+tolerate more than one graph per compute-buffer rotation` is in every tensor-split arm's server log, which is
+also the direct evidence that the hand-ported guard still fires.
+
+**Speculative decoding, and the correction this session owes the record.**
+`benchmarks/mtp-ab.sh` with the committed `mtp-prompts.txt`, 4 prompts x 256 tokens x 2 reps x both arm
+orders, temperature 0 + `ignore_eos`, 3-card tensor, `-c 8192 -ub 2048`:
+
+| UD-Q6_K_XL, 27B | stock | this set | gain |
+|---|---:|---:|---|
+| p0 code | 39.85 | 57.72 | +44.7% |
+| p1 prose | 27.75 | 40.04 | +44.3% |
+| p2 haiku | 38.17 | 55.73 | +46.0% |
+| p3 translation | 39.36 | 55.59 | +41.2% |
+| mean | 36.29 | **52.26** | **+44.0%** |
+| per decode cycle | 10.74 | **15.91** | +48.2% |
+| Q8_0, mean of the same four | 37.16 | **51.61** | +38.9% |
+| Q8_0, per decode cycle | 11.11 | **15.51** | +39.7% |
+
+The `b12211` entry above published +56.3% for the mean row. The difference is the prompts, not the port: in
+one block with both patched arms and neither against stock, `b12211`-patched measured 52.02 t/s and
+`v1.0.0`-patched 52.29 on these same four prompts, **+0.5%**, per-cycle 15.84 against 15.92, and the same
+`b12211`-patched build that had read 56.45 on the old four reads 52.02 here - 7.8% lower - while stock moves
+0.5% between the two prompt sets. The old four sat where this build's decode path is strongest, and they
+were never committed, so nothing could be re-run against them. Both arm orders agree inside 0.4% on each arm
+(base pos1/pos2 36.36/36.21, cand 52.17/52.34), so this is not a thermal artifact. The README now carries
+the committed-harness number.
+
+Also measured while at it: llama.cpp `v1.0.0` publishes `draft_n` and `draft_n_accepted` in `/completion`
+timings and no draft length, so the harness derives steps = `predicted_n - draft_n_accepted`, tokens per
+cycle and cycles/second from them (`mtp-probe.py`); on Q6_K_XL that came out 3.40 tokens per cycle for stock
+against 3.30 for the set, which is why the throughput and per-cycle gains are not the same number.
+
+**Quality gate, the set as a package, against stock at the same ref.** `benchmarks/kld-gate.sh`,
+`-c 2048`, WikiText-2 test, 8 chunks at the prefill shape and 2 at the narrow ones, `-sm tensor`:
+
+| shape | stock PPL | mean KLD, set vs stock | 95th pct KLD | harness floor |
+|---|---:|---:|---:|---:|
+| prefill `-b 2048 -ub 512`, UD-Q6_K_XL | 5.0881 | 0.010202 +- 0.001559 | 0.018589 | - |
+| verify `-b 8 -ub 5`, UD-Q6_K_XL | 6.0449 | 0.000376 +- 0.000016 | 0.001222 | 0.000000 |
+| decode `-b 8 -ub 1`, UD-Q6_K_XL | 6.0466 | 0.000388 +- 0.000020 | 0.001303 | -0.000000 |
+| prefill `-b 2048 -ub 512`, UD-Q4_K_M | 5.0101 | 0.006132 +- 0.000418 | 0.018016 | - |
+| verify `-b 8 -ub 5`, UD-Q4_K_M | 6.0131 | 0.000439 +- 0.000024 | 0.001330 | -0.000000 |
+| decode `-b 8 -ub 1`, UD-Q4_K_M | 6.0096 | 0.000400 +- 0.000016 | 0.001308 | 0.000000 |
+
+All four floor arms - both models, both narrow shapes - read zero, two of them as `-0.000000`; see the
+instrument note below the table.
+
+Read against the quantization step on this same harness - 0.0306 for UD-Q4_K_M against `Q8_0`, 0.0103 for
+UD-Q6_K_XL against `Q8_0` - the prefill leg is the same story as `b12211`: the whole set moves the
+distribution less than one quantization step does at Q4_K_M (0.0061 against 0.0306) and about as much as a
+step at Q6_K_XL (0.0102 against 0.0103). The narrow legs, where the decode kernels the port was about
+actually run, move by 4e-4, against a floor that is exactly zero. Stock's own numbers moved between refs
+(Q4_K_M 5.0606 -> 5.0101 at the prefill shape), which is why the comparison is against the build this set
+replaces and not against a remembered figure.
+
+**Two instrument bugs this session found in its own harness.** The gate grepped the floor arm's mean as
+`0.000000`, and llama-perplexity prints a floor of `-0.000000`; the decode floor therefore displayed as a
+blank field in a report whose whole point is that the blank is zero. Fixed by allowing a sign in the
+matcher. The bigger gap: a candidate arm scored with `--kl-divergence-base` prints the KLD table and **no PPL
+of its own**, so the README's "PPL this set" column has never been produced by the gate that is supposed to
+decide it - it has been coming from a separate plain run nobody wrote down. `kld-gate.sh` now runs
+`cand-*-ppl` arms itself.
+
+**Strict-output probe** (`benchmarks/agentic-gate.sh`, 16 fixed cases, temperature 0, UD-Q6_K_XL, 3-card
+tensor): stock **11/16**, this set **11/16**, **16/16 replies byte-identical**, no case passing on one arm
+and failing on the other, zero CUDA errors on either. Same as `b12211`, which is the expected result: the
+probe is there to catch a capability change, and there is none to catch.
+
+**Patch 22 measured where it actually runs.** The slots self-disable under `-sm tensor`, so every throughput
+row above is the set minus 22 and the biggest hand-port of this port had no hardware evidence until now. One
+build, `-sm layer`, `[benchmarks/mtp-ab.sh](../benchmarks/mtp-ab.sh) --base-env LLAMA_DEC_SLOTS=0
+--cand-env LLAMA_DEC_SLOTS=8`, 4 prompts x 256 x 2 reps x both orders, cards to itself:
+
+| | slots off | slots 8 | gain |
+|---|---:|---:|---:|
+| p0 | 29.45 | 33.80 | +14.8% |
+| p1 / p2 / p3 | 24.46 / 34.71 / 31.42 | 24.29 / 34.52 / 31.30 | -0.7 / -0.6 / -0.4% |
+| mean | 30.01 | **30.98** | **+3.2%** |
+| per decode cycle | 9.09 | 9.35 | +2.8% |
+
+The mechanism is live and costs nothing, and the gain is one prompt. It is also the prompt the block starts
+on: the same arm measured second in its own block read 31.03 against 28.99 first, so the +14.8% carries a
+cold-graph component and the honest number for a warm process is "no different". An earlier copy of this run
+reported +0.0% across the board and is discarded - the yardstick job below was chained behind a waiter that
+fired early, so the two legs had the cards at the same time. A timing arm does not get to share three GPUs.
+
+**Determinism, both arms, on the GPU this time.** The first attempt passed `3` as the fourth argument where
+`det-logits.sh` wants a CUDA device *list*; `CUDA_VISIBLE_DEVICES=3` on a three-GPU box selects nothing,
+`ggml_cuda_init: failed to initialize CUDA: no CUDA-capable device is detected`, and both arms spent ninety
+minutes being perfectly reproducible on the CPU. The script now aborts an arm whose log has no `CUDA : ARCHS`
+line or has that init failure, and says what the argument should have been. Re-taken properly, UD-Q6_K_XL,
+`-sm layer` (which is also the only configuration in which patch 22's slots run, so this doubles as the
+slots' determinism test):
+
+| verdict | patched | stock |
+|---|---|---|
+| verify shape, default repeated 3x | IDENTICAL PASS | IDENTICAL PASS |
+| verify shape, graphs off vs default | IDENTICAL PASS | IDENTICAL PASS |
+| prefill shape, default repeated 2x | IDENTICAL PASS | IDENTICAL PASS |
+| prefill shape, graphs off vs default | IDENTICAL PASS | IDENTICAL PASS |
+| body digest of the dumps | `0bcc38769019d57d` | `458c51df527c6734` |
+
+The two arms differ from each other, which is `MEGA` changing the arithmetic on purpose and is documented in
+the README's Known limits; what the gate decides is that neither one differs from itself.
+
+**Quantization-step yardstick, and the reason it is a layer-split number.** The README's scale column against
+`Q8_0` was `b12211`, tensor-split, 0.0306 (Q4_K_M) and 0.0103 (Q6_K_XL). Re-taking it at `v1.0.0` with the
+same arms failed for a reason nobody predicted: stock `v1.0.0` will not load `Q8_0` in a tensor split at all -
+`common_fit_params: failed to fit params to free device memory: llama_params_fit is not implemented for
+SPLIT_MODE_TENSOR, abort`, then `GGML_ASSERT(meta_buf_ctx->bufs[i]) failed` in
+`ggml/src/ggml-backend-meta.cpp:1854`, core dumped, before the first token. All three arms therefore ran
+`-sm layer`, one harness, `-b 2048 -ub 512 --chunks 8`:
+
+| arm | result |
+|---|---|
+| `Q8_0` base | PPL 5.0921 +- 0.13084 |
+| UD-Q4_K_M against it | mean KLD **0.028056 +- 0.003840** |
+| UD-Q6_K_XL against it | mean KLD **0.010371 +- 0.002346** |
+
+Against 0.0061 and 0.0102 for the whole set versus stock, that keeps the verdict: a quantization step you
+already accepted moves the distribution 4.6x more than the patch set at Q4_K_M and about as much at Q6_K_XL.
+The scale arm is one split away from the set-vs-stock arm, which is stated in the README rather than papered
+over; KL between two quantizations of the same weights is a property of the weights, not of the split.
 
 ### Scripted - 2026-11-10 (later), `b12211`, 79 patches - **stock vs the set, and a harness that lied**
 

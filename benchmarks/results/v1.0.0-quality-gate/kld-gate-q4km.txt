@@ -1,0 +1,24 @@
+logits go in /root/pplq - roughly 1 GB per 4096 tokens, and /tmp is tmpfs on the bench box, so pick a disk path
+
+model : /root/models/Qwen3.8-27B-UD-Q4_K_M.gguf
+corpus: /root/wikitext-2-raw/wiki.test.raw   ctx 2048   -sm tensor   ngl 99   threads 28
+base  : /root/llama.cpp/b1b770d-stock/build/bin
+cand  : /root/llama.cpp/b1b770d-patched/build/bin
+
+--- prefill (-b 2048 -ub 512, 8 chunks) ---
+base-prefill     rc=0   Final estimate: PPL = 5.0101 +/- 0.12647 |                                  | 
+cand-prefill     rc=0                                          | Mean    KLD:   0.006132 ±   0.000418 | 95.0%   KLD:   0.018016
+
+--- verify  (-b 8 -ub 5, 2 chunks: the MTP width) ---
+base-verify      rc=0   Final estimate: PPL = 6.0131 +/- 0.30574 |                                  | 
+cand-verify      rc=0                                          | Mean    KLD:   0.000439 ±   0.000024 | 95.0%   KLD:   0.001330
+floor-verify     rc=0                                          |                                  | 95.0%   KLD:   0.000025
+
+--- decode  (-b 8 -ub 1, 2 chunks: single-token) ---
+base-decode      rc=0   Final estimate: PPL = 6.0096 +/- 0.30549 |                                  | 
+cand-decode      rc=0                                          | Mean    KLD:   0.000400 ±   0.000016 | 95.0%   KLD:   0.001308
+floor-decode     rc=0                                          | Mean    KLD:   0.000000 ±   0.000000 | 95.0%   KLD:   0.000022
+
+floor-verify and floor-decode must read Mean KLD 0.000000 for the rest to mean anything.
+compare cand Mean KLD against the quantization step: 0.0306 (Q4_K_M vs Q8_0), 0.0103 (Q6_K_XL vs Q8_0).
+per-chunk rows stay in /root/pplq/*.log

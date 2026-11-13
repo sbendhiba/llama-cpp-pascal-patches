@@ -1,0 +1,28 @@
+bin /root/llama.cpp/b1b770d-stock/build/bin
+model Qwen3.8-27B-UD-Q6_K_XL.gguf   corpus /root/ports/repo-v1/benchmarks/det-corpus.txt (2404 bytes)   devices 0,1   ctx 256
+
+### verify shape: -ub 4, 64 chunks of 4 tokens
+  default-1      rc=0   Final estimate: PPL = 5.8322 +/- 0.82962
+  default-2      rc=0   Final estimate: PPL = 5.8322 +/- 0.82962
+  default-3      rc=0   Final estimate: PPL = 5.8322 +/- 0.82962
+  nographs       rc=0   Final estimate: PPL = 5.8322 +/- 0.82962
+### prefill shape: -ub 256, 1 chunk
+  default-pf-1   rc=0   Final estimate: PPL = 8.9654 +/- 2.10349
+  default-pf-2   rc=0   Final estimate: PPL = 8.9654 +/- 2.10349
+  nographs-pf    rc=0   Final estimate: PPL = 8.9654 +/- 2.10349
+
+  default-1         126150660 bytes  header 6c388002dd09  body 0bcd78c53dd0b3f5
+  default-2         126150660 bytes  header 6c388002dd09  body 0bcd78c53dd0b3f5
+  default-3         126150660 bytes  header 6c388002dd09  body 0bcd78c53dd0b3f5
+  default-pf-1       63075340 bytes  header 3e822e2594cc  body 458c51df527c6734
+  default-pf-2       63075340 bytes  header 3e822e2594cc  body 458c51df527c6734
+  nographs-pf        63075340 bytes  header 3e822e2594cc  body 458c51df527c6734
+  nographs          126150660 bytes  header 6c388002dd09  body 0bcd78c53dd0b3f5
+
+  headers: 2 distinct across 7 dumps - compare bodies only
+
+verdicts:
+  verify  (-ub 4): the default repeated 3 times IDENTICAL PASS
+  verify  (-ub 4): graphs off vs the default IDENTICAL PASS
+  prefill (-ub 256): the default repeated 2 times IDENTICAL PASS
+  prefill (-ub 256): graphs off vs the default IDENTICAL PASS

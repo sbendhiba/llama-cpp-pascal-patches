@@ -10,110 +10,140 @@ GP100 is the reason any of this exists. Alone among Pascal chips it has no `DP4A
 instruction the card is genuinely good at goes unused. The rest is what the last two years of llama.cpp
 made possible: a fused norm, deferred gathers, CUDA graphs, speculative decoding with an MTP head.
 
-This branch is the **`b12211`** set - **79 patches** against llama.cpp `7d7f028` (b12211, 101 commits past
-`v0.9.0`): 39 we carry, the 37-patch **P60 block** (52-89, a port and retune of
+This branch is the **`v1.0.0`** set - **79 patches** against llama.cpp `b1b770d` (v1.0.0, 148 commits past
+`b12211`): 39 we carry, the 37-patch **P60 block** (52-89, a port and retune of
 [Mrinohk/qwen36-p100-patches](https://github.com/Mrinohk/qwen36-p100-patches) and
 [qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp) work for the same cards) and **90-92**,
-adopted from [junkgpulab/llama.cpp-p100](https://github.com/junkgpulab/llama.cpp-p100). Two patches went
-at this ref because upstream made them unnecessary: **59** (the MoE expert-tile rule is now unconditional
-in `mmq.cu`) and **32** (upstream added its own split-input prefetch, same field names). Other tags are
-other refs: `git tag -l` gives `v0.6.0`, `v0.7.0`, `v0.8.0`, `v0.9.0` and the prerelease line `b11601`.
+adopted from [junkgpulab/llama.cpp-p100](https://github.com/junkgpulab/llama.cpp-p100). Nothing was
+dropped at this ref and nothing new was needed: v1.0.0 absorbed no patch here, and the whole set is the
+same 79 files re-anchored. Two went at the previous ref because upstream made them unnecessary: **59**
+(the MoE expert-tile rule is now unconditional in `mmq.cu`) and **32** (upstream added its own
+split-input prefetch, same field names). Other tags are other refs: `git tag -l` gives `v0.6.0`,
+`v0.7.0`, `v0.8.0`, `v0.9.0`, `b12211` and the prerelease line `b11601`.
 
 ## Speed
 
-3x Tesla P100-PCIE-16GB at **160 W**, CUDA 12.4, `-fa on -t 28 -ub 2048`, llama-bench, two cards unless
-stated, all arms in one session so a release delta and a port delta are not read out of two different
-afternoons ([docs/results.md](docs/results.md)).
+3x Tesla P100-PCIE-16GB at **160 W**, CUDA 12.4, `-fa on -t 28 -ub 2048`, llama-bench, three cards
+throughout at this ref, all arms in one session so a release delta and a port delta are not read out of two
+different afternoons ([docs/results.md](docs/results.md)).
 
-| model | split | stock `b12211` pp512 / tg128 | this set pp512 / tg128 |
+| model | split | stock `v1.0.0` pp512 / tg128 | this set pp512 / tg128 |
 |---|---|---:|---:|
-| Cyber-Tiel-Coder-35B-A3B MTP UD-Q4_K_XL (MoE) | `-sm layer` | 658.04 / 58.19 | **1060.92 / 119.22** (+61% / +105%) |
-| | `-sm tensor` | 989.23 / 58.86 | **1565.70 / 84.65** (+58% / +44%) |
-| Qwen3.8-27B UD-Q4_K_M (dense) | `-sm tensor` | 230.15 / 20.95 | 378.16 / 29.61 (+64% / +41%) |
-| | `-sm layer` | 144.30 / 13.22 | 207.41 / 18.32 (+44% / +39%) |
+| Cyber-Tiel-Coder-35B-A3B MTP UD-Q4_K_XL (MoE) | `-sm layer` | 657.79 / 58.22 | **1081.02 / 118.32** (+64% / +103%) |
+| | `-sm tensor` | 903.39 / 38.83 | **1618.13 / 80.36** (+79% / +107%) |
+| Qwen3.8-27B UD-Q4_K_M (dense) | `-sm tensor` | 283.64 / 23.08 | **497.77 / 39.54** (+75% / +71%) |
+| | `-sm layer` | 145.69 / 13.34 | **209.48 / 22.45** (+44% / +68%) |
 
-**The MoE prefill percentage fell because upstream got faster, not because this set got slower.** Stock
-`b12211` prefill is 658 / 989 against `v0.9.0`'s 489 / 766; this set's own prefill is unchanged within
-noise, so the ratio drops from +119% to +61% at the same absolute throughput. Decode is flat across the
-ref on all four configs, and against its own `v0.9.0` build this set is within 1.1% on every cell -
-and `benchmarks/det-logits.sh` returns the *same* logits digests as `v0.9.0` on both batch shapes, four
-PASS, with the persistent halves actually running.
+The MoE tensor `tg128` is the one row whose percentage is not worth taking seriously: that stock arm came
+back 38.83 with a 5.29 spread across its three rounds, so +107% is a ratio against a moving baseline. The
+patched side and the `pp512` column are 1.7 or better on every cell.
+
+These rows are three-card rows; the `b12211` table was two cards unless stated, so they are not a re-take
+of those numbers and should not be read as one. The port check that *is* apples to apples was run in one
+block with both patched arms in it: `b12211`-patched 52.02 t/s against `v1.0.0`-patched 52.29 t/s on the
+same four prompts, **+0.5%** - same prompts, same cards, same afternoon, only the build under test
+different.
 
 ### Qwen3.8-27B with the MTP head
 
-`llama-server` `/completion` at temperature 0, `--spec-type draft-mtp --spec-draft-n-max 4
---spec-draft-p-min 0.2`, 3-card tensor, 4 prompts x 256 tokens x 2 reps x **both arm orders**, every arm
-identity-checked so a request cannot be answered by the previous build's server. Per-cycle divides
-throughput by the mean draft length, which takes speculative acceptance out of the number.
+`llama-server` `/completion` at temperature 0 with `ignore_eos`, `--spec-type draft-mtp
+--spec-draft-n-max 4 --spec-draft-p-min 0.2`, 3-card tensor, 4 prompts x 256 tokens x 2 reps x **both arm
+orders**, from [benchmarks/mtp-ab.sh](benchmarks/mtp-ab.sh) against the committed
+[prompt set](benchmarks/mtp-prompts.txt). Every arm is identity-checked (own port, own pid, own log naming
+the model) so a request cannot be answered by the previous build's server. Cycles/second is derived from
+`draft_n` and `draft_n_accepted` - llama.cpp v1.0.0 publishes those, not a draft length - and takes
+speculative acceptance out of the number: tokens per cycle came out 3.40 on stock and 3.30 on this set, so
+the throughput gain is not an acceptance accident in either direction.
 
-| UD-Q6_K_XL, 27B | stock `b12211` | **this set (79)** | gain |
+| UD-Q6_K_XL, 27B | stock `v1.0.0` | **this set (79)** | gain |
 |---|---:|---:|---:|
-| MTP, mean over 4 prompts | 36.11 t/s | **56.45** | **+56.3%** |
-| MTP per draft cycle | 10.36 | **16.23** | +56.7% |
-| MTP, code prompt | 44.42 | **69.51** | +56.5% |
-| MTP, prose / haiku / translation | 27.77 / 37.94 / 34.32 | **43.09 / 55.16 / 58.03** | +55.2 / +45.4 / +69.1% |
-| tg128 | 20.44 | **35.64** | +74.4% |
-| pp512 / pp1024 / pp2048 / pp4096 | 286.1 / 345.7 / 396.3 / 389.2 | **514.5 / 546.2 / 552.3 / 537.4** | +79.8 / +58.0 / +39.3 / +38.1% |
-| Q8_0 of the same model, MTP code + chat | 36.06 | **54.67** | +51.6% |
+| MTP, mean over 4 prompts | 36.29 t/s | **52.26** | **+44.0%** |
+| MTP per decode cycle | 10.74 | **15.91** | +48.2% |
+| MTP, p0 code | 39.85 | **57.72** | +44.7% |
+| MTP, p1 prose / p2 haiku / p3 translation | 27.75 / 38.17 / 39.36 | **40.04 / 55.73 / 55.59** | +44.3 / +46.0 / +41.2% |
+| tg128 | 20.63 | **36.01** | +74.4% |
+| pp512 / pp1024 / pp2048 / pp4096 | 288.4 / 348.5 / 399.9 / 392.2 | **514.8 / 543.9 / 550.8 / 537.9** | +78.5 / +56.1 / +37.7 / +37.2% |
+| Q8_0 of the same model, MTP mean over the same 4 prompts | 37.16 | **51.61** | +38.9% |
+| Q8_0, per decode cycle | 11.11 | **15.51** | +39.7% |
 
 What the shape of the table says:
 
-- **Decode gains most.** +74.4% at tg128 and +56.3% under MTP, which is what a set built around GP100's
-  missing `DP4A` and unused `HFMA2` should do.
-- **Prefill gain narrows as the prompt grows** - +79.8% at pp512 down to +38.1% at pp4096 - because the
+- **Decode gains most.** +74.4% at tg128 and +48.2% per decode cycle under MTP, which is what a set built
+  around GP100's missing `DP4A` and unused `HFMA2` should do.
+- **Prefill gain narrows as the prompt grows** - +78.5% at pp512 down to +37.2% at pp4096 - because the
   set's advantage is at small batches and upstream's own prefill closes the distance at large ones. Take
   the pp row as four numbers, not one.
-- **Not one quant ladder's luck.** At Q8_0, where nothing sits at 4 or 6 bits, MTP still gains +51.6%;
-  stock Q8_0 and stock Q6_K_XL run within 0.2% of each other here, so both arms face the same hardware
-  limit and the comparison is not against a handicapped baseline.
-- **The spread across prompts is the honest part.** The per-prompt gains run +45.4% to +69.1%: prompt
-  length and how well the MTP head drafts a given style both move the number, so a single-prompt figure
-  of any kind - ours or anybody else's - is not a result.
+- **Not one quant ladder's luck.** At Q8_0, where nothing sits at 4 or 6 bits, MTP still gains +38.9% and
+  +39.7% per cycle. Stock Q8_0 is in fact *faster* than stock Q6_K_XL on these prompts (37.16 against
+  36.29), so the baseline is not a handicapped one - and the set's gain is smaller at Q8_0 than at
+  Q6_K_XL, which is what you would expect when there are no 4-bit rows left for the HFMA2 paths to
+  rescue.
+- **The spread across prompts is the honest part**, and so is its size: +41.2% to +46.0% here. A single
+  prompt is not a result, ours included - and the mean *is* sensitive to which four you committed, which
+  is why these four now live in the repo (see the next bullet).
+- **Committing the prompt set moved the headline, and the port did not.** The `b12211` table said +56.3%
+  on four prompts that were never written down. Put both patched arms in one block, same prompts, same
+  cards, same afternoon: `b12211`-patched 52.02 t/s against `v1.0.0`-patched 52.29, **+0.5%** - the port
+  changed nothing. The whole 12-point difference in the headline is the prompt set: the same
+  `b12211`-patched build that measured 56.45 on the old four measures 52.02 on these, 7.8% lower, while
+  stock moves 0.5%. Those four prompts happened to sit where this build's decode path is strongest.
+  +44.0% is what the committed harness reproduces, and the harness is now in the repo with its prompts.
 
-One path is not carried over yet: the rollback/MTP conv-state store became a single `SET_ROWS` at this ref
+One path is not carried over: the rollback/MTP conv-state store became a single `SET_ROWS` at `b12211`
 (#31660) and the GDN half's snapshot branch still expects `K` separate copies, so `--spec-type draft-mtp`
-refuses those layers on the 35B. Three-card rows are in [docs/results.md](docs/results.md).
+refuses those layers on the 35B. That refusal was established on the `b12211` and `v0.8.0` arms and the code
+that produces it crossed into `v1.0.0` unchanged; the three-card rows for that model are in
+[docs/results.md](docs/results.md).
 
 ## Quality
 
 PPL on WikiText-2 test, 16,384 tokens (`-c 2048 --chunks 8`), and logit KL against stock from the same
 harness - the whole function's output at every position, which is what a greedy argmax hides. Measured on
-the set **as a package**, against stock, because that is what gets installed; `benchmarks/kld-gate.sh` is
-the harness and [CONTRIBUTING.md](CONTRIBUTING.md) makes it a merge requirement for every new patch or
-adopted candidate. The reference that makes these numbers readable is already in this file: **patch 87's
-persistent GDN half alone is documented at mean KLD 0.0284** against the per-kernel path, and a
-stock-vs-stock control of this harness returns 0.000000, so these are real differences, not measurement
-noise.
+the set **as a package** at `v1.0.0`, against stock `v1.0.0`, because that is what gets installed;
+`benchmarks/kld-gate.sh` is the harness and [CONTRIBUTING.md](CONTRIBUTING.md) makes it a merge requirement
+for every new patch or adopted candidate. The scale that makes a KL readable is a **quantization step on the
+same corpus** - and at this ref it had to be re-taken under `-sm layer`, because stock `v1.0.0` refuses
+`Q8_0` in a tensor split outright (`llama_params_fit is not implemented for SPLIT_MODE_TENSOR`, then
+`GGML_ASSERT(meta_buf_ctx->bufs[i])` in `ggml-backend-meta.cpp`):
 
-| quant | PPL stock | PPL this set | mean KLD vs stock | mean KLD of a **quantization step** on the same harness |
+| quant | PPL stock | PPL this set | mean KLD vs stock | mean KLD of a **quantization step** against `Q8_0` |
 |---|---:|---:|---:|---:|
-| UD-Q4_K_M | 5.0606 | **5.0475** | 0.0066 | 0.0306 (vs `Q8_0`) |
-| UD-Q6_K_XL | 5.0881 | **5.0838** | 0.0102 | 0.0103 (vs `Q8_0`) |
-| UD-IQ2_XXS | 5.7274 | **5.6910** | better on all 8 chunks | - |
+| UD-Q4_K_M | 5.0101 | **4.9961** | 0.0061 +- 0.0004 | 0.0281 +- 0.0038 |
+| UD-Q6_K_XL | 5.0881 | **5.0838** | 0.0102 +- 0.0016 | 0.0104 +- 0.0023 |
 
-That column is the answer to "how big is big": the quantization step you already accepted moves the
-distribution 4.6x more than the whole patch set does at Q4_K_M, and about the same at Q6_K_XL. Those two
-files also differ in more than the quant, so treat the column as a reference scale rather than a controlled
-ablation.
+That last column is the answer to "how big is big": the quantization step you already accepted moves the
+distribution **4.6x more** than the whole patch set does at Q4_K_M, and about the same as it does at
+Q6_K_XL. The scale arm and the set-vs-stock arm are one split apart, which is the honest caveat - KL between
+two quantizations of the same weights is a property of the weights, so the comparison stands, but it is not
+one table measured one way. `UD-IQ2_XXS` is not re-listed here because it was not re-run at this ref; its
+check is the `b12211` session's.
 
-At the narrow batch shapes the decode kernels actually serve, PPL moves by 0.05% (Q4) and 0.20% (Q6)
-and KLD by 0.0004, against a harness floor of exactly zero. For scale: choosing `-ub 8` over `-ub 512` moves
-stock's *own* PPL by 1.3%, six times the largest difference between the builds.
+At the narrow batch shapes the decode kernels actually serve - 2 chunks, so a different token window and not
+comparable to the prefill PPL above, but the same window on both arms - PPL moves by **+0.12% (Q4) and
++0.20% (Q6)** at the verify width and **-0.02% / -0.09%** at single-token decode, with mean KLD 4e-4 against
+a harness floor that reads exactly zero on all four control arms (two of them as `-0.000000`, which is what
+the gate's matcher used to swallow). Reproducibility, decided on the logits rather than the text:
+`benchmarks/det-logits.sh` PASSes every verdict on both arms - the verify shape identical across three runs
+and identical with graphs off, the prefill shape identical twice and again with graphs off. The two builds'
+digests differ from each other (`0bcc38769019d57d` against `458c51df527c6734`) and that is the documented
+`MEGA` arithmetic change, not a race: what matters is that each one repeats itself.
 
 **Strict-output probe** - the failure mode PPL cannot see, 16 fixed prompts at temperature 0 (JSON that
-must parse, exact tool and git commands, code completions, format constraints): **11/16 passing on stock
-and 11/16 on this set, with all 16 replies byte-identical between the two builds** and zero CUDA errors on
+must parse, exact tool and git commands, code completions, format constraints), re-run at this ref on
+`v1.0.0` stock against `v1.0.0` this set: **11/16 on stock, 11/16 on this set, all 16 replies
+byte-identical between the two builds**, no case passing on one and failing on the other, zero CUDA errors on
 either. The absolute rate is not a capability claim - the validators assume particular key names, so a
 correct-but-differently-spelled answer counts as a miss - but the comparison is what the probe is for, and
-there is no difference to report: no case passes on one build and fails on the other.
+there is no difference to report.
 
-So: a measurable distribution shift under a batched prefill, and not one greedy token changed. That is
-what "the KL is a difference, not a degradation" looks like when you check it two ways.
+So: a measurable distribution shift under a batched prefill, smaller than one quantization step, and not one
+greedy token changed. That is what "the KL is a difference, not a degradation" looks like when you check it
+two ways.
 
 ## Use it
 
 ```sh
-./scripts/patch-llama.sh ~/llama.cpp-patched --build      # clone b12211, apply 79 patches, build for sm_60
+./scripts/patch-llama.sh ~/llama.cpp-patched --build      # clone v1.0.0, apply 79 patches, build for sm_60
 ```
 
 The script checks out the tag this set is maintained against, refuses to touch the tree if the commit does
@@ -122,7 +152,7 @@ at the first failure. Add `--check` to test the apply without leaving anything b
 `--commit` if you are deliberately aiming at another tree. By hand it is three commands:
 
 ```sh
-git clone --branch b12211 --depth 1 https://github.com/ggml-org/llama.cpp && cd llama.cpp
+git clone --branch v1.0.0 --depth 1 https://github.com/ggml-org/llama.cpp && cd llama.cpp
 for p in /path/to/this/repo/patches/*.patch; do patch -p1 -F0 < "$p" || break; done
 cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=60 -DGGML_NATIVE=ON -DGGML_NCCL=OFF -DGGML_CUDA_NCCL=OFF
 ```
@@ -158,8 +188,12 @@ by default with a runtime way back - `=0` to disable, never a build-time option 
 | `GGML_CUDA_DISABLE_GRAPHS=1` | off | all CUDA graph capture (the way to A/B anything that touches a graph) |
 
 Patch 92 rides on `GGML_CUDA_MMVQ_P100_BODY` - it has no variable of its own, and `=0` returns Q6_K to the
-vdr-2 dot. Patch 22 self-disables under `-sm tensor` (the meta backend does not tolerate more than one
-graph per compute-buffer rotation), so the tensor rows above are the set minus 22.
+vdr-2 dot. Patch 22 self-disables under `-sm tensor` (the meta device does not tolerate more than one graph
+per compute-buffer rotation), so the tensor rows above are the set minus 22; `LLAMA_DEC_SLOTS=0` is the
+manual way back and `LLAMA_DEC_MAX_TOK` the width knob. Patch 12 - the HFMA2 Q4_1 GEMV - is reached only
+with `GGML_CUDA_MMVQ_P100_BODY=0`, because 90 takes the whole function before 12's hook runs; that is
+measured, documented, and the one place in this set where the default routes around a ported path
+([docs/p60-open-items.md](docs/p60-open-items.md) item 5).
 
 ## Known limits
 
@@ -181,10 +215,13 @@ Full text, with the measurements behind each, in [docs/results.md](docs/results.
 - **Pascal only.** Patches scoped `sm_60`, `pre-Volta` or `pre-Turing` change values upstream tuned for
   newer hardware, and `pre-Turing` includes Volta, never measured. Patch 07 is not gated at all.
 - **One box.** 2 and 3 P100s at 160 W. Nothing has run on four cards.
-- **The correctness suite says nothing changed.** `test-backend-ops` at `v0.9.0`, op by op on both arms:
-  130 ops, 14,822 passing cases each, zero rows where the arms differ. The one crash is upstream's:
-  `MUL_MAT(q4_K, m=8192, n=9)` aborts on `GGML_ASSERT(convert_func != nullptr)` on a Pascal card in stock
-  `v0.9.0` and `v0.8.0`, which is why the suite must be driven op by op.
+- **The correctness suite says nothing changed.** `test-backend-ops` at `v1.0.0`, op by op on both arms,
+  whole-op runs plus a per-type split of `MUL_MAT` and `MUL_MAT_ID` over 16 weight types: every case that
+  runs runs identically on both builds (`GET_ROWS` 227/227, `ROPE` 490/490, `MUL_MAT_ID` 1040/1040, and no
+  type where the counts differ). The suite still cannot be driven as one process: one upstream case aborts
+  on `GGML_ASSERT(convert_func != nullptr)` in `ggml-cuda.cu` on stock and patched alike, and with worker
+  threads that abort truncates each arm's log at a different place - so a whole-`MUL_MAT` comparison
+  proves nothing and the per-type runs are what the claim rests on.
 
 ## Where things live
 
@@ -197,21 +234,31 @@ docs/benchmarking.md  the measurement discipline this set needed: thermal contro
                       how an arm silently becomes another arm, why two predictions were wrong
 docs/p60-open-items.md  what the P60 block still needs, with the measurements behind it
 docs/p60-series.tsv 52-83 mapped to the upstream commits they came from
-benchmarks/         how to re-measure (run.sh for throughput, ppl.sh, kld-gate.sh for the package
-                    PPL+KL quality gate, agentic-probe.py for strict outputs, logit-identity.sh and
-                    det-logits.sh for determinism) and results/ for each release
+benchmarks/         how to re-measure (run.sh for throughput, mtp-ab.sh + mtp-prompts.txt for the
+                    speculative table, ppl.sh, kld-gate.sh for the package PPL+KL quality gate,
+                    knob-sweep.sh for the environment switches, agentic-probe.py for strict outputs,
+                    logit-identity.sh and det-logits.sh for determinism) and results/ for each release
 RELEASING.md        what to do when llama.cpp ships a new version
 CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR looks like
 ```
 
 ## Status of this branch
 
-All 79 are verified by clean-room apply: a fresh clone plus these files at `-F0` gives 0 rejects and a
-tree byte-identical to the one reviewed patch by patch, which is what `./scripts/patch-llama.sh --check`
-runs. 382 of 383 identifiers resolve (the exception, `GGML_CUDA_P60_MEGA_GRAPHS`, is introduced by 85 and
-deleted by 86 in the same set), the host-side syntax check is clean on all eight non-CUDA translation
-units, and both stock and patched trees are built at `sm_60` under CUDA 12.4 with NCCL off. Five patches
-needed real authoring at this ref - 33, 35, 42, 71 and 83 - and 31 taught the build gate its job: it
-applied at zero fuzz and zero offset and then failed to compile, because the kernel it launches had grown a
-parameter. Patch 24 stays opt-in for the reproducibility reason above. The `v0.9.0` tag is that release -
-78 files, patch 24 off - and this branch is the next ref, not a revision of it.
+All 79 are verified by clean-room apply: a fresh clone at `v1.0.0` plus these files at `-F0` gives 0
+rejects and 0 offset hunks, and the resulting tree is byte-identical to the one reviewed patch by patch,
+which is what `./scripts/patch-llama.sh --check` runs - it now fails on an offset, not only on a reject,
+because an accepted offset means the file moved under the hunk and the next rebase can no longer tell
+"the lines shifted" from "the code changed". Of the 79, 18 applied byte-identical to the previous ref, 52
+were re-cut at exact context and 9 needed real authoring: **10** and **21** because upstream added
+parameters and a third per-tensor table to what they patch, **22** because `sched_reserve()` was rewritten
+around a `sched_params` struct, **35**, **36**, **54** and **77** because the call sites they hook moved or
+grew guards, and **86** and **90** because `ggml_cuda_graph` moved out of `common.cuh` into `graph.cuh` and
+the cuda-context constructor moved into the `.cu`. Two of those were only visible at the build: the set
+calls `quantize_row_q8_1_cuda`, which v1.0.0 stripped two parameters from, and `sched_new`, which it turned
+into a struct - both applied at zero fuzz and zero offset and then failed to compile, which is the whole
+argument for building as a gate. `benchmarks/knob-sweep.sh` reports 75 of the 76 environment knobs the set
+introduces still read by the code; the exception, `GGML_CUDA_P60_MEGA_GRAPHS`, is introduced by 85 and
+deleted by 86 in the same set. Both arms - pristine `v1.0.0` and the applied set - are **built** at `sm_60`
+under CUDA 12.4 with NCCL off, and all eight non-CUDA translation units the set touches pass
+`g++ -fsyntax-only`. Patch 24 stays opt-in for the reproducibility reason above. The `b12211` tag
+is the previous release - 79 files at `7d7f028` - and this branch is the next ref, not a revision of it.

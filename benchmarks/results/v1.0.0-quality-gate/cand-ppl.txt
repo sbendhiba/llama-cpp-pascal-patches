@@ -1,0 +1,7 @@
+q6k-cand-prefill     Final estimate: PPL = 5.0838 +/- 0.13047
+q6k-cand-verify      Final estimate: PPL = 6.0571 +/- 0.31080
+q6k-cand-decode      Final estimate: PPL = 6.0410 +/- 0.30939
+q4km-cand-prefill    Final estimate: PPL = 4.9961 +/- 0.12597
+q4km-cand-verify     Final estimate: PPL = 6.0202 +/- 0.30624
+q4km-cand-decode     Final estimate: PPL = 6.0086 +/- 0.30544
+SESSION4-DONE

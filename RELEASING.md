@@ -102,6 +102,22 @@ Two ways to get that fold wrong, both seen on the `v0.8.0` port:
   and regenerate strictly in file-number order; if a patch cannot be cut yet, park it (`pending.txt`)
   and come back.
 
+And three ways to get the *regeneration* wrong, all of them from the `v1.0.0` port, all of them silent:
+
+- **`git commit -am` does not stage new files.** Ten patches in this set create sources (12, 52, 63,
+  64, 65, 67, 71, 78, 90, 91). With `-a` their new files stayed untracked, so the commit was missing
+  them and the regenerated diff - cut from that commit - was missing them too, and the set still
+  applied because the hunks that create a file are only as good as the commit they were cut from.
+  Use `git add -A` and then commit.
+- **Never overwrite a derived artifact without checking it is not empty.** A mangled `git` invocation in
+  the regeneration loop produced zero commits and the loop wrote five empty diffs over five real patch
+  files without complaining. Recoverable here only because the patch files were committed one ref
+  back. The guard is one line: `if [ ! -s /tmp/recut.patch ]; then die; fi`.
+- **`PINNED_COMMIT` is the commit the tag peels to, not the tag object sha.** For an annotated tag
+  `git rev-parse v1.0.0` returns the tag object (`a6d1a74db`), and `git clone --branch v1.0.0` checks
+  out the commit (`b1b770d`). The ref check in `scripts/patch-llama.sh` is what made this visible: it
+  refused the apply and named both shas. Ask for `v1.0.0^{commit}` when you read the value off a tag.
+
 ## 4. Gates to run before touching a card
 
 **Clean-room apply.** Fresh tree at the new tag, apply every regenerated patch, and require no
@@ -183,6 +199,14 @@ it. Run `-b CUDA0 -o <OP>` per op from `--list-ops`, both arms, and compare the 
 pass/fail/crash counts: an abort becomes a row instead of an ending. The stock arm is not optional -
 without it, an upstream gap on the card looks exactly like a port defect.
 
+One op is still not small enough, and the v1.0.0 run showed how that looks: with `-j 8` the two arms of
+`MUL_MAT` logged 1347 and 1027 lines and both were "OK" up to the point where they were not comparable -
+the upstream abort ends whichever worker hits it, so the surviving coverage depends on thread schedule
+rather than on the build. Split by weight type (`-o MUL_MAT -p "type_a=q4_K,"`, one run per type, `-j 1`)
+and the counts line up exactly: 16 types on both `MUL_MAT` and `MUL_MAT_ID`, every one identical between
+arms. A count difference between arms is only evidence of a difference in builds if the case sets are
+provably the same.
+
 ## Dropping a single patch
 
 Dropping one from the middle generally means rebasing the rest, so find the real dependency set
@@ -203,6 +227,11 @@ the complete set.
   whose count the README had already changed, then by a default value. It is a published ref, so
   moving it is a force-push and the one action here that needs a human to decide the moment is right
 - the tag in `README.md`, in `docs/patches.md`'s header, and in `benchmarks/results/` file names
+- **this repo's own branch and tag share a name** (`b12211`, and now `v1.0.0`): one is `refs/heads/...`,
+  the other `refs/tags/...`, and they are meant to point at the same commit. If you commit anything after
+  cutting the tag, the tag is behind the branch and the README's apply instructions describe code nobody
+  tagged. `git rev-parse v1.0.0` in this repo resolves to whichever of the two git prefers, so when it
+  matters say `refs/tags/v1.0.0` or `v1.0.0^{commit}`
 - patch counts, **recomputed** from the table rather than edited by hand: the scope counts, the
   off-by-default counts, and the "N of the M are off by default" sentences are all wrong the moment a
   patch is deleted

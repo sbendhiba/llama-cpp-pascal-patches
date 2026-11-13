@@ -4,16 +4,34 @@
 adopted from the junkgpulab fork (90-92); the application order is the file numbering. Order matters: several touch the same files, and later ones build
 on earlier ones. The tag is recorded once, in the top-level README.
 
-**This branch targets llama.cpp `b12211` (`7d7f028`), 101 commits past `v0.9.0`.** **79 patches**: the
-76 of this ref (the 78 of `v0.9.0` minus two that upstream made unnecessary, 32 and 59, below) plus
-**90**, **91** and **92**, adopted from [junkgpulab/llama.cpp-p100](https://github.com/junkgpulab/llama.cpp-p100)
-and measured here. All 79 are regenerated against it and verified in numeric order at zero fuzz and zero
-offset; the clean-room tree they
-rebuild is byte-identical to the reviewed one, 382 of the 383 identifiers they reference resolve (the
-exception is still `GGML_CUDA_P60_MEGA_GRAPHS`, introduced by 85 and deleted by 86 in the same set),
-the host-side syntax check is clean on all eight non-CUDA translation units, and both arms are
-**built** at `sm_60` under CUDA 12.4 with NCCL off. Five patches needed real authoring: 33, 35, 42,
-71 and 83.
+**This branch targets llama.cpp `v1.0.0` (`b1b770d`), 148 commits past `b12211`.** **79 patches**: the 76
+of `b12211` (the 78 of `v0.9.0` minus two that upstream made unnecessary, 32 and 59, below) plus **90**,
+**91** and **92**, adopted from
+[junkgpulab/llama.cpp-p100](https://github.com/junkgpulab/llama.cpp-p100) and measured here. No patch was
+deleted at this ref and none was added: v1.0.0 absorbed nothing in the set, so all 79 files carried across,
+18 of them byte-identical, 52 re-cut at exact context and 9 needing real authoring (10, 21, 22, 35, 36, 54,
+77, 86, 90 - the reasons are in the next section). All 79 are regenerated against it and verified in numeric
+order at zero fuzz and zero offset; the clean-room tree they rebuild is byte-identical to the reviewed one,
+75 of the 76 environment knobs the set introduces are still read by the patched tree (`GGML_CUDA_P60_MEGA_GRAPHS`
+is introduced by 85 and deleted by 86 in the same set), and both arms are **built** at `sm_60` under CUDA 12.4
+with NCCL off - which is what caught two callee-contract changes that every text gate passed.
+
+### What `v1.0.0` moved, and what it cost the set
+
+| upstream change | what it did to the set |
+|---|---|
+| `sched_new(size_t, bool)` became `sched_new(const sched_params &)` with a `can_reuse` test, and `sched_reserve()` was rewritten around it | **22** needed re-anchoring by hand: its slot block and its pipeline-parallel retry both construct schedulers, and the reserve function they sit in had changed shape |
+| `ggml-backend` gained a third per-tensor table, `hv_tensor_requires_copy` | **21** also by hand - and this one was a *correctness* port, not a placement one: the lazy reset walk has to restore that flag too, or a tensor that stopped requiring a copy keeps a stale one and the next graph reads an out-of-date backend assignment |
+| `ggml_cuda_graph` moved out of `common.cuh` into `graph.cuh`, and grew `instances` plus a pool-debug term in `is_enabled()` | **86**'s `disable_due_to_p60_debug` member and its `is_enabled` clause now live in `graph.cuh`; **90**'s `mmvq_q8_1_epoch` moved with it |
+| the cuda-context constructor moved from the header into `ggml-cuda.cu` and became a member-init list | **90**'s `mmvq_q8_1_invalidate()` call and its per-device cache block had two new homes |
+| `quantize_row_q8_1_cuda` lost its `ids` and `type_src0` parameters (11 arguments, not 13) | both **10**'s and **90**'s q8_1 activation-cache calls had to be re-written. 90's adopted file kept the fork's 13-argument call, applied at zero fuzz and zero offset, and was the first thing the build rejected |
+| a few-row MMQ path was added (`mmq-few.cu`, `ggml_cuda_should_use_mmq_few`, dispatched as `if (!use_mmq_few && ggml_cuda_should_use_mmvq(...))`) | nothing was subsumed - the path is gated on `ampere_mma_available(cc)` and returns false on `sm_60` - but it sits in the two branch ladders **35** and **36** hook, so both re-anchored |
+| `GGML_TYPE_F8_E4M3` guards were put in front of both AMD `MMVF` branches in the `MUL_MAT_ID` dispatch | **35**'s AMD-width conditions had to be re-expressed inside the new guard, and **36**'s chunk block now lands after three more branches |
+
+**The MMVQ routing gate did not move.** `ggml-cuda.cu` still reaches `mul_mat_vec_q` only while
+`src1->ne[1] <= MMVQ_MAX_BATCH_SIZE` (8), so the prefill-shaped quality arms still measure the MMQ and cuBLAS
+paths and the `-b 8` arms are still the ones that exercise 90-92. That is the fact the quality gate is written
+around, and it is worth re-checking at every ref rather than assuming.
 
 ### What `b12211` moved, and what it cost the set
 
@@ -356,6 +374,17 @@ not this number.
 Knobs: `GGML_A16_NCOLS_MIN` / `GGML_A16_NCOLS_MAX` restrict the width range so
 the two kernels can be compared inside one binary; `GGML_A16_NWARPS`,
 `GGML_A16_QVEC`, `GGML_A16_SMALL_GRID` override the derived choices.
+
+**Not reachable with patch 90 on, which is the default.** `ggml_cuda_mul_mat_vec_q`
+hands the whole call to `ggml_cuda_mul_mat_vec_q_p100` and returns before any of the
+paths below it, and 12's hook is one of those paths (`mmvq.cu:1874` against
+`mmvq.cu:1995` at `v1.0.0`, and in the same order at `b12211`). So the Q4_1 HFMA2 GEMV
+compiles, is correct, and does nothing until `GGML_CUDA_MMVQ_P100_BODY=0` is set. This
+is the RELEASING.md "applies but the caller no longer reaches it" case, and the reason
+it is still in the set rather than deleted: the two paths are alternatives, measured
+against each other at Q4_1 widths, and 12 is the fallback that keeps Q4_1 fast on the
+pre-adoption code. Anyone who wants 12 running has to say so with the switch, and the
+numbers in this entry were taken that way.
 
 ### 31 · `fattn-f16-kv-chunk` — `pre-Turing`
 
@@ -1396,6 +1425,15 @@ split and alloc entirely.
 At `v0.8.0` the one false claim the merge left behind (the slot pool in `memory_breakdown`) needed
 one anchor: `model.hparams.no_alloc` became `model.no_alloc()`.
 
+At `v1.0.0` five of its hunks refused to place: `sched_new(size_t, bool)` became `sched_new(const
+sched_params &)` with a `can_reuse` test and `sched_reserve()` was rewritten around it. Hand-ported, meta-device
+self-disable kept verbatim, and it is the one patch of this port that the tensor-split throughput rows do not
+test - so it was measured where it does run, `-sm layer`, one build against itself with `LLAMA_DEC_SLOTS=0`
+versus `8`: mean 30.01 -> 30.98 t/s (**+3.2%**), per cycle +2.8%, and the whole of it in the first prompt of
+the block (p0 +14.8%, the other three between -0.7% and -0.4%), where the cold-graph cost it exists to remove
+is actually paid and where the block's own position spread says part of that is start-up rather than steady
+state. Live, free when it does not apply, not a headline. See `docs/results.md`, 2026-11-13.
+
 Merged with upstream's two-arena retention of the previous graph (`gf_res_prev`
 is now a `std::array`, and `gf_res_prev_active` marks the arena holding the main
 scheduler's current allocation). Decode through a slot does not rewrite
@@ -1770,11 +1808,15 @@ crashes with an illegal memory access at the first verify step on the second dev
 switch is opt-in (both findings are measured in the README). `83` also puts `ggml_cuda_set_device()`
 in front of the `mega_bar` and q8_1-cache allocations, which is not the crash's cause but is the
 correct device for a buffer that outlives the call that made it.
-### 90 · `mmvq-p100-body` — `sm_60` — **candidate, this branch only**
+### 90 · `mmvq-p100-body` — `sm_60` — **adopted, in the set**
 
-This branch (`p100-mmvq-body`) adds one patch on top of the 76-patch `b12211` set: the whole
+It began as one patch on the `p100-mmvq-body` branch, on top of what was then the 76-patch `b12211` set; it
+has been in the released set since, and `v1.0.0` carried it across with a hand-port. The whole
 `mul_mat_vec_q` kernel body adopted from [junkgpulab/llama.cpp-p100](https://github.com/junkgpulab/llama.cpp-p100).
-It is **on by default**; `GGML_CUDA_MMVQ_P100_BODY=0` falls back to our `mmvq.cu` unchanged.
+It is **on by default**; `GGML_CUDA_MMVQ_P100_BODY=0` falls back to our `mmvq.cu` unchanged. At `v1.0.0` the
+adopted file's `quantize_row_q8_1_cuda` call still had the fork's 13-argument list while upstream had
+trimmed it to 11, and `ggml_cuda_graph` had moved to `graph.cuh` with the epoch field - both apply-perfect,
+both caught by the build.
 
 **What it takes.** Their decode kernel, geometry (`calc_nwarps` / `calc_rows_per_block` / `split_rows`),
 dispatch, the chunked paths, `vecdotq-p100.cuh` (one lane per block, aligned loads + funnel shift, selected

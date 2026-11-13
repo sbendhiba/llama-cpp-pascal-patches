@@ -69,6 +69,16 @@ Anything quoted in the README or in `docs/patches.md` has to survive this, and
   UD-Q6_K_XL, both in [docs/results.md](results.md)), because a KL with no scale is not a verdict. The
   gate is run on the set as a package: per-patch attribution is debugging, and a KL that does not move
   when a decode patch is switched off at `-ub 512` is telling you the patch was never reached.
+- speculative rows come from [benchmarks/mtp-ab.sh](benchmarks/mtp-ab.sh) with the committed
+  [prompt set](benchmarks/mtp-prompts.txt): 4 prompts x 256 tokens x 2 reps in **both arm orders**, raw
+  t/s and cycles/second side by side, and the previous release's patched arm in the same block whenever a
+  rebase is being judged. Acceptance is a property of the prompts, so a remembered number moves when the
+  prompt set is standardized - at `v1.0.0` the headline went from +56% to +44% purely because these four
+  prompts replaced the ones that were never written down, while the two patched arms agreed to 0.5%.
+  Quote the pair, not one of them.
+- after any rebase, `benchmarks/knob-sweep.sh`: every environment knob the set introduces must still be
+  read by the patched tree. A knob whose `getenv` disappeared in a conflict resolution passes every other
+  gate and stops being a switch - the docs keep promising `NAME=0` and the user gets the default forever.
 
 ## Reporting a measurement on your hardware
 
