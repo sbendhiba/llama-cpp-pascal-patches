@@ -1,9 +1,9 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 0c22268..8d234e5 100644
+index 429e22917..80f01e905 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -2314,6 +2314,29 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
-         ggml_cuda_mul_mat_q(ctx, src0, src1, nullptr, dst);
+@@ -2506,6 +2506,29 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
+     if (src0->type == GGML_TYPE_F8_E4M3 && ggml_cuda_mul_mat_fp8(ctx, src0, src1, dst)) {
          return;
      }
 +    // A speculative verify batch sends the LM head down the cuBLAS path, whose F16 copy of the

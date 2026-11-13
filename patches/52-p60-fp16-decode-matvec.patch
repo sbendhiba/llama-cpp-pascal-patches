@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index d4d5625..01c4ffb 100644
+index 0ffa76d88..49d491005 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
-@@ -1515,12 +1515,27 @@ struct ggml_backend_cuda_context {
+@@ -1412,12 +1412,27 @@ struct ggml_backend_cuda_context {
          gdn_rows_src = nullptr;
      }
  
@@ -30,7 +30,7 @@ index d4d5625..01c4ffb 100644
      }
  
      void q8_1_cache_free() {
-@@ -1529,6 +1544,11 @@ struct ggml_backend_cuda_context {
+@@ -1426,6 +1441,11 @@ struct ggml_backend_cuda_context {
              q8_1_cache_mem = nullptr;
              q8_1_cache_cap = 0;
          }
@@ -44,7 +44,7 @@ index d4d5625..01c4ffb 100644
  
 diff --git a/ggml/src/ggml-cuda/mmvq-p60.cu b/ggml/src/ggml-cuda/mmvq-p60.cu
 new file mode 100644
-index 0000000..58d417f
+index 000000000..58d417fb4
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/mmvq-p60.cu
 @@ -0,0 +1,616 @@
@@ -666,7 +666,7 @@ index 0000000..58d417f
 +}
 diff --git a/ggml/src/ggml-cuda/mmvq-p60.cuh b/ggml/src/ggml-cuda/mmvq-p60.cuh
 new file mode 100644
-index 0000000..10948a9
+index 000000000..10948a96e
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/mmvq-p60.cuh
 @@ -0,0 +1,13 @@
@@ -684,7 +684,7 @@ index 0000000..10948a9
 +// Returns false (and does nothing) if not applicable. GGML_CUDA_P60_FUSE_NORM=0 disables it.
 +bool ggml_cuda_p60_rms_norm_mul(ggml_backend_cuda_context & ctx, const ggml_tensor * rms_norm, ggml_tensor * mul_tensor);
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index eff8b96..6733266 100644
+index 0638b64b1..d8d6dee1b 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
 @@ -1,5 +1,6 @@
@@ -694,7 +694,7 @@ index eff8b96..6733266 100644
  #include "quantize.cuh"
  #include "unary.cuh"
  #include "vecdotq.cuh"
-@@ -1610,6 +1611,10 @@ void ggml_cuda_mul_mat_vec_q(
+@@ -1606,6 +1607,10 @@ void ggml_cuda_mul_mat_vec_q(
      GGML_ASSERT(        dst->type  == GGML_TYPE_F32);
      GGML_ASSERT(!ids || ids->type  == GGML_TYPE_I32); // Optional, used for batched GGML_MUL_MAT_ID.
  
@@ -706,7 +706,7 @@ index eff8b96..6733266 100644
  
      cudaStream_t stream = ctx.stream();
 diff --git a/ggml/src/ggml-cuda/norm.cu b/ggml/src/ggml-cuda/norm.cu
-index 1ee5685..0f4a198 100644
+index 1ee56851f..0f4a198d5 100644
 --- a/ggml/src/ggml-cuda/norm.cu
 +++ b/ggml/src/ggml-cuda/norm.cu
 @@ -1,4 +1,5 @@
@@ -727,10 +727,10 @@ index 1ee5685..0f4a198 100644
      float eps = 0.0f;
  
 diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
-index a17f6b4..058739d 100644
+index 3abdff5fd..476af547a 100644
 --- a/tests/test-backend-ops.cpp
 +++ b/tests/test-backend-ops.cpp
-@@ -5863,6 +5863,83 @@ struct test_mul_mat_id_w4a4 : public test_mul_mat_id {
+@@ -5969,6 +5969,83 @@ struct test_mul_mat_id_w4a4 : public test_mul_mat_id {
      }
  };
  
@@ -814,7 +814,7 @@ index a17f6b4..058739d 100644
  // GGML_OP_MUL_MAT_ID + GGML_OP_ADD or GGML_OP_MUL
  struct test_mul_mat_id_fusion : public test_case {
      const ggml_type type_a;
-@@ -11599,6 +11676,16 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+@@ -11802,6 +11879,16 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
      test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_F32, GGML_TYPE_F32, 16, 8, false, 8256, 32832, 64));
  #endif
  

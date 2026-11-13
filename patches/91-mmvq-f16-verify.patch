@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 052046b..476ff2b 100644
+index da9ac0983..5f301515d 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -35,6 +35,7 @@
+@@ -37,6 +37,7 @@
  #include "ggml-cuda/mmvf.cuh"
  #include "ggml-cuda/mmvq.cuh"
  #include "ggml-cuda/mmvq-p100-body.cuh"
@@ -10,7 +10,7 @@ index 052046b..476ff2b 100644
  #include "ggml-cuda/mmvq-p60.cuh"
  #include "ggml-cuda/p60-mega.cuh"
  #include "ggml-cuda/p60-mega-x.cuh"
-@@ -6463,6 +6464,7 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
+@@ -6752,6 +6753,7 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
      if (ggml_cuda_mmvq_p100_body_enabled()) {
          cuda_ctx->mmvq_q8_1_invalidate();
      }
@@ -20,7 +20,7 @@ index 052046b..476ff2b 100644
      bool                         should_launch_concurrent_events = false;
 diff --git a/ggml/src/ggml-cuda/mmvq-f16.cu b/ggml/src/ggml-cuda/mmvq-f16.cu
 new file mode 100644
-index 0000000..354340e
+index 000000000..354340e3f
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/mmvq-f16.cu
 @@ -0,0 +1,3087 @@
@@ -3113,7 +3113,7 @@ index 0000000..354340e
 +}
 diff --git a/ggml/src/ggml-cuda/mmvq-f16.cuh b/ggml/src/ggml-cuda/mmvq-f16.cuh
 new file mode 100644
-index 0000000..02ce150
+index 000000000..02ce15018
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/mmvq-f16.cuh
 @@ -0,0 +1,30 @@
@@ -3148,7 +3148,7 @@ index 0000000..02ce150
 +// Forget the cached fp16 activation (called at the start of every graph compute, like the q8_1 cache).
 +void ggml_cuda_mmvq_f16_invalidate(ggml_backend_cuda_context & ctx);
 diff --git a/ggml/src/ggml-cuda/mmvq-p100-body.cu b/ggml/src/ggml-cuda/mmvq-p100-body.cu
-index 3eb2b21..2624a6e 100644
+index 3eb2b217a..2624a6ea2 100644
 --- a/ggml/src/ggml-cuda/mmvq-p100-body.cu
 +++ b/ggml/src/ggml-cuda/mmvq-p100-body.cu
 @@ -1,5 +1,6 @@

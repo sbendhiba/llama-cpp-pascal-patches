@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index bc83ea3..797fd31 100644
+index 414177308..273a2d4d5 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
-@@ -751,9 +751,21 @@ static __device__ __forceinline__ int ggml_cuda_dp4a(const int a, const int b, i
+@@ -762,9 +762,21 @@ static __device__ __forceinline__ int ggml_cuda_dp4a(const int a, const int b, i
  #if __CUDA_ARCH__ >= GGML_CUDA_CC_DP4A || defined(GGML_USE_MUSA)
      return __dp4a(a, b, c);
  #else // __CUDA_ARCH__ >= GGML_CUDA_CC_DP4A || defined(GGML_USE_MUSA)

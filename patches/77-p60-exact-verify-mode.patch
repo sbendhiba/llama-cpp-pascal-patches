@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index e5a8adc..1d3bb79 100644
+index 8b3f3a741..10aa348bb 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
-@@ -316,6 +316,9 @@ static const char * cu_get_error_str(CUresult err) {
+@@ -323,6 +323,9 @@ static const char * cu_get_error_str(CUresult err) {
  #define FLASH_ATTN_AVAILABLE
  #endif // !defined(GGML_CUDA_NO_FA) && !(defined(GGML_USE_MUSA) && __MUSA_ARCH__ < 220)
  
@@ -12,8 +12,8 @@ index e5a8adc..1d3bb79 100644
  static bool fp16_available(const int cc) {
      return ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_PASCAL ||
          (GGML_CUDA_CC_IS_MTHREADS(cc) && cc >= GGML_CUDA_CC_PH1);
-@@ -1465,6 +1468,8 @@ struct ggml_cuda_stream_context {
- };
+@@ -1362,6 +1365,8 @@ struct ggml_cuda_graph;
+ struct ggml_cuda_stream_context;
  
  struct ggml_backend_cuda_context {
 +    bool p60_exact = false; // current graph is a tagged generation step: keep each token bit-identical to decode
@@ -22,10 +22,10 @@ index e5a8adc..1d3bb79 100644
      std::string name;
      cudaEvent_t copy_event = nullptr;
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index b91de42..eaf5bc4 100644
+index 1900863bd..b4d6f1f93 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -6531,6 +6531,15 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
+@@ -6819,6 +6819,15 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
  
      ggml_cuda_set_device(cuda_ctx->device);
  
@@ -42,10 +42,10 @@ index b91de42..eaf5bc4 100644
      // reuse for a different tensor, so it must not outlive the graph that filled it
      cuda_ctx->q8_1_cache_clear();
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index 8da9b3c..d3bda26 100644
+index 604558a98..afeeb074d 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
-@@ -1857,6 +1857,27 @@ void ggml_cuda_mul_mat_vec_q(
+@@ -1853,6 +1853,27 @@ void ggml_cuda_mul_mat_vec_q(
      GGML_ASSERT(        dst->type  == GGML_TYPE_F32);
      GGML_ASSERT(!ids || ids->type  == GGML_TYPE_I32); // Optional, used for batched GGML_MUL_MAT_ID.
  
@@ -74,10 +74,10 @@ index 8da9b3c..d3bda26 100644
          return;
      }
 diff --git a/src/llama-context.cpp b/src/llama-context.cpp
-index 56926c8..578fd23 100644
+index b004b104d..61828d486 100644
 --- a/src/llama-context.cpp
 +++ b/src/llama-context.cpp
-@@ -1838,8 +1838,13 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+@@ -1975,8 +1975,13 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
      // in order to correctly reuse a graph, it's full topology has to be uniquely determined by these parameters
      const auto gparams = graph_params(res, ubatch, mctx, gtype);
  
@@ -92,7 +92,7 @@ index 56926c8..578fd23 100644
      }
  
      if (hit) {
-@@ -1877,6 +1882,16 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+@@ -2014,6 +2019,16 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
              return nullptr;
          }
  
@@ -109,7 +109,7 @@ index 56926c8..578fd23 100644
          if (!ggml_backend_sched_alloc_graph(sch, gf)) {
              // ggml_backend_sched_alloc_splits already re-reserves and retries once on its own, so
              // reaching here means this slot's compute buffer cannot be grown to fit; reserving
-@@ -1932,8 +1947,7 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+@@ -2069,8 +2084,7 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
                  LLAMA_LOG_ERROR("%s: failed to allocate graph\n", __func__);
                  ret = GGML_STATUS_ALLOC_FAILED;
                  return nullptr;
@@ -120,10 +120,10 @@ index 56926c8..578fd23 100644
          if (use_slot && dec_cur >= 0) {
              dec_slots[slot].valid = true;
 diff --git a/src/llama-graph.cpp b/src/llama-graph.cpp
-index b38daca..b14aa8d 100644
+index 3cee72df0..6effdac9c 100644
 --- a/src/llama-graph.cpp
 +++ b/src/llama-graph.cpp
-@@ -3080,19 +3080,42 @@ ggml_tensor * llm_graph_context::build_attn_mha(
+@@ -3115,19 +3115,42 @@ ggml_tensor * llm_graph_context::build_attn_mha(
              v = ggml_cast(ctx0, v, GGML_TYPE_F16);
          }
  

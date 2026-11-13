@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 467e12d..79c39db 100644
+index 42b06d470..28a4dd75d 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -4722,9 +4722,9 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4966,9 +4966,9 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      }
      // one sequence of T <= 6 tokens; the gdn output holds T rows of attention values + K state snapshots
      const int64_t T = gdn->src[0]->ne[2];
@@ -15,7 +15,7 @@ index 467e12d..79c39db 100644
      if (T > 1 && !megat) {
          P60_MEGA_FAIL;
      }
-@@ -4879,9 +4879,9 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -5123,9 +5123,9 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      int n_softmax = 0, n_div = 0;
      float clamp_min = -INFINITY;
      const int64_t T = norm->src[0]->ne[1];
@@ -28,7 +28,7 @@ index 467e12d..79c39db 100644
      if (T > 1 && !megat) {
          P60_MEGA_FAIL;
      }
-@@ -5057,9 +5057,9 @@ static int p60_try_mega_attn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, i
+@@ -5301,9 +5301,9 @@ static int p60_try_mega_attn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, i
      }
      const ggml_tensor * add = g->nodes[e];
      const int64_t T = norm->src[0]->ne[1];

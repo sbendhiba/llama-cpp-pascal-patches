@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index cbb0193..4c33363 100644
+index 4d728feec..b536b8d73 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -4853,6 +4853,162 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -5097,6 +5097,162 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      return e - i;
  }
  
@@ -165,7 +165,7 @@ index cbb0193..4c33363 100644
  static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph * cgraph, int i) {
  
  // The same conditions upstream's {RMS_NORM, MUL} fusion checks inside ggml_cuda_can_fuse,
-@@ -4986,10 +5142,14 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -5230,10 +5386,14 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
          static const bool enabled = getenv("GGML_CUDA_P60_MMVQ") != nullptr && atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0 &&
              getenv("GGML_CUDA_P60_MEGA") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGA")) != 0;
          if (enabled && ggml_cuda_info().devices[cuda_ctx->device].cc == 600) {
@@ -180,7 +180,7 @@ index cbb0193..4c33363 100644
              if (n > 0) {
                  return n;
              }
-@@ -5037,7 +5197,8 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -5281,7 +5441,8 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
          static const bool mega = getenv("GGML_CUDA_P60_MMVQ") != nullptr && atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0 &&
              getenv("GGML_CUDA_P60_MEGA") != nullptr && atoi(getenv("GGML_CUDA_P60_MEGA")) != 0;
          if (mega && ggml_cuda_info().devices[cuda_ctx->device].cc == 600 &&
@@ -191,7 +191,7 @@ index cbb0193..4c33363 100644
          }
      }
 diff --git a/ggml/src/ggml-cuda/p60-fa.cu b/ggml/src/ggml-cuda/p60-fa.cu
-index a68cef4..53fb667 100644
+index a68cef4fd..53fb66703 100644
 --- a/ggml/src/ggml-cuda/p60-fa.cu
 +++ b/ggml/src/ggml-cuda/p60-fa.cu
 @@ -1,4 +1,5 @@
@@ -569,7 +569,7 @@ index a68cef4..53fb667 100644
 +    CUDA_CHECK(cudaGetLastError());
 +}
 diff --git a/ggml/src/ggml-cuda/p60-mega-t.cu b/ggml/src/ggml-cuda/p60-mega-t.cu
-index a5f252a..bcdb8fe 100644
+index a5f252a6d..bcdb8fee4 100644
 --- a/ggml/src/ggml-cuda/p60-mega-t.cu
 +++ b/ggml/src/ggml-cuda/p60-mega-t.cu
 @@ -1,4 +1,5 @@
@@ -843,7 +843,7 @@ index a5f252a..bcdb8fe 100644
      }
  }
 diff --git a/ggml/src/ggml-cuda/p60-mega.cuh b/ggml/src/ggml-cuda/p60-mega.cuh
-index 508805f..ab4b3b6 100644
+index 508805f40..ab4b3b609 100644
 --- a/ggml/src/ggml-cuda/p60-mega.cuh
 +++ b/ggml/src/ggml-cuda/p60-mega.cuh
 @@ -69,3 +69,37 @@ bool ggml_cuda_p60_mul_mat_q8_0_t(ggml_backend_cuda_context & ctx, const ggml_te
@@ -886,7 +886,7 @@ index 508805f..ab4b3b6 100644
 +void ggml_cuda_p60_mega_attn(ggml_backend_cuda_context & ctx, const ggml_cuda_p60_mega_attn_args & args, int n_tokens);
 diff --git a/ggml/src/ggml-cuda/p60-mt.cuh b/ggml/src/ggml-cuda/p60-mt.cuh
 new file mode 100644
-index 0000000..20c03bc
+index 000000000..20c03bc24
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/p60-mt.cuh
 @@ -0,0 +1,203 @@

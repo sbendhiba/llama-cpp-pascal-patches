@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index 1d3bb79..05185f5 100644
+index 10aa348bb..507905e17 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
-@@ -316,6 +316,13 @@ static const char * cu_get_error_str(CUresult err) {
+@@ -323,6 +323,13 @@ static const char * cu_get_error_str(CUresult err) {
  #define FLASH_ATTN_AVAILABLE
  #endif // !defined(GGML_CUDA_NO_FA) && !(defined(GGML_USE_MUSA) && __MUSA_ARCH__ < 220)
  
@@ -17,10 +17,10 @@ index 1d3bb79..05185f5 100644
  #define GGML_CUDA_P60_EXACT_TAG 0x50363045
  
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 9e0c9dc..d835f16 100644
+index 6624f5bdc..aea1ce56c 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -4713,7 +4713,7 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4957,7 +4957,7 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
          return e - i;
      }
      memcpy(&a.eps_norm, norm->op_params, sizeof(float));
@@ -29,7 +29,7 @@ index 9e0c9dc..d835f16 100644
      a.attn_norm = (const float *) nmul->src[1]->data;
      a.qkv = (const char *) qkv->data; a.z = (const char *) z->data; a.out = (const char *) out->data;
      a.alpha = (const float *) alpha->data; a.beta = (const float *) beta->data;
-@@ -4727,7 +4727,7 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -4971,7 +4971,7 @@ static int p60_try_mega_gdn(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      for (int k = 0; k < n_prerun; k++) {
          ggml_cuda_compute_forward(*ctx, prerun[k]);
      }
@@ -38,7 +38,7 @@ index 9e0c9dc..d835f16 100644
          ggml_cuda_p60_mega_gdn(*ctx, a);
      } else {
          ggml_cuda_p60_mega_gdn_t(*ctx, a, (int) T, (int) K, cs_slot, ss_slot);
-@@ -4866,7 +4866,7 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
+@@ -5110,7 +5110,7 @@ static int p60_try_mega_moe(ggml_backend_cuda_context * ctx, ggml_cgraph * g, in
      if (exact) {
          a.router = (const float *) router->data; a.sgate = (const float *) sgate->data;
          ggml_cuda_p60_mega_moe_x(*ctx, a, (int) T);
@@ -48,7 +48,7 @@ index 9e0c9dc..d835f16 100644
      } else {
          ggml_cuda_p60_mega_moe_t(*ctx, a, (int) T);
 diff --git a/ggml/src/ggml-cuda/p60-mega-t.cu b/ggml/src/ggml-cuda/p60-mega-t.cu
-index 5e67adc..cc8304e 100644
+index 5e67adc7d..cc8304eed 100644
 --- a/ggml/src/ggml-cuda/p60-mega-t.cu
 +++ b/ggml/src/ggml-cuda/p60-mega-t.cu
 @@ -1,6 +1,8 @@
@@ -119,7 +119,7 @@ index 5e67adc..cc8304e 100644
          (const float *) src1->data, src1->nb[1] / sizeof(float), (float *) dst->data, dst->nb[1] / sizeof(float));
      CUDA_CHECK(cudaGetLastError());
 diff --git a/ggml/src/ggml-cuda/p60-mega.cuh b/ggml/src/ggml-cuda/p60-mega.cuh
-index cac11ea..b8a9cf1 100644
+index cac11ea12..b8a9cf18e 100644
 --- a/ggml/src/ggml-cuda/p60-mega.cuh
 +++ b/ggml/src/ggml-cuda/p60-mega.cuh
 @@ -33,6 +33,7 @@ struct ggml_cuda_p60_mega_gdn_args {

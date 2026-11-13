@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index 01c4ffb..5dd9bac 100644
+index 49d491005..1a26a4dd7 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
-@@ -1515,15 +1515,20 @@ struct ggml_backend_cuda_context {
+@@ -1412,15 +1412,20 @@ struct ggml_backend_cuda_context {
          gdn_rows_src = nullptr;
      }
  
@@ -32,7 +32,7 @@ index 01c4ffb..5dd9bac 100644
  
      // Forget the key, keep the buffer.  Called at the top of every graph computation.
      void q8_1_cache_clear() {
-@@ -1532,10 +1537,12 @@ struct ggml_backend_cuda_context {
+@@ -1429,10 +1434,12 @@ struct ggml_backend_cuda_context {
          q8_1_cache_stream = nullptr;
          q8_1_cache_size   = 0;
  
@@ -49,7 +49,7 @@ index 01c4ffb..5dd9bac 100644
      }
  
      void q8_1_cache_free() {
-@@ -1544,10 +1551,12 @@ struct ggml_backend_cuda_context {
+@@ -1441,10 +1448,12 @@ struct ggml_backend_cuda_context {
              q8_1_cache_mem = nullptr;
              q8_1_cache_cap = 0;
          }
@@ -67,7 +67,7 @@ index 01c4ffb..5dd9bac 100644
          q8_1_cache_clear();
      }
 diff --git a/ggml/src/ggml-cuda/mmvq-p60.cu b/ggml/src/ggml-cuda/mmvq-p60.cu
-index 58d417f..46961cf 100644
+index 58d417fb4..46961cf4b 100644
 --- a/ggml/src/ggml-cuda/mmvq-p60.cu
 +++ b/ggml/src/ggml-cuda/mmvq-p60.cu
 @@ -1,4 +1,5 @@
@@ -349,7 +349,7 @@ index 58d417f..46961cf 100644
      return true;
  }
 diff --git a/ggml/src/ggml-cuda/mmvq-p60.cuh b/ggml/src/ggml-cuda/mmvq-p60.cuh
-index 10948a9..cf1018e 100644
+index 10948a96e..cf1018e21 100644
 --- a/ggml/src/ggml-cuda/mmvq-p60.cuh
 +++ b/ggml/src/ggml-cuda/mmvq-p60.cuh
 @@ -11,3 +11,7 @@ bool ggml_cuda_mmvq_p60(ggml_backend_cuda_context & ctx,
@@ -361,7 +361,7 @@ index 10948a9..cf1018e 100644
 +// Returns false (and does nothing) if not applicable. GGML_CUDA_P60_FUSE_GLU=0 disables it.
 +bool ggml_cuda_p60_swiglu(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
 diff --git a/ggml/src/ggml-cuda/unary.cu b/ggml/src/ggml-cuda/unary.cu
-index 64a0054..e3d7b95 100644
+index 64a00549b..e3d7b9593 100644
 --- a/ggml/src/ggml-cuda/unary.cu
 +++ b/ggml/src/ggml-cuda/unary.cu
 @@ -1,4 +1,5 @@
@@ -381,10 +381,10 @@ index 64a0054..e3d7b95 100644
  }
  
 diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
-index 058739d..bc18c60 100644
+index 476af547a..a5110089a 100644
 --- a/tests/test-backend-ops.cpp
 +++ b/tests/test-backend-ops.cpp
-@@ -5863,6 +5863,58 @@ struct test_mul_mat_id_w4a4 : public test_mul_mat_id {
+@@ -5969,6 +5969,58 @@ struct test_mul_mat_id_w4a4 : public test_mul_mat_id {
      }
  };
  
@@ -443,7 +443,7 @@ index 058739d..bc18c60 100644
  // RMS_NORM * weight feeding a matmul: on sm_60 with GGML_CUDA_P60_MMVQ=1 the fused norm also fills the
  // mmvq-p60 activation cache, and the matmul reads it from there (MUL_MAT_ID through a reshape view)
  struct test_p60_norm_matmul : public test_case {
-@@ -11676,6 +11728,13 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+@@ -11879,6 +11931,13 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
      test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_F32, GGML_TYPE_F32, 16, 8, false, 8256, 32832, 64));
  #endif
  

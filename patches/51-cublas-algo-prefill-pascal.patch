@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index b74f6e6..2f2987d 100644
+index 2b2495b09..3b9f0b570 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -1655,6 +1655,42 @@ struct batched_mul_mat_traits<GGML_TYPE_F16> {
+@@ -1829,6 +1829,42 @@ struct batched_mul_mat_traits<GGML_TYPE_F16> {
      static inline auto convert_nc(ggml_type src_type) { return ggml_get_to_fp16_nc_cuda(src_type); }
  };
  
@@ -45,7 +45,7 @@ index b74f6e6..2f2987d 100644
  template<ggml_type compute_type>
  static void ggml_cuda_mul_mat_cublas_impl(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
      using traits = batched_mul_mat_traits<compute_type>;
-@@ -1798,14 +1834,24 @@ static void ggml_cuda_mul_mat_cublas_impl(ggml_backend_cuda_context & ctx, const
+@@ -1972,14 +2008,24 @@ static void ggml_cuda_mul_mat_cublas_impl(ggml_backend_cuda_context & ctx, const
                                             (const float *) src1_ptr, s11,
                      (const float *) beta,  (float       *)  dst_ptr, ldc));
      } else if (ne12 == 1 && ne13 == 1) {

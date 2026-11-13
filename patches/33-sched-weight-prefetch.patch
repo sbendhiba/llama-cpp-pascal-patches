@@ -1,5 +1,5 @@
 diff --git a/ggml/include/ggml-backend.h b/ggml/include/ggml-backend.h
-index afb8633..aecf5cf 100644
+index afb86338a..aecf5cf99 100644
 --- a/ggml/include/ggml-backend.h
 +++ b/ggml/include/ggml-backend.h
 @@ -393,6 +393,16 @@ extern "C" {
@@ -20,7 +20,7 @@ index afb8633..aecf5cf 100644
      // Meta backend
      //
 diff --git a/ggml/src/ggml-backend.cpp b/ggml/src/ggml-backend.cpp
-index 2dedde0..1081147 100644
+index 9ca7fce4b..59d887c0b 100644
 --- a/ggml/src/ggml-backend.cpp
 +++ b/ggml/src/ggml-backend.cpp
 @@ -20,6 +20,7 @@
@@ -31,7 +31,7 @@ index 2dedde0..1081147 100644
  #include <unordered_map>
  #include <vector>
  
-@@ -1236,6 +1237,20 @@ struct ggml_backend_sched {
+@@ -1237,6 +1238,20 @@ struct ggml_backend_sched {
      size_t context_buffer_size;
  
      bool op_offload;
@@ -52,7 +52,7 @@ index 2dedde0..1081147 100644
  
      int debug;
  
-@@ -2082,12 +2097,197 @@ static bool ggml_backend_sched_alloc_splits(ggml_backend_sched_t sched) {
+@@ -2088,12 +2103,197 @@ static bool ggml_backend_sched_alloc_splits(ggml_backend_sched_t sched) {
      return true;
  }
  
@@ -250,7 +250,7 @@ index 2dedde0..1081147 100644
  static void ggml_backend_sched_copy_input(ggml_backend_sched_t sched, struct ggml_backend_sched_split * split, struct ggml_tensor * input) {
      const int split_backend_id = split->backend_id;
      ggml_backend_t split_backend = sched->backends[split_backend_id];
-@@ -2122,6 +2322,10 @@ static void ggml_backend_sched_copy_input(ggml_backend_sched_t sched, struct ggm
+@@ -2128,6 +2328,10 @@ static void ggml_backend_sched_copy_input(ggml_backend_sched_t sched, struct ggm
          ggml_backend_synchronize(split_backend);
      }
  
@@ -261,7 +261,7 @@ index 2dedde0..1081147 100644
      if (sched->callback_copy != NULL && ggml_backend_sched_is_host_weight(input) &&
          sched->callback_copy(split_backend, input, input_cpy, &split->graph, sched->callback_copy_user_data)) {
          return;
-@@ -2201,6 +2405,41 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
+@@ -2212,6 +2416,41 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
      struct ggml_backend_sched_split * splits = sched->splits;
  
      int prev_backend_id = -1;
@@ -303,7 +303,7 @@ index 2dedde0..1081147 100644
  
      for (int split_id = 0; split_id < sched->n_splits; split_id++) {
          struct ggml_backend_sched_split * split = &splits[split_id];
-@@ -2238,6 +2477,9 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
+@@ -2251,6 +2490,9 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
              if (ec != GGML_STATUS_SUCCESS) {
                  return ec;
              }
@@ -313,7 +313,7 @@ index 2dedde0..1081147 100644
          } else {
              // similar to ggml_backend_compare_graph_backend
              for (int j0 = 0; j0 < split->graph.n_nodes; j0++) {
-@@ -2371,6 +2613,15 @@ void ggml_backend_sched_free(ggml_backend_sched_t sched) {
+@@ -2387,6 +2629,15 @@ void ggml_backend_sched_free(ggml_backend_sched_t sched) {
          }
          ggml_backend_event_free(sched->prefetch_events[b]);
      }

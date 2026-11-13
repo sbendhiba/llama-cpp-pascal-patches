@@ -1,8 +1,8 @@
 diff --git a/src/llama-sampler.cpp b/src/llama-sampler.cpp
-index 9004efa..3541027 100644
+index d8cd441a5..852678261 100644
 --- a/src/llama-sampler.cpp
 +++ b/src/llama-sampler.cpp
-@@ -2961,7 +2961,48 @@ static void llama_sampler_penalties_apply(struct llama_sampler * smpl, llama_tok
+@@ -2927,7 +2927,48 @@ static void llama_sampler_penalties_apply(struct llama_sampler * smpl, llama_tok
          return;
      }
  
@@ -51,7 +51,7 @@ index 9004efa..3541027 100644
      for (size_t i = 0; i < cur_p->size; ++i) {
          const auto token_iter = ctx->token_count.find(cur_p->data[i].id);
          if (token_iter == ctx->token_count.end()) {
-@@ -2982,6 +3023,7 @@ static void llama_sampler_penalties_apply(struct llama_sampler * smpl, llama_tok
+@@ -2948,6 +2989,7 @@ static void llama_sampler_penalties_apply(struct llama_sampler * smpl, llama_tok
  
          cur_p->data[i].logit -= float(count) * ctx->penalty_freq + float(count > 0) * ctx->penalty_present;
      }

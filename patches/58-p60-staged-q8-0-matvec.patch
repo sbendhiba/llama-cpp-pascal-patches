@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index ba59d2c..953dd9c 100644
+index 531c7676d..d29a559af 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
-@@ -1604,6 +1604,125 @@ static void mul_mat_vec_q_switch_type(
+@@ -1600,6 +1600,125 @@ static void mul_mat_vec_q_switch_type(
      }
  }
  
@@ -128,7 +128,7 @@ index ba59d2c..953dd9c 100644
  void ggml_cuda_mul_mat_vec_q(
          ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst,
          const ggml_cuda_mm_fusion_args_host * fusion) {
-@@ -1807,6 +1926,10 @@ void ggml_cuda_mul_mat_vec_q(
+@@ -1803,6 +1922,10 @@ void ggml_cuda_mul_mat_vec_q(
  
      const int64_t ids_stride = ids ? ids->nb[1] / ggml_type_size(ids->type) : 0;
  

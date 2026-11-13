@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index 4d430ec..e5a8adc 100644
+index 4a0f7eb83..8b3f3a741 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
-@@ -1526,7 +1526,6 @@ struct ggml_backend_cuda_context {
+@@ -1423,7 +1423,6 @@ struct ggml_backend_cuda_context {
          int64_t             nrows  = 0;
          int64_t             s[2]   = { 0, 0 }; // row stride, K
      };
@@ -10,7 +10,7 @@ index 4d430ec..e5a8adc 100644
      // gated_delta_net input states whose GET_ROWS gather was skipped: the gdn reads cache row ids[seq] directly
      struct p60_gdn_state_src {
          const ggml_tensor * gdn  = nullptr;
-@@ -1556,7 +1555,10 @@ struct ggml_backend_cuda_context {
+@@ -1453,7 +1452,10 @@ struct ggml_backend_cuda_context {
      p60_gdn_state_src p60_gdn_state[p60_gdn_state_n];
      int               p60_gdn_state_count = 0;
  
@@ -22,7 +22,7 @@ index 4d430ec..e5a8adc 100644
      static constexpr int p60_x_cache_n = 4;
      p60_x_cache_entry p60_x_cache[p60_x_cache_n];
      int               p60_x_cache_next = 0;
-@@ -1574,7 +1576,6 @@ struct ggml_backend_cuda_context {
+@@ -1471,7 +1473,6 @@ struct ggml_backend_cuda_context {
              e.stream = nullptr;
              e.nrows  = 0;
          }
@@ -31,10 +31,10 @@ index 4d430ec..e5a8adc 100644
          p60_gdn_state_count = 0;
          p60_conv_state      = {};
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 4be35a0..c73fb6f 100644
+index 71b644af3..8fb0e9d01 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -35,6 +35,7 @@
+@@ -37,6 +37,7 @@
  #include "ggml-cuda/mmvf.cuh"
  #include "ggml-cuda/mmvq.cuh"
  #include "ggml-cuda/mmvq-p60.cuh"
@@ -42,7 +42,7 @@ index 4be35a0..c73fb6f 100644
  #include "ggml-cuda/moe-weighted-reduction.cuh"
  #include "ggml-cuda/norm.cuh"
  #include "ggml-cuda/opt-step-adamw.cuh"
-@@ -749,6 +750,11 @@ ggml_backend_cuda_context::~ggml_backend_cuda_context() {
+@@ -918,6 +919,11 @@ ggml_backend_cuda_context::~ggml_backend_cuda_context() {
  
      q8_1_cache_free();
  
@@ -54,7 +54,7 @@ index 4be35a0..c73fb6f 100644
      if (copy_event != nullptr) {
          CUDA_CHECK(cudaEventDestroy(copy_event));
      }
-@@ -4421,6 +4427,336 @@ static bool ggml_cuda_p60_conv_state_plan(ggml_backend_cuda_context * ctx, const
+@@ -4665,6 +4671,336 @@ static bool ggml_cuda_p60_conv_state_plan(ggml_backend_cuda_context * ctx, const
      return false;
  }
  
@@ -391,7 +391,7 @@ index 4be35a0..c73fb6f 100644
  static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph * cgraph, int i) {
  
  // The same conditions upstream's {RMS_NORM, MUL} fusion checks inside ggml_cuda_can_fuse,
-@@ -4549,8 +4885,21 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -4793,8 +5129,21 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
  
      ggml_tensor * node = cgraph->nodes[i];
  
@@ -415,7 +415,7 @@ index 4be35a0..c73fb6f 100644
      // conv-state shuffle folded into the ssm_conv (see ggml_cuda_p60_conv_state_plan): skip the gather, the concat and the
      // update copies, run the conv with all of it
      {
-@@ -4586,8 +4935,16 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -4830,8 +5179,16 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
          }
      }
  
@@ -436,7 +436,7 @@ index 4be35a0..c73fb6f 100644
          if (ggml_can_fuse_subgraph(cgraph, i, { GGML_OP_ADD, GGML_OP_ADD, GGML_OP_RMS_NORM, GGML_OP_MUL }, { i + 1, i + 3 }) &&
 diff --git a/ggml/src/ggml-cuda/p60-mega.cu b/ggml/src/ggml-cuda/p60-mega.cu
 new file mode 100644
-index 0000000..e38fbe2
+index 000000000..e38fbe2ee
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/p60-mega.cu
 @@ -0,0 +1,584 @@
@@ -1026,7 +1026,7 @@ index 0000000..e38fbe2
 +}
 diff --git a/ggml/src/ggml-cuda/p60-mega.cuh b/ggml/src/ggml-cuda/p60-mega.cuh
 new file mode 100644
-index 0000000..1225e44
+index 000000000..1225e445f
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/p60-mega.cuh
 @@ -0,0 +1,56 @@

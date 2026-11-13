@@ -1,28 +1,30 @@
 diff --git a/ggml/src/ggml-backend.cpp b/ggml/src/ggml-backend.cpp
-index 92a53bf..2dedde0 100644
+index b70d0d874..9ca7fce4b 100644
 --- a/ggml/src/ggml-backend.cpp
 +++ b/ggml/src/ggml-backend.cpp
-@@ -2315,6 +2315,12 @@ ggml_backend_sched_t ggml_backend_sched_new(
-     sched->hv_tensor_backend_ids = (int *) malloc(sched->hash_set.size * sizeof(sched->hv_tensor_backend_ids[0]));
-     sched->hv_tensor_copies      = (ggml_tensor **) malloc(sched->hash_set.size * sched->n_backends * sched->n_copies * sizeof(struct ggml_tensor *));
+@@ -2329,6 +2329,14 @@ ggml_backend_sched_t ggml_backend_sched_new(
+     sched->hv_tensor_copies        = (ggml_tensor **) malloc(sched->hash_set.size * sched->n_backends * sched->n_copies * sizeof(struct ggml_tensor *));
+     sched->hv_tensor_requires_copy = (bool *) malloc(sched->hash_set.size * sizeof(sched->hv_tensor_requires_copy[0]));
  
 +    // Initialise the whole table exactly once here.  ggml_backend_sched_reset then only restores
 +    // entries flagged in the used bitmap, which relies on the invariant that unused entries are
-+    // always (-1, NULL).
-+    memset(sched->hv_tensor_backend_ids, -1, sched->hash_set.size * sizeof(sched->hv_tensor_backend_ids[0]));
-+    memset(sched->hv_tensor_copies,       0, sched->hash_set.size * sched->n_backends * sched->n_copies * sizeof(struct ggml_tensor *));
++    // always (-1, NULL, false) - including hv_tensor_requires_copy, which upstream added after this
++    // patch was first written.
++    memset(sched->hv_tensor_backend_ids,   -1, sched->hash_set.size * sizeof(sched->hv_tensor_backend_ids[0]));
++    memset(sched->hv_tensor_copies,         0, sched->hash_set.size * sched->n_backends * sched->n_copies * sizeof(struct ggml_tensor *));
++    memset(sched->hv_tensor_requires_copy,  0, sched->hash_set.size * sizeof(sched->hv_tensor_requires_copy[0]));
 +
      const size_t ggml_sched_max_splits = graph_size; // at most there is one split for each node in the graph
      const size_t nodes_size = graph_size + ggml_sched_max_splits*GGML_SCHED_MAX_SPLIT_INPUTS*2;
      sched->node_backend_ids = (int *) calloc(nodes_size, sizeof(sched->node_backend_ids[0]));
-@@ -2389,9 +2395,38 @@ void ggml_backend_sched_reset(ggml_backend_sched_t sched) {
+@@ -2404,10 +2412,39 @@ void ggml_backend_sched_reset(ggml_backend_sched_t sched) {
      GGML_ASSERT(sched);
      // reset state for the next run
      if (!sched->is_reset) {
 +        // The hash table is sized from graph_size, so it holds tens of thousands of entries, while
 +        // a single graph fills only a few thousand.  memset-ing the whole table costs over 100 us
 +        // per graph (measured: 94 ms over 800 graphs, 1.2% of decode).  Walk the used bitmap and
-+        // restore only the entries that were touched.  Untouched entries stay at (-1, NULL)
++        // restore only the entries that were touched.  Untouched entries stay at (-1, NULL, false)
 +        // because ggml_backend_sched_new initialised them there.
 +        const size_t n_words = ggml_bitset_size(sched->hash_set.size);
 +        const size_t stride  = (size_t) sched->n_backends * sched->n_copies;
@@ -47,12 +49,14 @@ index 92a53bf..2dedde0 100644
 +
 +                sched->hv_tensor_backend_ids[i] = -1;
 +                memset(&sched->hv_tensor_copies[i*stride], 0, stride*sizeof(struct ggml_tensor *));
++                sched->hv_tensor_requires_copy[i] = false;
 +            }
 +        }
 +
          ggml_hash_set_reset(&sched->hash_set);
--        memset(sched->hv_tensor_backend_ids, -1, sched->hash_set.size * sizeof(sched->hv_tensor_backend_ids[0]));
--        memset(sched->hv_tensor_copies,       0, sched->hash_set.size * sched->n_backends * sched->n_copies * sizeof(struct ggml_tensor *));
+-        memset(sched->hv_tensor_backend_ids,  -1, sched->hash_set.size * sizeof(sched->hv_tensor_backend_ids[0]));
+-        memset(sched->hv_tensor_copies,        0, sched->hash_set.size * sched->n_backends * sched->n_copies * sizeof(struct ggml_tensor *));
+-        memset(sched->hv_tensor_requires_copy, 0, sched->hash_set.size * sizeof(sched->hv_tensor_requires_copy[0]));
          sched->is_reset = true;
      }
      sched->is_alloc = false;

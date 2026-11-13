@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index 05185f5..b95f376 100644
+index 507905e17..b39a9097c 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
-@@ -1567,6 +1567,9 @@ struct ggml_backend_cuda_context {
+@@ -1464,6 +1464,9 @@ struct ggml_backend_cuda_context {
      p60_gdn_state_src p60_gdn_state[p60_gdn_state_n];
      int               p60_gdn_state_count = 0;
  
@@ -13,7 +13,7 @@ index 05185f5..b95f376 100644
      unsigned * p60_mega_bar   = nullptr;
      unsigned   p60_mega_epoch = 0;
 diff --git a/ggml/src/ggml-cuda/gated_delta_net.cu b/ggml/src/ggml-cuda/gated_delta_net.cu
-index e08793f..92e6e89 100644
+index e08793fab..92e6e89f6 100644
 --- a/ggml/src/ggml-cuda/gated_delta_net.cu
 +++ b/ggml/src/ggml-cuda/gated_delta_net.cu
 @@ -414,7 +414,7 @@ static void launch_gated_delta_net(
@@ -26,10 +26,10 @@ index e08793f..92e6e89 100644
      if constexpr (!KDA) {
          if (p60_chunk && S_v == 128 && n_tokens >= 32 && warp_size == 32 &&
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 6d5e82e..0dc9249 100644
+index 5fa7cf118..601243b20 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -5228,7 +5228,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -5472,7 +5472,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
      // whole single-token layer halves as one persistent kernel each (p60-mega.cu)
      if (node->op == GGML_OP_RMS_NORM) {
          static const bool enabled = (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0) &&
@@ -38,7 +38,7 @@ index 6d5e82e..0dc9249 100644
          if (enabled && ggml_cuda_info().devices[cuda_ctx->device].cc == 600) {
              static const bool attn = getenv("GGML_CUDA_P60_ATTN") == nullptr || atoi(getenv("GGML_CUDA_P60_ATTN")) != 0;
              int n = p60_try_mega_gdn(cuda_ctx, cgraph, i);
-@@ -5239,6 +5239,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -5483,6 +5483,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
                  n = p60_try_mega_attn(cuda_ctx, cgraph, i);
              }
              if (n > 0) {
@@ -46,7 +46,7 @@ index 6d5e82e..0dc9249 100644
                  return n;
              }
          }
-@@ -5289,7 +5290,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -5533,7 +5534,7 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
      }
      if (node->op == GGML_OP_ADD && i + 1 < cgraph->n_nodes && cgraph->nodes[i + 1]->op == GGML_OP_RMS_NORM) {
          static const bool mega = (getenv("GGML_CUDA_P60_MMVQ") == nullptr || atoi(getenv("GGML_CUDA_P60_MMVQ")) != 0) &&
@@ -55,7 +55,7 @@ index 6d5e82e..0dc9249 100644
          if (mega && ggml_cuda_info().devices[cuda_ctx->device].cc == 600 &&
                  (p60_try_mega_gdn(cuda_ctx, cgraph, i + 1, true) > 0 || p60_try_mega_moe(cuda_ctx, cgraph, i + 1, true) > 0 ||
                   ((getenv("GGML_CUDA_P60_ATTN") == nullptr || atoi(getenv("GGML_CUDA_P60_ATTN")) != 0) && p60_try_mega_attn(cuda_ctx, cgraph, i + 1, true) > 0))) {
-@@ -6591,6 +6592,14 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
+@@ -6879,6 +6880,14 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
  }
  
  #ifdef USE_CUDA_GRAPH
@@ -70,7 +70,7 @@ index 6d5e82e..0dc9249 100644
  static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, const void * graph_key) {
      ggml_cuda_graph * graph = cuda_ctx->cuda_graph(graph_key);
  
-@@ -6609,6 +6618,16 @@ static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, co
+@@ -6897,6 +6906,16 @@ static bool ggml_cuda_graph_set_enabled(ggml_backend_cuda_context * cuda_ctx, co
          }
      }
  
@@ -88,7 +88,7 @@ index 6d5e82e..0dc9249 100644
  }
  #endif // USE_CUDA_GRAPH
 diff --git a/ggml/src/ggml-cuda/p60-fa.cu b/ggml/src/ggml-cuda/p60-fa.cu
-index 509ee3a..1ce9688 100644
+index 509ee3a7e..1ce968874 100644
 --- a/ggml/src/ggml-cuda/p60-fa.cu
 +++ b/ggml/src/ggml-cuda/p60-fa.cu
 @@ -390,7 +390,7 @@ static void fa_launch(int T, dim3 grid, const Params & p, cudaStream_t st) {
@@ -101,7 +101,7 @@ index 509ee3a..1ce9688 100644
      const ggml_tensor * Q = dst->src[0], * K = dst->src[1], * V = dst->src[2], * mask = dst->src[3];
      if (!enabled || ggml_cuda_info().devices[ctx.device].cc != 600 || dst->src[4] != nullptr || mask == nullptr) {
 diff --git a/ggml/src/ggml-cuda/p60-mega-t.cu b/ggml/src/ggml-cuda/p60-mega-t.cu
-index bc202f6..3c3584c 100644
+index bc202f602..3c3584c46 100644
 --- a/ggml/src/ggml-cuda/p60-mega-t.cu
 +++ b/ggml/src/ggml-cuda/p60-mega-t.cu
 @@ -925,7 +925,7 @@ void ggml_cuda_p60_mega_gdn_t(ggml_backend_cuda_context & ctx, const ggml_cuda_p
@@ -114,7 +114,7 @@ index bc202f6..3c3584c 100644
      const int64_t T = src1->ne[1];
      if (!enabled || src0->type != GGML_TYPE_Q8_0 || src1->type != GGML_TYPE_F32 || dst->type != GGML_TYPE_F32 ||
 diff --git a/ggml/src/ggml-cuda/p60-mega.cuh b/ggml/src/ggml-cuda/p60-mega.cuh
-index 50586df..01a12f7 100644
+index 50586df7b..01a12f7cf 100644
 --- a/ggml/src/ggml-cuda/p60-mega.cuh
 +++ b/ggml/src/ggml-cuda/p60-mega.cuh
 @@ -68,11 +68,11 @@ void ggml_cuda_p60_mega_gdn_t(ggml_backend_cuda_context & ctx, const ggml_cuda_p
@@ -140,7 +140,7 @@ index 50586df..01a12f7 100644
  bool ggml_cuda_p60_moe_gemm(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1,
      const ggml_tensor * ids, ggml_tensor * dst);
 diff --git a/ggml/src/ggml-cuda/p60-moe-gemm.cu b/ggml/src/ggml-cuda/p60-moe-gemm.cu
-index c0d76d8..950d0b5 100644
+index c0d76d89f..950d0b58f 100644
 --- a/ggml/src/ggml-cuda/p60-moe-gemm.cu
 +++ b/ggml/src/ggml-cuda/p60-moe-gemm.cu
 @@ -347,7 +347,7 @@ __global__ void __launch_bounds__(NTH_S, 2) moe_small_f16(const uint8_t * __rest

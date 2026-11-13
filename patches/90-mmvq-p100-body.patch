@@ -1,6 +1,6 @@
 diff --git a/ggml/src/ggml-cuda/active-tokens.cuh b/ggml/src/ggml-cuda/active-tokens.cuh
 new file mode 100644
-index 0000000..9818ecc
+index 000000000..9818ecca8
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/active-tokens.cuh
 @@ -0,0 +1,19 @@
@@ -24,26 +24,10 @@ index 0000000..9818ecc
 +        ? ggml_cuda_active_tokens_n : n;
 +}
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index d3d6f2b..4a7257e 100644
+index 6448e4191..bfaf03120 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
-@@ -1307,6 +1307,8 @@ struct ggml_cuda_graph {
-     bool disable_due_to_gpu_arch = false;
-     bool disable_due_to_p60_debug = false;
-     bool warmup_complete = false;
-+    // Generation of ggml_backend_cuda_context::mmvq_q8_1_ptr this graph was captured against.
-+    int mmvq_q8_1_epoch = -1;
-     uint64_t uid = 0;
-     int64_t last_used_time = 0;
-     struct node_properties {
-@@ -1674,12 +1676,33 @@ struct ggml_backend_cuda_context {
-     explicit ggml_backend_cuda_context(int device) :
-         device(device),
-         name(GGML_CUDA_NAME + std::to_string(device)) {
-+        mmvq_q8_1_invalidate();
-     }
- 
-     ggml_cuda_stream_context concurrent_stream_context;
+@@ -1538,6 +1538,26 @@ struct ggml_backend_cuda_context {
  
      ~ggml_backend_cuda_context();
  
@@ -71,18 +55,26 @@ index d3d6f2b..4a7257e 100644
          if (streams[device][stream] == nullptr) {
              ggml_cuda_set_device(device);
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 79c39db..052046b 100644
+index 28a4dd75d..da9ac0983 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -34,6 +34,7 @@
- #include "ggml-cuda/mmq.cuh"
+@@ -36,6 +36,7 @@
+ #include "ggml-cuda/mmq-few.cuh"
  #include "ggml-cuda/mmvf.cuh"
  #include "ggml-cuda/mmvq.cuh"
 +#include "ggml-cuda/mmvq-p100-body.cuh"
  #include "ggml-cuda/mmvq-p60.cuh"
  #include "ggml-cuda/p60-mega.cuh"
  #include "ggml-cuda/p60-mega-x.cuh"
-@@ -3129,6 +3130,13 @@ static bool ggml_cuda_graph_update_required(ggml_backend_cuda_context * cuda_ctx
+@@ -793,6 +794,7 @@ ggml_backend_cuda_context::ggml_backend_cuda_context(int device) :
+     device(device),
+     name(GGML_CUDA_NAME + std::to_string(device)),
+     concurrent_stream_context(std::make_unique<ggml_cuda_stream_context>()) {
++    mmvq_q8_1_invalidate();
+ }
+ 
+ #ifdef USE_CUDA_GRAPH
+@@ -3323,6 +3325,13 @@ static bool ggml_cuda_graph_update_required(ggml_backend_cuda_context * cuda_ctx
      const void * graph_key = ggml_cuda_graph_get_key(cgraph);
      ggml_cuda_graph * graph = cuda_ctx->cuda_graph(graph_key);
  
@@ -96,7 +88,7 @@ index 79c39db..052046b 100644
      if (cgraph->uid != 0 &&
          cgraph->uid == graph->uid) {
          if (ggml_cuda_graph_debug_enabled()) {
-@@ -6452,6 +6460,9 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
+@@ -6740,6 +6749,9 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
      // is unsafe.  The record is cleared per graph computation.
      const bool                   allow_defer = stream_ctx.concurrent_events.empty();
      cuda_ctx->gdn_gather_reset_graph();
@@ -106,9 +98,22 @@ index 79c39db..052046b 100644
      bool                         is_concurrent_event_active = false;
      ggml_cuda_concurrent_event * concurrent_event           = nullptr;
      bool                         should_launch_concurrent_events = false;
+diff --git a/ggml/src/ggml-cuda/graph.cuh b/ggml/src/ggml-cuda/graph.cuh
+index 3c55097bc..640a6be8f 100644
+--- a/ggml/src/ggml-cuda/graph.cuh
++++ b/ggml/src/ggml-cuda/graph.cuh
+@@ -53,6 +53,8 @@ struct ggml_cuda_graph {
+     bool disable_due_to_gpu_arch = false;
+     bool disable_due_to_p60_debug = false;
+     bool warmup_complete = false;
++    // Generation of ggml_backend_cuda_context::mmvq_q8_1_ptr this graph was captured against.
++    int mmvq_q8_1_epoch = -1;
+     uint64_t uid = 0;
+     int64_t last_used_time = 0;
+     struct node_properties {
 diff --git a/ggml/src/ggml-cuda/mmvq-p100-body.cu b/ggml/src/ggml-cuda/mmvq-p100-body.cu
 new file mode 100644
-index 0000000..3eb2b21
+index 000000000..3eb2b217a
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/mmvq-p100-body.cu
 @@ -0,0 +1,2353 @@
@@ -2467,7 +2472,7 @@ index 0000000..3eb2b21
 +}
 diff --git a/ggml/src/ggml-cuda/mmvq-p100-body.cuh b/ggml/src/ggml-cuda/mmvq-p100-body.cuh
 new file mode 100644
-index 0000000..28ea04c
+index 000000000..28ea04cbe
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/mmvq-p100-body.cuh
 @@ -0,0 +1,16 @@
@@ -2488,7 +2493,7 @@ index 0000000..28ea04c
 +    const char * src1_ddq_i, float * dst_dd_i, const int64_t row_low, const int64_t row_high, const int64_t src1_ncols,
 +    const int64_t src1_padded_row_size, cudaStream_t stream);
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index 5fd9308..7b20604 100644
+index 42df1261e..12c7f90f5 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
 @@ -1,4 +1,5 @@
@@ -2497,7 +2502,7 @@ index 5fd9308..7b20604 100644
  #include "mmvq-f16-sm60.cuh"
  #include "mmvq-p60.cuh"
  #include "quantize.cuh"
-@@ -342,6 +343,9 @@ int get_mmvq_mmid_max_batch(ggml_type type, int cc) {
+@@ -338,6 +339,9 @@ int get_mmvq_mmid_max_batch(ggml_type type, int cc) {
  }
  
  bool ggml_cuda_should_use_mmvq(enum ggml_type type, int cc, int64_t ne11) {
@@ -2507,7 +2512,7 @@ index 5fd9308..7b20604 100644
      if (!ggml_is_quantized(type)) {
          return false;
      }
-@@ -1871,6 +1875,11 @@ void ggml_cuda_mul_mat_vec_q(
+@@ -1867,6 +1871,11 @@ void ggml_cuda_mul_mat_vec_q(
      GGML_ASSERT(        dst->type  == GGML_TYPE_F32);
      GGML_ASSERT(!ids || ids->type  == GGML_TYPE_I32); // Optional, used for batched GGML_MUL_MAT_ID.
  
@@ -2519,7 +2524,7 @@ index 5fd9308..7b20604 100644
      // GGML_CUDA_P60_EXACT: run a multi-token MUL_MAT_ID one token at a time, so each token is bit-identical to decode.
      // The multi-token MoE kernel uses one warp per token and sums K in another order for some types.
      if (ids && dst->ne[2] > 1 && ctx.p60_exact) {
-@@ -2108,6 +2117,11 @@ void ggml_cuda_op_mul_mat_vec_q(
+@@ -2104,6 +2113,11 @@ void ggml_cuda_op_mul_mat_vec_q(
      const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst, const char * src0_dd_i, const float * src1_ddf_i,
      const char * src1_ddq_i, float * dst_dd_i, const int64_t row_low, const int64_t row_high, const int64_t src1_ncols,
      const int64_t src1_padded_row_size, cudaStream_t stream) {
@@ -2533,7 +2538,7 @@ index 5fd9308..7b20604 100644
      const int64_t row_diff = row_high - row_low;
 diff --git a/ggml/src/ggml-cuda/vecdotq-p100.cuh b/ggml/src/ggml-cuda/vecdotq-p100.cuh
 new file mode 100644
-index 0000000..be66bc4
+index 000000000..be66bc4e6
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/vecdotq-p100.cuh
 @@ -0,0 +1,577 @@

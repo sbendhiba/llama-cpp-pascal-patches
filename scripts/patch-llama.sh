@@ -18,8 +18,10 @@
 # still exit 0. If the ref check fails, the patches are not applied at all.
 set -uo pipefail
 
-PINNED_REF="b12211"
-PINNED_COMMIT="7d7f028"
+PINNED_REF="v1.0.0"
+# the commit the annotated tag peels to, not the tag object sha: `git rev-parse v1.0.0` answers with
+# the tag object (a6d1a74db), `git rev-parse v1.0.0^{commit}` answers with what you can check out.
+PINNED_COMMIT="b1b770d"
 SOURCE="https://github.com/ggml-org/llama.cpp"
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -86,6 +88,7 @@ fi
 # strip CRLF if the patch files came over from Windows; patch(1) otherwise rejects the context lines
 cr=$(mktemp -d)
 applied=0
+shifted=0
 touched=$(mktemp)
 for p in "$here"/patches/*.patch; do
     name=$(basename "$p")
@@ -97,6 +100,13 @@ for p in "$here"/patches/*.patch; do
     fi
     out=$(cd "$work" && patch -p1 -F0 < "$src" 2>&1) || { echo "FAILED: $name"; echo "$out"; exit 1; }
     grep -qiE 'FAILED|\.rej' <<<"$out" && { echo "REJECTED HUNK in $name"; echo "$out"; exit 1; }
+    # exact context is a contract, not a nicety: an accepted offset means the file moved under the hunk,
+    # and the next rebase can no longer tell "the lines shifted" from "the code changed".
+    if grep -qE 'succeeded at [0-9]+ \(offset' <<<"$out"; then
+        echo "SHIFTED HUNK in $name"
+        grep -E 'succeeded at [0-9]+ \(offset' <<<"$out"
+        shifted=$((shifted + 1))
+    fi
     applied=$((applied + 1))
     grep -oE '^patching file .*' <<<"$out" | sed 's/^patching file //' >> "$touched"
 done
@@ -104,6 +114,10 @@ echo "applied $applied of $patches patches"
 echo "files touched: $(sort -u "$touched" | wc -l)"
 if [ "$check" -eq 1 ]; then
     rm -rf "$(dirname "$work")"
+    if [ "$shifted" -gt 0 ]; then
+        echo "NOT clean: $shifted hunk(s) applied at an offset - re-cut those patches at exact context" >&2
+        exit 1
+    fi
     echo "dry run clean - ready to apply into $target"
     exit 0
 fi

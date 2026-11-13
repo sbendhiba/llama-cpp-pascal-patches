@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
-index 797fd31..e92ff88 100644
+index 273a2d4d5..679288206 100644
 --- a/ggml/src/ggml-cuda/common.cuh
 +++ b/ggml/src/ggml-cuda/common.cuh
-@@ -1469,6 +1469,42 @@ struct ggml_backend_cuda_context {
+@@ -1366,6 +1366,42 @@ struct ggml_backend_cuda_context {
      std::string name;
      cudaEvent_t copy_event = nullptr;
  
@@ -46,10 +46,10 @@ index 797fd31..e92ff88 100644
      cublasHandle_t cublas_handles[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = {};
      void * cublas_workspaces[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = {};
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 162a7d2..598186e 100644
+index fed14ddfc..db06e563d 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -746,6 +746,8 @@ ggml_backend_cuda_context::~ggml_backend_cuda_context() {
+@@ -915,6 +915,8 @@ ggml_backend_cuda_context::~ggml_backend_cuda_context() {
      std::unique_lock<std::mutex> lock(ggml_cuda_lock);
      ggml_cuda_lock_cv.wait(lock, []{ return ggml_cuda_lock_counter.load(std::memory_order_relaxed) == 0; });
  
@@ -58,7 +58,7 @@ index 162a7d2..598186e 100644
      if (copy_event != nullptr) {
          CUDA_CHECK(cudaEventDestroy(copy_event));
      }
-@@ -5132,6 +5134,10 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
+@@ -5420,6 +5422,10 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
  
      ggml_cuda_set_device(cuda_ctx->device);
  
@@ -70,10 +70,10 @@ index 162a7d2..598186e 100644
      bool cuda_graph_update_required = false;
      const void * graph_key = nullptr;
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index 9a5e26e..d63e4d7 100644
+index d09017be5..4b254af1e 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
-@@ -1627,12 +1627,65 @@ void ggml_cuda_mul_mat_vec_q(
+@@ -1623,12 +1623,65 @@ void ggml_cuda_mul_mat_vec_q(
      }
  
      const int64_t ne10_padded = GGML_PAD(ne10, MATRIX_ROW_PADDING);
@@ -85,7 +85,7 @@ index 9a5e26e..d63e4d7 100644
          const int64_t s11 = src1->nb[1] / ts_src1;
          const int64_t s12 = src1->nb[2] / ts_src1;
          const int64_t s13 = src1->nb[3] / ts_src1;
--        quantize_row_q8_1_cuda(src1_d, nullptr, src1_q8_1.get(), src0->type, ne10, s11, s12, s13, ne10_padded, ne11, ne12, ne13, stream);
+-        quantize_row_q8_1_cuda(src1_d, src1_q8_1.get(), ne10, s11, s12, s13, ne10_padded, ne11, ne12, ne13, stream);
 +
 +        // The key includes src1->data, not just the tensor pointer: ggml_cuda_mul_mat_id's
 +        // sorted-gather path declares its ggml_tensor inside the per-expert loop, so every expert
@@ -117,7 +117,7 @@ index 9a5e26e..d63e4d7 100644
 +        } else if (!cacheable) {
 +            src1_q8_1_d = src1_q8_1_scoped.alloc(q8_1_size);
 +
-+            quantize_row_q8_1_cuda(src1_d, nullptr, src1_q8_1_d, src0->type, ne10, s11, s12, s13, ne10_padded, ne11, ne12, ne13, stream);
++            quantize_row_q8_1_cuda(src1_d, src1_q8_1_d, ne10, s11, s12, s13, ne10_padded, ne11, ne12, ne13, stream);
 +        } else {
 +            if (q8_1_size > ctx.q8_1_cache_cap) {
 +                ctx.q8_1_cache_free();
@@ -127,7 +127,7 @@ index 9a5e26e..d63e4d7 100644
 +            }
 +            src1_q8_1_d = ctx.q8_1_cache_mem;
 +
-+            quantize_row_q8_1_cuda(src1_d, nullptr, src1_q8_1_d, src0->type, ne10, s11, s12, s13, ne10_padded, ne11, ne12, ne13, stream);
++            quantize_row_q8_1_cuda(src1_d, src1_q8_1_d, ne10, s11, s12, s13, ne10_padded, ne11, ne12, ne13, stream);
 +
 +            ctx.q8_1_cache_src1   = src1;
 +            ctx.q8_1_cache_data   = src1->data;
@@ -141,7 +141,7 @@ index 9a5e26e..d63e4d7 100644
      }
  
      const int64_t s01 = src0->nb[1] / ts_src0;
-@@ -1658,7 +1711,7 @@ void ggml_cuda_mul_mat_vec_q(
+@@ -1654,7 +1707,7 @@ void ggml_cuda_mul_mat_vec_q(
      const int64_t ids_stride = ids ? ids->nb[1] / ggml_type_size(ids->type) : 0;
  
      mul_mat_vec_q_switch_type(

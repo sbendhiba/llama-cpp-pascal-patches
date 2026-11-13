@@ -1,8 +1,8 @@
 diff --git a/src/models/qwen35.cpp b/src/models/qwen35.cpp
-index d0b4f4c..22acc58 100644
+index 5b05fc63f..dcf435f96 100644
 --- a/src/models/qwen35.cpp
 +++ b/src/models/qwen35.cpp
-@@ -254,6 +254,9 @@ ggml_tensor * llama_model_qwen35::graph::build_norm_gated(
+@@ -277,6 +277,9 @@ ggml_tensor * llama_model_qwen35::graph::build_norm_gated(
          ggml_tensor * weights,
          ggml_tensor * gate,
          int           layer) {
@@ -12,7 +12,7 @@ index d0b4f4c..22acc58 100644
      ggml_tensor * normalized = build_norm(input, weights, nullptr, LLM_NORM_RMS, layer);
      ggml_tensor * gated_silu = ggml_silu(ctx0, gate);
  
-@@ -383,16 +386,20 @@ ggml_tensor * llama_model_qwen35::graph::build_layer_attn_linear(
+@@ -418,16 +421,20 @@ ggml_tensor * llama_model_qwen35::graph::build_layer_attn_linear(
  
      ggml_tensor * conv_input = build_conv_state(inp, conv_states_all, qkv_mixed, conv_kernel_size, conv_channels, il);
  

@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
-index 968a803..5fd9308 100644
+index 9751d6b72..42df1261e 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
-@@ -1723,6 +1723,147 @@ static bool mul_mat_vec_q8_0_staged_try(const ggml_tensor * src0, const ggml_ten
+@@ -1719,6 +1719,147 @@ static bool mul_mat_vec_q8_0_staged_try(const ggml_tensor * src0, const ggml_ten
      return true;
  }
  
@@ -150,7 +150,7 @@ index 968a803..5fd9308 100644
  void ggml_cuda_mul_mat_vec_q(
          ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst,
          const ggml_cuda_mm_fusion_args_host * fusion) {
-@@ -1951,6 +2092,10 @@ void ggml_cuda_mul_mat_vec_q(
+@@ -1947,6 +2088,10 @@ void ggml_cuda_mul_mat_vec_q(
          return;
      }
  
