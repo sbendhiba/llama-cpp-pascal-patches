@@ -2304,7 +2304,7 @@ index 000000000..3eb2b217a
 +        const int64_t s11 = src1->nb[1] / ts_src1;
 +        const int64_t s12 = src1->nb[2] / ts_src1;
 +        const int64_t s13 = src1->nb[3] / ts_src1;
-+        quantize_row_q8_1_cuda(src1_d, nullptr, (char *) ctx.mmvq_q8_1_ptr[dev], src0->type, ne10, s11, s12, s13, ne10_padded, ne11a, ne12, ne13, stream);
++        quantize_row_q8_1_cuda(src1_d, (char *) ctx.mmvq_q8_1_ptr[dev], ne10, s11, s12, s13, ne10_padded, ne11a, ne12, ne13, stream);
 +
 +        ctx.mmvq_q8_1_src1[dev] = src1;
 +        ctx.mmvq_q8_1_data[dev] = src1_d;
