@@ -5,6 +5,22 @@ The patch set is generated against one specific llama.cpp tag, recorded in
 that tag. This is the procedure for moving them, and the failure modes that make it more than a
 mechanical re-apply.
 
+## Where the work lives
+
+**A llama.cpp release goes on `main`. A pre-release build gets its own branch.** So `main` is the set
+against `v1.0.0`, `v0.9.0`/`v0.8.0`/… are the release tags behind it, and `b12211`/`b11539`/`b11601`
+are branches because llama.cpp never called those builds a release - they are build numbers someone
+needed a working set against between tags. Cut the branch the day the tag is not out yet; fold it into
+`main` when llama.cpp ships the version it was aiming at, and leave the branch alone afterwards because
+its tag still points at the work as measured.
+
+Two consequences worth acting on rather than discovering later. A branch and a tag must not both carry
+the same name for long: `refs/heads/v1.0.0` alongside `refs/tags/v1.0.0` makes `git rev-parse v1.0.0`
+ambiguous (this repo warns about it on every such ref) and the branch is redundant the moment `main`
+takes the release. And when `main` moves past a release tag with anything - even prose - the tag is
+behind the branch it names, so say which of the two is authoritative in the same commit: the tag is the
+measured artifact, `main` is where the next rebase starts.
+
 Everything below is done on a **clean tree at the new tag**, never in a working copy you also build
 from. Worktrees keep it tidy:
 

@@ -10,16 +10,17 @@ GP100 is the reason any of this exists. Alone among Pascal chips it has no `DP4A
 instruction the card is genuinely good at goes unused. The rest is what the last two years of llama.cpp
 made possible: a fused norm, deferred gathers, CUDA graphs, speculative decoding with an MTP head.
 
-This branch is the **`v1.0.0`** set - **79 patches** against llama.cpp `b1b770d` (v1.0.0, 148 commits past
+`main` is the **`v1.0.0`** set - **79 patches** against llama.cpp `b1b770d` (v1.0.0, 148 commits past
 `b12211`): 39 we carry, the 37-patch **P60 block** (52-89, a port and retune of
 [Mrinohk/qwen36-p100-patches](https://github.com/Mrinohk/qwen36-p100-patches) and
 [qr0n/p100-llama-cpp](https://github.com/qr0n/p100-llama-cpp) work for the same cards) and **90-92**,
 adopted from [junkgpulab/llama.cpp-p100](https://github.com/junkgpulab/llama.cpp-p100). Nothing was
-dropped at this ref and nothing new was needed: v1.0.0 absorbed no patch here, and the whole set is the
-same 79 files re-anchored. Two went at the previous ref because upstream made them unnecessary: **59**
-(the MoE expert-tile rule is now unconditional in `mmq.cu`) and **32** (upstream added its own
-split-input prefetch, same field names). Other tags are other refs: `git tag -l` gives `v0.6.0`,
-`v0.7.0`, `v0.8.0`, `v0.9.0`, `b12211` and the prerelease line `b11601`.
+dropped at this ref and nothing new was needed: v1.0.0 absorbed no patch here, so the whole set is the same
+79 files re-anchored. Two went at the previous ref because upstream made them unnecessary: **59** (the MoE
+expert-tile rule is now unconditional in `mmq.cu`) and **32** (upstream added its own split-input prefetch,
+same field names). A llama.cpp **release** is maintained on `main`; a llama.cpp **pre-release build** gets a
+branch of its own (`b12211` is one, `b11539` and `b11601` were), which is why `git tag -l` and `git branch`
+answer different questions - see [RELEASING.md](RELEASING.md).
 
 ## Speed
 
@@ -242,7 +243,7 @@ RELEASING.md        what to do when llama.cpp ships a new version
 CONTRIBUTING.md     adding a patch, reporting a measurement, what a good PR looks like
 ```
 
-## Status of this branch
+## Status of the release
 
 All 79 are verified by clean-room apply: a fresh clone at `v1.0.0` plus these files at `-F0` gives 0
 rejects and 0 offset hunks, and the resulting tree is byte-identical to the one reviewed patch by patch,
@@ -261,4 +262,5 @@ introduces still read by the code; the exception, `GGML_CUDA_P60_MEGA_GRAPHS`, i
 deleted by 86 in the same set. Both arms - pristine `v1.0.0` and the applied set - are **built** at `sm_60`
 under CUDA 12.4 with NCCL off, and all eight non-CUDA translation units the set touches pass
 `g++ -fsyntax-only`. Patch 24 stays opt-in for the reproducibility reason above. The `b12211` tag
-is the previous release - 79 files at `7d7f028` - and this branch is the next ref, not a revision of it.
+is the previous release - 79 files at `7d7f028`, on the `b12211` branch as well as its tag - and `main` now
+carries the next ref, not a revision of it.

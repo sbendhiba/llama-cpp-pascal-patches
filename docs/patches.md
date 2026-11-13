@@ -4,7 +4,7 @@
 adopted from the junkgpulab fork (90-92); the application order is the file numbering. Order matters: several touch the same files, and later ones build
 on earlier ones. The tag is recorded once, in the top-level README.
 
-**This branch targets llama.cpp `v1.0.0` (`b1b770d`), 148 commits past `b12211`.** **79 patches**: the 76
+**`main` targets llama.cpp `v1.0.0` (`b1b770d`), 148 commits past `b12211`** - a llama.cpp release is maintained on `main`, a pre-release build gets a branch (`b12211` is one). **79 patches**: the 76
 of `b12211` (the 78 of `v0.9.0` minus two that upstream made unnecessary, 32 and 59, below) plus **90**,
 **91** and **92**, adopted from
 [junkgpulab/llama.cpp-p100](https://github.com/junkgpulab/llama.cpp-p100) and measured here. No patch was
